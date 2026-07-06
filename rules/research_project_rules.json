@@ -1,0 +1,28 @@
+[
+  {
+    "rule_id": "RES_EVAL_001",
+    "name": "实验可复核性检查",
+    "track": "scientific_research",
+    "severity": "blocker",
+    "target": "research_result",
+    "description": "检查科研项目是否具有实验数据、评价指标和对比基线。",
+    "condition": {
+      "research_reproducibility": true
+    },
+    "fail_reason": "项目存在研究结论，但缺少实验数据、评价指标或 baseline。",
+    "fix_task": "补充实验数据、对比基线、评价指标和结果表。"
+  },
+  {
+    "rule_id": "RES_PAPER_001",
+    "name": "论文或研究说明检查",
+    "track": "scientific_research",
+    "severity": "warning",
+    "target": "research_paper",
+    "description": "检查科研项目是否提供论文草稿、研究说明或方法文档。",
+    "condition": {
+      "required_assets": ["RESEARCH_PAPER"]
+    },
+    "fail_reason": "科研项目缺少论文或研究说明，方法来源和创新点难以复核。",
+    "fix_task": "补充论文草稿、方法说明或实验设计文档。"
+  }
+]

@@ -1,0 +1,96 @@
+# 测试与验收方案
+
+当前项目只保留 Workbench 用户入口，验收围绕 C++ Core、Agent Runtime、可选 LLM、Qt/QML Workbench、报告导出和安全边界展开。
+
+## 1. 单元测试
+
+单元测试覆盖：
+
+- loader：目录、zip、tar/libarchive、路径穿越、符号链接、嵌套压缩包；
+- inventory：格式检测、角色分类、生成物、第三方依赖、敏感文件；
+- text：Markdown/TXT/JSON/YAML/OpenXML/PDF；
+- cpir：竞赛类型识别和项目中间表示；
+- claim：声明抽取；
+- evidence：声明证据匹配；
+- consistency：材料一致性；
+- rules：规则包加载、校验、条件求值和规则触发；
+- audit：可信评分、可信债务和差分；
+- repair：补证任务、修复计划和 diff-first 边界；
+- report：Markdown/JSON 导出；
+- agent：权限、hooks、工具注册、项目记忆、会话存储；
+- llm：endpoint 解析、响应解析、未授权阻断。
+
+## 2. 构建验收
+
+```bash
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug --output-on-failure
+```
+
+期望产物：
+
+```text
+build/debug/contest-workbench
+build/debug/libcontest_core.a
+build/debug/libcontest_agent.a
+build/debug/libcontest_llm.a
+build/debug/contest_tests
+build/debug/contest_dependency_tests
+```
+
+## 3. Workbench 验收
+
+Workbench 必须具备：
+
+- 会话工作区首屏；
+- 项目路径输入或拖拽；
+- 受控工具调用卡片；
+- 默认权限状态展示；
+- artifact 列表；
+- 资产清单、CPIR、声明证据、材料一致性、规则风险、可信评分、补证任务；
+- 二次审计差分；
+- Markdown/JSON 导出；
+- 可选 LLM Brain 建议；
+- LLM 未授权时不联网、不调用模型。
+
+## 4. 安全验收
+
+必须验证：
+
+- 解包前检查路径穿越；
+- 拒绝符号链接和嵌套压缩包；
+- 不直接修改原始项目；
+- 修复只生成计划和 diff；
+- 默认拒绝联网和 LLM；
+- OpenXML、PDF 和压缩包解析不调用 shell 或外部工具；
+- 报告不生成虚假数据；
+- LLM 输出不参与最终评分。
+
+## 5. 质量门禁
+
+```bash
+./tools/acceptance.sh
+./tools/quality.sh
+```
+
+`acceptance.sh` 负责 fresh configure/build、单元测试、模块归属、Workbench 结构和安全边界检查。  
+`quality.sh` 负责 clang-format、clang-tidy、ASan/UBSan 构建和测试。
+
+## 6. Definition of Done
+
+1. CMake 配置成功
+2. `contest_core` 编译成功
+3. `contest_agent` 编译成功
+4. `contest_llm` 编译成功
+5. `contest-workbench` 编译成功
+6. 单元测试通过
+7. Workbench 能运行可信编译并展示结果
+8. Workbench 能导出 Markdown/JSON 报告
+9. Workbench 能展示二次审计差分
+10. 默认权限阻断联网和 LLM
+11. 报告中每个关键结论包含规则 ID 或证据来源
+12. 关掉 LLM 后系统仍能完成核心审计
+13. 无直接覆盖原项目逻辑
+14. 无 AI 伪造数据逻辑
+15. 质量脚本通过

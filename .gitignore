@@ -1,0 +1,8 @@
+/.vscode
+/build
+/.workspaces
+/examples
+/tests
+/tools
+/cmake
+/CMakePresets.json

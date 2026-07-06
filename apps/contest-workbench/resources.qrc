@@ -1,0 +1,26 @@
+<RCC>
+  <qresource prefix="/">
+    <file>qml/Main.qml</file>
+    <file>qml/Theme.qml</file>
+    <file>qml/qmldir</file>
+    <file>qml/pages/SessionWorkspacePage.qml</file>
+    <file>qml/pages/TrustDashboardPage.qml</file>
+    <file>qml/pages/AssetInventoryPage.qml</file>
+    <file>qml/pages/CPIRPage.qml</file>
+    <file>qml/pages/ClaimEvidencePage.qml</file>
+    <file>qml/pages/ConsistencyPage.qml</file>
+    <file>qml/pages/FindingsPage.qml</file>
+    <file>qml/pages/FixTaskPage.qml</file>
+    <file>qml/pages/AuditDiffPage.qml</file>
+    <file>qml/pages/BrainPage.qml</file>
+    <file>qml/pages/ReportExportPage.qml</file>
+    <file>qml/components/Card.qml</file>
+    <file>qml/components/Pill.qml</file>
+    <file>qml/components/PrimaryButton.qml</file>
+    <file>qml/components/SecondaryButton.qml</file>
+    <file>qml/components/StatTile.qml</file>
+    <file>qml/components/SectionTitle.qml</file>
+    <file>qml/components/FieldInput.qml</file>
+    <file>qml/components/EmptyState.qml</file>
+  </qresource>
+</RCC>

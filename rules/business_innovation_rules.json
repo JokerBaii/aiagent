@@ -1,0 +1,42 @@
+[
+  {
+    "rule_id": "BIZ_MODEL_001",
+    "name": "商业模式闭环检查",
+    "track": "business_innovation",
+    "severity": "blocker",
+    "target": "business_model",
+    "description": "检查商业项目是否说明目标用户、付费方、收入来源、成本结构和财务预测。",
+    "condition": {
+      "business_model_completeness": true
+    },
+    "fail_reason": "项目商业模式缺少收入、成本或付费方说明。",
+    "fix_task": "补充商业模式画布、收入来源、成本结构和财务预测假设。"
+  },
+  {
+    "rule_id": "BIZ_MARKET_001",
+    "name": "市场规模证据检查",
+    "track": "business_innovation",
+    "severity": "blocker",
+    "target": "market_analysis",
+    "description": "检查市场规模声明是否具有可追溯证据。",
+    "condition": {
+      "required_assets": ["MARKET_RESEARCH"],
+      "required_claim_evidence": ["MarketScale"]
+    },
+    "fail_reason": "项目存在市场规模描述，但缺少可追溯数据来源。",
+    "fix_task": "补充市场规模来源，并给出 TAM/SAM/SOM 拆解。"
+  },
+  {
+    "rule_id": "BIZ_COMPETITOR_001",
+    "name": "竞品分析检查",
+    "track": "business_innovation",
+    "severity": "warning",
+    "target": "competitor_analysis",
+    "description": "检查商业创新项目是否包含竞品分析和差异化说明。",
+    "condition": {
+      "required_assets": ["COMPETITOR_ANALYSIS"]
+    },
+    "fail_reason": "项目缺少竞品分析材料，差异化优势难以复核。",
+    "fix_task": "补充竞品分析表，列出竞品、来源、指标和差异化证据。"
+  }
+]

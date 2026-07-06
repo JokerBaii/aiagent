@@ -1,0 +1,17 @@
+[
+  {
+    "rule_id": "ECOM_MODEL_001",
+    "name": "电商三创闭环检查",
+    "track": "ecommerce",
+    "severity": "blocker",
+    "target": "business_model",
+    "description": "检查电商项目是否说明商品、用户、渠道、交易和财务预测。",
+    "condition": {
+      "required_assets": ["BUSINESS_PLAN", "MARKET_RESEARCH", "FINANCIAL_PLAN"],
+      "required_cpir_fields": ["target_user", "business_model", "financial_projection"]
+    },
+    "fail_reason": "电商项目商业闭环材料不足。",
+    "fix_task": "补充商品/服务、目标用户、交易流程、渠道策略和财务预测假设。"
+  }
+]
+

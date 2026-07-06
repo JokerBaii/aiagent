@@ -1,0 +1,15 @@
+[
+  {
+    "rule_id": "SOC_IMPACT_001",
+    "name": "社会影响证据检查",
+    "track": "social_practice",
+    "severity": "warning",
+    "target": "social_value",
+    "description": "检查社会实践项目是否有服务对象、活动过程和影响数据支撑。",
+    "condition": {
+      "social_impact_evidence": true
+    },
+    "fail_reason": "项目存在社会影响描述，但缺少实践记录或影响数据。",
+    "fix_task": "补充服务对象证明、活动记录、影响数据或合作单位证明。"
+  }
+]

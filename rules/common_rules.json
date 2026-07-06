@@ -1,0 +1,55 @@
+[
+  {
+    "rule_id": "COMMON_DECL_001",
+    "name": "项目申报材料检查",
+    "track": "common",
+    "severity": "blocker",
+    "target": "project_assets",
+    "description": "检查项目包是否包含项目申报材料。申报材料是竞赛项目基本事实来源。",
+    "condition": {
+      "required_assets": ["PROJECT_DECLARATION"]
+    },
+    "fail_reason": "项目包缺少申报材料，无法确认项目基本信息。",
+    "fix_task": "补充项目申报书或等价项目说明材料。"
+  },
+  {
+    "rule_id": "COMMON_SECRET_001",
+    "name": "敏感文件检查",
+    "track": "common",
+    "severity": "blocker",
+    "target": "project_assets",
+    "description": "检查项目包中是否包含 .env、密钥、token、证书等敏感文件。",
+    "condition": {
+      "forbidden_sensitive_file": true
+    },
+    "fail_reason": "项目包中存在敏感文件，不能直接作为竞赛提交材料。",
+    "fix_task": "移除真实密钥文件，改为提供 .env.example 或配置说明。"
+  },
+  {
+    "rule_id": "COMMON_CONSISTENCY_001",
+    "name": "材料一致性风险检查",
+    "track": "common",
+    "severity": "warning",
+    "target": "consistency",
+    "description": "检查内置一致性审计是否发现材料互相支撑不足。",
+    "condition": {
+      "consistency_check": true
+    },
+    "fail_reason": "项目材料存在一致性风险，需要补充支撑材料或统一表述。",
+    "fix_task": "根据一致性问题逐项统一材料口径并补充证据。"
+  },
+  {
+    "rule_id": "COMMON_GENERATED_RATIO_001",
+    "name": "生成物和第三方依赖占比检查",
+    "track": "common",
+    "severity": "warning",
+    "target": "project_assets",
+    "description": "检查 build、dist、node_modules、vendor 等文件占比，防止生成物高估自主贡献。",
+    "condition": {
+      "vendor_generated_ratio": true,
+      "max_ratio": 0.4
+    },
+    "fail_reason": "项目包中生成物或第三方依赖占比过高，会削弱项目自主贡献可信度。",
+    "fix_task": "移除 build/dist/node_modules/vendor 等生成物或第三方依赖，保留源码和依赖清单。"
+  }
+]

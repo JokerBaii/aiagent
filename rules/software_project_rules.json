@@ -1,0 +1,41 @@
+[
+  {
+    "rule_id": "SOFT_SOURCE_001",
+    "name": "源码材料检查",
+    "track": "software_project",
+    "severity": "blocker",
+    "target": "source_code",
+    "description": "检查软件类项目是否包含可复核源码。",
+    "condition": {
+      "required_assets": ["SOURCE_CODE"]
+    },
+    "fail_reason": "软件项目缺少源码材料，无法复核技术实现。",
+    "fix_task": "补充核心源码目录，并说明核心模块与功能对应关系。"
+  },
+  {
+    "rule_id": "SOFT_BUILD_001",
+    "name": "构建入口检查",
+    "track": "software_project",
+    "severity": "blocker",
+    "target": "source_code",
+    "description": "检查软件项目是否存在构建文件或依赖清单。",
+    "condition": {
+      "doc_code_support": true
+    },
+    "fail_reason": "项目存在源码但缺少构建或依赖入口。",
+    "fix_task": "根据技术栈补充 CMakeLists.txt、package.json、requirements.txt 或等价说明。"
+  },
+  {
+    "rule_id": "SOFT_DEPLOY_001",
+    "name": "部署说明检查",
+    "track": "software_project",
+    "severity": "warning",
+    "target": "deployment",
+    "description": "检查项目是否有可运行或可部署说明。",
+    "condition": {
+      "technical_route_completeness": true
+    },
+    "fail_reason": "项目缺少部署说明，答辩复现风险较高。",
+    "fix_task": "补充部署说明、运行截图和环境变量示例。"
+  }
+]

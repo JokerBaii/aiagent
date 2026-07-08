@@ -45,11 +45,11 @@
 
 ## 8. Milestone 8：Agent Runtime
 
-交付 ToolRegistry、PermissionGate、LifecycleHookManager、ProjectMemory、AuditSessionStore、HumanApprovalGate、ContextCompactor、SpecializedAnalyzers。
+交付 ToolRegistry、PermissionGate、LifecycleHookManager、ProjectMemory、AuditSessionStore、AgentRuntime、StagedAuditPipeline、SpecializedAnalyzers。
 
 ## 9. Milestone 9：可选 LLM Brain
 
-交付 EndpointParser、HttpResponseParser、HttpsJsonClient、AuditPromptBuilder、LlmBrain。
+交付 EndpointParser、HttpResponseParser、HttpsJsonClient、LlmBrain、BrainAgentLoop。
 
 验收：无显式授权时必须阻断；LLM 输出不进入最终评分。
 

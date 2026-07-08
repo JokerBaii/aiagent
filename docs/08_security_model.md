@@ -102,7 +102,7 @@ LLMAccess
 7. 解包嵌套压缩包；
 8. 导出最终提交版报告。
 
-即使用户要求使用 Claude Desktop-style 会话能力，以上动作也不能绕过 PermissionGate、LifecycleHookManager 和 HumanApprovalGate。
+即使用户要求使用 Claude Desktop-style 会话能力，以上动作也不能绕过 PermissionGate、LifecycleHookManager 和 Workbench 权限模式。
 
 ## 6. 敏感文件识别
 

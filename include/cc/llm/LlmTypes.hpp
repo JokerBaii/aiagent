@@ -27,6 +27,10 @@ struct LlmConfig {
     std::string endpoint{"https://api.openai.com/v1/chat/completions"};
     std::string model{"gpt-4o-mini"};
     std::string apiKey;
+    std::string provider{"openai"};
+    std::string apiKeyHeader{"Authorization"};
+    std::string apiKeyPrefix{"Bearer "};
+    int maxTokens{4096};
     bool allowNetwork{false};
     bool allowLlm{false};
 };

@@ -63,10 +63,4 @@ CompetitionTypeDetector::detectDetailed(const ProjectInventory& inventory,
                                  .reason = "材料特征不足，无法可靠判断赛道"};
 }
 
-CompetitionType CompetitionTypeDetector::detect(const ProjectInventory& inventory,
-                                                const std::vector<TextDocument>& corpus,
-                                                CompetitionType requested) const {
-    return detectDetailed(inventory, corpus, requested).type;
-}
-
 } // namespace cc

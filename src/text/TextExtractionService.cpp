@@ -24,7 +24,8 @@ TextExtractionService::extract(const ProjectInventory& inventory) const {
         Result<TextDocument> document = Result<TextDocument>::failure("不支持的文本格式");
         if (isStructuredTextExtension(asset.extension)) {
             document = StructuredTextExtractor{}.extract(asset);
-        } else if (isLikelyTextExtension(asset.extension) || asset.extension.empty()) {
+        } else if (isLikelyTextExtension(asset.extension) || isCodeExtension(asset.extension) ||
+                   asset.extension.empty()) {
             document = PlainTextExtractor{}.extract(asset);
         } else if (isOfficeExtension(asset.extension)) {
             document = OpenXmlTextExtractor{}.extract(asset);

@@ -32,16 +32,63 @@ namespace {
     return items.join("、");
 }
 
+[[nodiscard]] QString inferKind(const QString& role) {
+    const auto key = role.trimmed().toLower();
+    if (key == "用户" || key == "user") {
+        return "user";
+    }
+    if (key == "计划" || key == "plan") {
+        return "plan";
+    }
+    if (key == "工具" || key == "tool") {
+        return "tool";
+    }
+    if (key == "产物" || key == "artifact") {
+        return "artifact";
+    }
+    if (key == "系统" || key == "system") {
+        return "system";
+    }
+    return "assistant";
+}
+
 [[nodiscard]] QVariantMap messageItem(const QString& role, const QString& text,
                                       const QString& context) {
     QVariantMap item;
     item["role"] = role;
     item["text"] = text;
     item["context"] = context;
+    item["kind"] = inferKind(role);
+    item["detail"] = QString{};
+    item["ok"] = true;
     return item;
 }
 
 [[nodiscard]] QString toolDisplayName(const std::string& name) {
+    if (name == "summarize_audit_session") {
+        return "压缩审计上下文";
+    }
+    if (name == "list_project_files") {
+        return "翻阅项目文件";
+    }
+    if (name == "inspect_project_file") {
+        return "检查文件格式";
+    }
+    if (name == "read_text_file") {
+        return "读取文本文件";
+    }
+    if (name == "inspect_archive") {
+        return "检查材料包";
+    }
+    if (name == "search_project_text") {
+        return "搜索项目文本";
+    }
+    if (name == "draft_markdown_revision") {
+        return "修订 Markdown";
+    }
+    if (name == "write_workspace_file") {
+        return "写入工作区文件";
+    }
     if (name == "inventory_project") {
         return "整理材料";
     }
@@ -95,10 +142,9 @@ namespace {
 
 [[nodiscard]] const std::vector<std::string>& auditToolFlow() {
     static const std::vector<std::string> flow = {
-        "inventory_project",       "extract_text",       "detect_competition_type",
-        "build_cpir",              "extract_claims",     "match_evidence",
-        "check_consistency",       "run_rules",          "calculate_trust_score",
-        "generate_fix_tasks",      "generate_repair_plan"};
+        "inventory_project",     "extract_text",       "detect_competition_type", "build_cpir",
+        "extract_claims",        "match_evidence",     "check_consistency",       "run_rules",
+        "calculate_trust_score", "generate_fix_tasks", "generate_repair_plan"};
     return flow;
 }
 
@@ -133,16 +179,26 @@ namespace {
     return stringText(status);
 }
 
-[[nodiscard]] QString permissionDetail(cc::ToolPermission permission, bool allowed) {
+[[nodiscard]] QString permissionDetail(cc::ToolPermission permission, bool allowed,
+                                       const QString& accessMode) {
+    if (accessMode == "plan") {
+        if (permission == cc::ToolPermission::ModifyOriginalProject ||
+            permission == cc::ToolPermission::ExecuteCommand ||
+            permission == cc::ToolPermission::NetworkAccess ||
+            permission == cc::ToolPermission::LLMAccess) {
+            return "计划模式下不会执行此类动作";
+        }
+    }
     switch (permission) {
     case cc::ToolPermission::ReadProjectFiles:
-        return "只读取隔离工作区中的项目副本";
+        return accessMode == "bypass" ? "Bypass 模式下经授权读取原项目路径"
+                                      : "只读取隔离工作区中的项目副本";
     case cc::ToolPermission::ReadExternalFiles:
         return "默认拒绝读取项目外文件";
     case cc::ToolPermission::WriteWorkspace:
         return "允许写入 .workspaces 会话产物";
     case cc::ToolPermission::ModifyOriginalProject:
-        return "默认拒绝覆盖原始项目";
+        return allowed ? "Bypass 模式下允许接触原项目" : "默认拒绝覆盖原始项目";
     case cc::ToolPermission::ExecuteCommand:
         return "默认拒绝自由执行脚本或 shell";
     case cc::ToolPermission::NetworkAccess:
@@ -214,29 +270,41 @@ QVariantList sessionHistory(const std::optional<cc::AuditResult>& result,
                             const std::vector<SessionMessage>& conversation,
                             const QString& normalizedProjectPath) {
     QVariantList items;
+
+    const auto appendMessage = [&](const SessionMessage& message) {
+        if (message.text.trimmed().isEmpty() && message.detail.trimmed().isEmpty()) {
+            return;
+        }
+        QVariantMap item = messageItem(message.role, message.text, message.context);
+        if (!message.kind.isEmpty()) {
+            item["kind"] = message.kind;
+        }
+        item["detail"] = message.detail;
+        item["ok"] = message.ok;
+        items.push_back(item);
+    };
+
+    for (const auto& message : conversation) {
+        appendMessage(message);
+    }
+    if (!items.isEmpty()) {
+        return items;
+    }
+
     if (!normalizedProjectPath.isEmpty()) {
-        items.push_back(messageItem("项目",
-                                    QStringLiteral("当前材料包：%1").arg(normalizedProjectPath),
-                                    "材料已选择"));
+        items.push_back(messageItem(
+            "系统", QStringLiteral("当前材料包：%1").arg(normalizedProjectPath), "材料已选择"));
     }
     if (result.has_value()) {
-        items.push_back(messageItem(
-            "工具",
-            QStringLiteral(
-                "审计完成：评分 %1/100，必须处理 %2 个，需要关注 %3 个，补证任务 %4 个。")
-                .arg(result->trustScore.totalScore)
-                .arg(blockerCount(*result))
-                .arg(warningCount(*result))
-                .arg(result->fixTasks.size()),
-            "审计完成"));
-        items.push_back(messageItem("顾问", advisorSummary(result), "下一步建议"));
-    } else {
-        items.push_back(
-            messageItem("顾问", "导入项目并开始审计后，我会基于规则结果解释风险和补证优先级。",
-                        "等待审计"));
-    }
-    for (const auto& message : conversation) {
-        items.push_back(messageItem(message.role, message.text, message.context));
+        items.push_back(messageItem("工具",
+                                    QStringLiteral("审计完成：评分 %1/100，必须处理 %2 "
+                                                   "个，需要关注 %3 个，补证任务 %4 个。")
+                                        .arg(result->trustScore.totalScore)
+                                        .arg(blockerCount(*result))
+                                        .arg(warningCount(*result))
+                                        .arg(result->fixTasks.size()),
+                                    "审计完成"));
+        items.push_back(messageItem("智能体", agentSummary(result), "下一步建议"));
     }
     return items;
 }
@@ -244,8 +312,9 @@ QVariantList sessionHistory(const std::optional<cc::AuditResult>& result,
 QVariantList toolCards(const std::optional<cc::AuditResult>& result,
                        const std::optional<cc::AuditDiff>& auditDiff, bool agentRunning,
                        int activeStep, int completedSteps) {
+    (void)auditDiff;
     QVariantList items;
-    const auto names = cc::ToolRegistry{}.builtinToolNames();
+    const auto& names = auditToolFlow();
     for (const auto& name : names) {
         QVariantMap item;
         item["name"] = toolDisplayName(name);
@@ -270,16 +339,42 @@ QVariantList toolCards(const std::optional<cc::AuditResult>& result,
         }
 
         if (result.has_value()) {
-            if (name == "inventory_project") {
+            if (name == "summarize_audit_session") {
+                item["status"] = "可追问";
+                item["detail"] = "把评分、风险和补证任务压缩为对话上下文";
+            } else if (name == "list_project_files") {
+                item["status"] = "可追问";
+                item["detail"] = "Brain 可在权限内枚举项目副本文件";
+            } else if (name == "inspect_project_file") {
+                item["status"] = "可追问";
+                item["detail"] = "Brain 可判断文件格式、语言和下一步读取策略";
+            } else if (name == "read_text_file") {
+                item["status"] = "可追问";
+                item["detail"] = "Brain 可读取项目内文本或 Markdown 片段";
+            } else if (name == "inspect_archive") {
+                item["status"] = "可追问";
+                item["detail"] = "Brain 可安全列出 zip/tar/7z/tgz 包条目";
+            } else if (name == "search_project_text") {
+                item["status"] = "可追问";
+                item["detail"] = "Brain 可在项目副本文本中按关键词搜索";
+            } else if (name == "draft_markdown_revision") {
+                item["status"] = "可追问";
+                item["detail"] = "只写入工作区修订稿，不覆盖原项目";
+            } else if (name == "write_workspace_file") {
+                item["status"] = "可追问";
+                item["detail"] = "Brain 可把代码、配置、清单和新文档写入会话工作区";
+            } else if (name == "inventory_project") {
                 item["detail"] = QStringLiteral("资产 %1 个，输入文件 %2 个")
                                      .arg(result->inventory.assets.size())
                                      .arg(result->context.inputFiles.size());
             } else if (name == "extract_text") {
                 item["detail"] = QStringLiteral("可审计文本 %1 份").arg(result->corpus.size());
-            } else if (name == "build_cpir") {
-                item["detail"] = QStringLiteral("%1，置信度 %2")
+            } else if (name == "detect_competition_type") {
+                item["detail"] = QStringLiteral("赛道 %1，置信度 %2")
                                      .arg(stringText(cc::toString(result->cpir.competitionType)))
                                      .arg(result->cpir.competitionConfidence);
+            } else if (name == "build_cpir") {
+                item["detail"] = "已生成项目画像和关键上下文";
             } else if (name == "extract_claims") {
                 item["detail"] = QStringLiteral("声明 %1 条").arg(result->claims.size());
             } else if (name == "match_evidence") {
@@ -298,54 +393,48 @@ QVariantList toolCards(const std::optional<cc::AuditResult>& result,
                 item["detail"] = QStringLiteral("补证任务 %1 个").arg(result->fixTasks.size());
             } else if (name == "generate_repair_plan") {
                 item["detail"] = "已生成修复建议，不覆盖原项目";
-            } else if (name == "export_markdown_report" || name == "export_json_report") {
-                item["status"] = "可导出";
-                item["detail"] = "通过导出页写入用户指定路径";
-            } else if (name == "verify_diff") {
-                item["status"] = auditDiff.has_value() ? "完成" : "等待";
-                item["detail"] =
-                    auditDiff.has_value() ? "已生成二次审计差分" : "需要两份 audit.json";
-            } else if (name == "explain_audit_finding") {
-                item["status"] = "可追问";
-                item["detail"] = "在会话里询问某个风险为什么触发";
-            } else if (name == "generate_defense_questions") {
-                item["status"] = "可追问";
-                item["detail"] = "在会话里输入答辩问题或评委会问什么";
             }
-        } else if (name == "explain_audit_finding" || name == "generate_defense_questions") {
-            item["status"] = "等待";
-            item["detail"] = "审计完成后可用";
         }
         items.push_back(item);
     }
     return items;
 }
 
-QVariantList permissionCards(bool llmApproved) {
+QVariantList permissionCards(bool llmApproved, const QString& accessMode) {
     QVariantList items;
     cc::PermissionGate gate;
     for (const auto permission : gate.permissions()) {
         const auto brainOverride =
             llmApproved && (permission == cc::ToolPermission::NetworkAccess ||
                             permission == cc::ToolPermission::LLMAccess);
-        const auto allowed = gate.isAllowed(permission) || brainOverride;
+        const auto bypassOverride =
+            accessMode == "bypass" && permission == cc::ToolPermission::ModifyOriginalProject;
+        const auto planBlock =
+            accessMode == "plan" && (permission == cc::ToolPermission::ModifyOriginalProject ||
+                                     permission == cc::ToolPermission::ExecuteCommand ||
+                                     permission == cc::ToolPermission::NetworkAccess ||
+                                     permission == cc::ToolPermission::LLMAccess);
+        const auto allowed =
+            !planBlock && (gate.isAllowed(permission) || brainOverride || bypassOverride);
         QVariantMap item;
         item["name"] = permissionName(permission);
         item["technicalName"] = stringText(cc::toString(permission));
-        item["status"] = allowed ? "允许" : "默认拒绝";
+        item["status"] = accessMode == "plan" && planBlock ? "计划阻断"
+                         : allowed                         ? "允许"
+                                                           : "默认拒绝";
         item["allowed"] = allowed;
-        item["detail"] = permissionDetail(permission, allowed);
+        item["detail"] = permissionDetail(permission, allowed, accessMode);
         items.push_back(item);
     }
     return items;
 }
 
 QVariantList artifacts(const std::optional<cc::AuditResult>& result,
-                       const std::optional<cc::AuditDiff>& auditDiff, const QString& llmAdvice) {
+                       const std::optional<cc::AuditDiff>& auditDiff, const QString& agentResult) {
     QVariantList items;
     if (!result.has_value()) {
-        items.push_back(artifactItem("等待审计产物", "待生成",
-                                     "运行审计后生成报告、补证计划和审计数据包"));
+        items.push_back(
+            artifactItem("等待审计产物", "待生成", "运行审计后生成报告、补证计划和审计数据包"));
         return items;
     }
 
@@ -358,14 +447,14 @@ QVariantList artifacts(const std::optional<cc::AuditResult>& result,
     if (auditDiff.has_value()) {
         items.push_back(artifactItem("二次审计差分", "JSON", stringText(auditDiff->summary)));
     }
-    if (!llmAdvice.isEmpty()) {
+    if (!agentResult.isEmpty()) {
         items.push_back(
-            artifactItem("Brain 建议", "LLM", "显式授权后生成，只作为解释和补证优先级建议"));
+            artifactItem("智能体运行结果", "Agent", "包含 Brain/本地循环、工具观察和工作区产物"));
     }
     return items;
 }
 
-QString advisorSummary(const std::optional<cc::AuditResult>& result) {
+QString agentSummary(const std::optional<cc::AuditResult>& result) {
     if (!result.has_value()) {
         return "请选择项目材料包并开始审计。";
     }

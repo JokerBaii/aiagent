@@ -32,6 +32,10 @@ class FormatDetector {
  */
 [[nodiscard]] bool isLikelyTextExtension(const std::string& extension);
 /**
+ * @brief 判断扩展名是否属于常见源码或脚本文件。
+ */
+[[nodiscard]] bool isCodeExtension(const std::string& extension);
+/**
  * @brief 判断扩展名是否属于 Office OpenXML 文档。
  */
 [[nodiscard]] bool isOfficeExtension(const std::string& extension);

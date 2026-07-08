@@ -17,10 +17,11 @@
     <file>qml/components/Card.qml</file>
     <file>qml/components/Pill.qml</file>
     <file>qml/components/PrimaryButton.qml</file>
-    <file>qml/components/SecondaryButton.qml</file>
     <file>qml/components/StatTile.qml</file>
     <file>qml/components/SectionTitle.qml</file>
     <file>qml/components/FieldInput.qml</file>
     <file>qml/components/EmptyState.qml</file>
+    <file>qml/components/ChatTurn.qml</file>
+    <file>qml/components/Composer.qml</file>
   </qresource>
 </RCC>

@@ -51,7 +51,14 @@ Workbench 必须具备：
 - 资产清单、CPIR、声明证据、材料一致性、规则风险、可信评分、补证任务；
 - 二次审计差分；
 - Markdown/JSON 导出；
-- 可选 LLM Brain 建议；
+- 可选 LLM Brain 迭代工具循环；
+- 未授权 LLM 时本地 AgentRuntime 仍可执行受控文件工具；
+- 交互式工具至少支持项目文件枚举、项目文本搜索、文本/Markdown 读取、Markdown 工作区修订和工作区文本产物写入；
+- Composer slash command 路由：`/audit`、`/agent <任务>`、`/task <任务>`、`/help`；
+- 普通自然语言输入作为 agent task，不做关键词命令识别；
+- AgentRuntime / BrainAgentLoop 输出 `AgentEvent` 和包含 events 的 JSON trace；
+- 授权 LLM 时 Brain 每步基于 `AgentObservation` 决定继续调用工具或最终回答，未授权时保守降级为本地观察摘要；
+- Workbench 会话展示来自 AgentRuntime 事件，而不是 Controller 自行拼装工具轨迹；
 - LLM 未授权时不联网、不调用模型。
 
 ## 4. 安全验收
@@ -65,7 +72,7 @@ Workbench 必须具备：
 - 默认拒绝联网和 LLM；
 - OpenXML、PDF 和压缩包解析不调用 shell 或外部工具；
 - 报告不生成虚假数据；
-- LLM 输出不参与最终评分。
+- LLM 工具决策不参与最终评分。
 
 ## 5. 质量门禁
 

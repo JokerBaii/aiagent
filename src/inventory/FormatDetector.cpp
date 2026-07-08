@@ -8,6 +8,7 @@
 #include "cc/util/StringUtil.hpp"
 
 #include <algorithm>
+#include <vector>
 
 namespace cc {
 namespace {
@@ -20,10 +21,23 @@ namespace {
 } // namespace
 
 bool isLikelyTextExtension(const std::string& extension) {
-    return extensionIn(extension, {".md",   ".txt", ".json", ".yaml", ".yml",   ".csv",  ".xml",
-                                   ".html", ".cpp", ".hpp",  ".h",    ".c",     ".py",   ".js",
-                                   ".ts",   ".tsx", ".jsx",  ".qml",  ".cmake", ".toml", ".ini",
-                                   ".java", ".go",  ".rs",   ".sql",  ".sh",    ".log"});
+    return extensionIn(extension,
+                       {".md",    ".markdown", ".txt",        ".rst",          ".adoc",     ".json",
+                        ".jsonl", ".yaml",     ".yml",        ".csv",          ".tsv",      ".xml",
+                        ".html",  ".htm",      ".css",        ".scss",         ".less",     ".toml",
+                        ".ini",   ".cfg",      ".conf",       ".env",          ".sql",      ".log",
+                        ".diff",  ".patch",    ".dockerfile", ".editorconfig", ".gitignore"});
+}
+
+bool isCodeExtension(const std::string& extension) {
+    return extensionIn(extension,
+                       {".c",    ".cc",  ".cpp",   ".cxx",    ".h",    ".hh",    ".hpp",   ".hxx",
+                        ".m",    ".mm",  ".py",    ".pyw",    ".js",   ".mjs",   ".cjs",   ".ts",
+                        ".tsx",  ".jsx", ".vue",   ".svelte", ".qml",  ".java",  ".kt",    ".kts",
+                        ".go",   ".rs",  ".swift", ".cs",     ".fs",   ".fsx",   ".php",   ".rb",
+                        ".pl",   ".pm",  ".lua",   ".r",      ".jl",   ".scala", ".dart",  ".ex",
+                        ".exs",  ".erl", ".hrl",   ".clj",    ".cljs", ".sh",    ".bash",  ".zsh",
+                        ".fish", ".ps1", ".bat",   ".cmd",    ".sql",  ".cmake", ".gradle"});
 }
 
 bool isOfficeExtension(const std::string& extension) {
@@ -46,7 +60,12 @@ ProjectAsset FormatDetector::detect(const std::filesystem::path& root,
         asset.sizeBytes = 0;
     }
 
-    if (isLikelyTextExtension(asset.extension)) {
+    if (isCodeExtension(asset.extension)) {
+        asset.format = asset.extension.substr(1);
+        asset.mime = "text/x-source-code";
+        asset.language = asset.extension.substr(1);
+        asset.auditable = true;
+    } else if (isLikelyTextExtension(asset.extension) || asset.extension.empty()) {
         asset.format = asset.extension.empty() ? "text" : asset.extension.substr(1);
         asset.mime = "text/plain";
         asset.auditable = true;
@@ -61,14 +80,27 @@ ProjectAsset FormatDetector::detect(const std::filesystem::path& root,
     } else if (ArchiveExtractor::isArchivePath(file)) {
         asset.format = "archive";
         asset.mime = "application/archive";
-    } else {
-        asset.format = asset.extension.empty() ? "unknown" : asset.extension.substr(1);
+    } else if (extensionIn(asset.extension, {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
+                                             ".bmp", ".tiff", ".ico"})) {
+        asset.format = asset.extension.substr(1);
+        asset.mime = asset.extension == ".svg" ? "image/svg+xml" : "image/" + asset.format;
+    } else if (extensionIn(asset.extension, {".mp4", ".mov", ".avi", ".mkv", ".webm"})) {
+        asset.format = asset.extension.substr(1);
+        asset.mime = "video/" + asset.format;
+    } else if (extensionIn(asset.extension, {".mp3", ".wav", ".flac", ".ogg", ".m4a"})) {
+        asset.format = asset.extension.substr(1);
+        asset.mime = "audio/" + asset.format;
+    } else if (extensionIn(asset.extension, {".onnx", ".pt", ".pth", ".pkl", ".joblib",
+                                             ".safetensors", ".tflite", ".pb"})) {
+        asset.format = asset.extension.substr(1);
+        asset.mime = "application/x-model-artifact";
+    } else if (extensionIn(asset.extension, {".exe", ".dll", ".so", ".dylib", ".a", ".o", ".class",
+                                             ".jar", ".wasm"})) {
+        asset.format = asset.extension.substr(1);
         asset.mime = "application/octet-stream";
-    }
-
-    if (extensionIn(asset.extension, {".cpp", ".hpp", ".h", ".c", ".py", ".js", ".ts", ".tsx",
-                                      ".jsx", ".java", ".go", ".rs", ".qml"})) {
-        asset.language = asset.extension.substr(1);
+    } else {
+        asset.format = asset.extension.empty() ? "binary" : asset.extension.substr(1);
+        asset.mime = "application/octet-stream";
     }
     return asset;
 }

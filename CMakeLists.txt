@@ -133,7 +133,7 @@ add_library(contest_llm STATIC
 target_include_directories(contest_llm PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-target_link_libraries(contest_llm PUBLIC contest_core OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(contest_llm PUBLIC contest_agent contest_core OpenSSL::SSL OpenSSL::Crypto)
 contest_apply_common_options(contest_llm)
 
 file(GLOB_RECURSE CONTEST_TEST_SOURCES CONFIGURE_DEPENDS
@@ -160,7 +160,7 @@ target_link_libraries(contest_dependency_tests PRIVATE
 contest_apply_common_options(contest_dependency_tests)
 add_test(NAME contest_dependency_tests COMMAND contest_dependency_tests)
 
-find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2)
+find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2)
 if(Qt6_FOUND)
     qt_standard_project_setup()
     qt_add_resources(CONTEST_WORKBENCH_RESOURCES
@@ -184,6 +184,7 @@ if(Qt6_FOUND)
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
+        Qt6::QuickDialogs2
     )
 else()
     message(WARNING "Qt6 was not found; contest-workbench will not be built.")
@@ -200,7 +201,7 @@ install(DIRECTORY docs/
     DESTINATION share/contest-compiler/docs
     FILES_MATCHING PATTERN "*.md"
 )
-install(FILES README.md LICENSE DESTINATION share/contest-compiler)
+install(FILES README.md DESTINATION share/contest-compiler)
 
 set(CPACK_PACKAGE_NAME "contest-project-trust-compiler")
 set(CPACK_PACKAGE_VENDOR "Contest Project Trust Compiler Contributors")

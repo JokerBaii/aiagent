@@ -26,12 +26,6 @@ class CompetitionTypeDetector {
     [[nodiscard]] CompetitionTypeResult detectDetailed(const ProjectInventory& inventory,
                                                        const std::vector<TextDocument>& corpus,
                                                        CompetitionType requested) const;
-    /**
-     * @brief 兼容旧调用方的简化赛道识别接口。
-     */
-    [[nodiscard]] CompetitionType detect(const ProjectInventory& inventory,
-                                         const std::vector<TextDocument>& corpus,
-                                         CompetitionType requested) const;
 };
 
 } // namespace cc

@@ -28,15 +28,15 @@
 | FR-13 | 二次审计差分 | `DiffVerifier`、`AuditDiff` JSON | `tests/audit/AuditTests.cpp` |
 | FR-14 | Markdown/JSON 报告 | `MarkdownReporter`、`JsonReporter` | `tests/report/ReportTests.cpp` |
 | FR-15 | Qt/QML Workbench | `CompileController` 桥接，`SessionWorkspacePage` 作为首屏展示项目上下文、会话历史、composer、受控工具卡片、权限卡片、artifact 列表、资产、评分、风险、证据、差分和导出入口 | CMake 构建 `contest-workbench`，acceptance 检查会话页、toolCards、permissionCards、artifacts 和 sessionHistory 绑定 |
-| FR-16 | 竞赛顾问式 Agentic 协作 | `contest_agent` 管理受控工具、权限、hooks、会话和 analyzer；`contest_llm` 只做可选建议 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp` |
+| FR-16 | 竞赛可信智能体协作 | `contest_agent` 管理结构化工具、权限、hooks、会话、slash command 路由、AgentEvent/trace、文件翻阅、项目文本搜索、Markdown 工作区修订和工作区文本产物写入；`contest_llm` 运行可选 Brain 迭代工具循环，解析单步 decision，并基于 observations 决定继续调用工具或最终回答 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp` |
 
 ## 架构和模块边界
 
 | 要求 | 当前落实 |
 |---|---|
 | C++ Core 负责可信审计逻辑 | `contest_core` 包含数据模型、loader、inventory、text、cpir、claim、evidence、consistency、rules、audit、repair、report |
-| Agentic runtime 独立 | `contest_agent` 包含 `ToolRegistry`、`PermissionGate`、`LifecycleHookManager`、`ProjectMemory`、`AuditSessionStore`、`HumanApprovalGate`、专用 Analyzer 和薄 `AuditPipeline` |
-| LLM 只能可选辅助 | `contest_llm` 单独承载 `LlmBrain`、HTTPS 客户端和 endpoint/parser；`contest_core` 不包含 LLM/OpenSSL 对象 |
+| Agentic runtime 独立 | `contest_agent` 包含 `ToolRegistry`、`PermissionGate`、`LifecycleHookManager`、`ProjectMemory`、`AuditSessionStore`、`AgentRuntime`、`StagedAuditPipeline` 和专用 Analyzer |
+| LLM 只能可选主控 | `contest_llm` 单独承载 `LlmBrain`、`BrainAgentLoop`、HTTPS 客户端、endpoint/parser 和工具 decision 解析；`contest_core` 不包含 LLM/OpenSSL 对象，最终评分不受 LLM 改写 |
 | QML Controller 只能桥接 | `CompileController` 调用 core/agent/llm/report 服务并转成 QML 模型，不实现扫描、规则、评分、证据匹配 |
 | 禁止单文件和万能 Manager | `include/cc/<module>/` 与 `src/<module>/` 拆分；没有 `all_in_one/app/core/manager` 等禁止命名 |
 

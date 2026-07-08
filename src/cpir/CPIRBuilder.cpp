@@ -82,12 +82,4 @@ CPIR CPIRBuilder::build(const ProjectInventory& inventory, const std::vector<Tex
     return cpir;
 }
 
-CPIR CPIRBuilder::build(const ProjectInventory& inventory, const std::vector<TextDocument>& corpus,
-                        CompetitionType type) const {
-    return build(inventory, corpus,
-                 CompetitionTypeResult{.type = type,
-                                       .confidence = type == CompetitionType::Unknown ? 0.0 : 1.0,
-                                       .reason = "调用方提供了赛道类型"});
-}
-
 } // namespace cc

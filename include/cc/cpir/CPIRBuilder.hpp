@@ -22,11 +22,6 @@ class CPIRBuilder {
     [[nodiscard]] CPIR build(const ProjectInventory& inventory,
                              const std::vector<TextDocument>& corpus,
                              const CompetitionTypeResult& type) const;
-    /**
-     * @brief 使用赛道枚举构建 CPIR 的兼容接口。
-     */
-    [[nodiscard]] CPIR build(const ProjectInventory& inventory,
-                             const std::vector<TextDocument>& corpus, CompetitionType type) const;
 };
 
 } // namespace cc

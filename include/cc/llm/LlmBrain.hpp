@@ -5,8 +5,10 @@
 
 #pragma once
 
+#include "cc/agent/AgentModels.hpp"
 #include "cc/core/AuditModels.hpp"
 #include "cc/core/Result.hpp"
+#include "cc/llm/AuditAdvisory.hpp"
 #include "cc/llm/LlmTypes.hpp"
 
 namespace cc {
@@ -14,8 +16,9 @@ namespace cc {
 /**
  * @brief 可选大模型 Brain 编排器。
  *
- * LlmBrain 只能在 allowNetwork 和 allowLlm 同时为 true 时调用外部接口；输出只作为建议，
- * 不参与 RuleEngine 或 TrustScoreCalculator 的最终裁决。
+ * LlmBrain 只能在 allowNetwork 和 allowLlm 同时为 true
+ * 时调用外部接口；它可以生成受控工具决策，但最终评分仍由 RuleEngine 和
+ * TrustScoreCalculator 裁决。
  */
 class LlmBrain {
   public:
@@ -25,15 +28,27 @@ class LlmBrain {
     [[nodiscard]] Result<LlmResponse> complete(const LlmConfig& config,
                                                const std::vector<LlmMessage>& messages) const;
     /**
-     * @brief 基于 C++ 审计结果生成 Brain 建议。
+     * @brief 根据已有工具观察结果生成下一步 Brain 决策。
      */
-    [[nodiscard]] Result<LlmResponse> advise(const LlmConfig& config,
-                                             const AuditResult& result) const;
+    [[nodiscard]] Result<AgentDecision>
+    decideNextAgentStep(const LlmConfig& config, const AgentRunRequest& request,
+                        const AgentRunResult& result,
+                        const std::vector<AgentToolSpec>& tools) const;
     /**
-     * @brief 基于 JSON 审计包生成 Brain 建议。
+     * @brief 解析 Brain 返回的单步工具循环决策。
      */
-    [[nodiscard]] Result<LlmResponse> advise(const LlmConfig& config,
-                                             const JsonValue& auditJson) const;
+    [[nodiscard]] Result<AgentDecision> parseAgentDecision(const std::string& content) const;
+    /**
+     * @brief 让 LLM 基于确定性审计结果给出风险研判与评分建议（混合模式的“先判断”阶段）。
+     *
+     * 该方法只产出建议，不修改评分；调用方须再用 AdvisoryReconciler 与确定性结果校验。
+     */
+    [[nodiscard]] Result<AuditAdvisory> requestAuditAdvisory(const LlmConfig& config,
+                                                             const AuditResult& result) const;
+    /**
+     * @brief 解析 LLM 返回的审计研判 JSON。
+     */
+    [[nodiscard]] Result<AuditAdvisory> parseAuditAdvisory(const std::string& content) const;
 };
 
 } // namespace cc

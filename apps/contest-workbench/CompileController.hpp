@@ -6,6 +6,9 @@
 #pragma once
 
 #include "WorkbenchSessionModels.hpp"
+#include "cc/agent/AgentModels.hpp"
+#include "cc/agent/StagedAuditPipeline.hpp"
+#include "cc/llm/AuditAdvisory.hpp"
 
 #include <QObject>
 #include <QString>
@@ -13,6 +16,7 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -37,7 +41,7 @@ class CompileController : public QObject {
     Q_PROPERTY(QVariantList toolCards READ toolCards NOTIFY workspaceChanged)
     Q_PROPERTY(QVariantList permissionCards READ permissionCards NOTIFY workspaceChanged)
     Q_PROPERTY(QVariantList artifacts READ artifacts NOTIFY workspaceChanged)
-    Q_PROPERTY(QString advisorSummary READ advisorSummary NOTIFY workspaceChanged)
+    Q_PROPERTY(QString agentSummary READ agentSummary NOTIFY workspaceChanged)
     Q_PROPERTY(bool agentRunning READ agentRunning NOTIFY agentStateChanged)
     Q_PROPERTY(int agentProgress READ agentProgress NOTIFY agentStateChanged)
     Q_PROPERTY(QString currentAgentAction READ currentAgentAction NOTIFY agentStateChanged)
@@ -48,7 +52,12 @@ class CompileController : public QObject {
     Q_PROPERTY(QString llmEndpoint READ llmEndpoint WRITE setLlmEndpoint NOTIFY llmConfigChanged)
     Q_PROPERTY(QString llmModel READ llmModel WRITE setLlmModel NOTIFY llmConfigChanged)
     Q_PROPERTY(bool llmApproved READ llmApproved WRITE setLlmApproved NOTIFY llmConfigChanged)
-    Q_PROPERTY(QString llmAdvice READ llmAdvice NOTIFY llmAdviceChanged)
+    Q_PROPERTY(QString agentResult READ agentResult NOTIFY agentResultChanged)
+    Q_PROPERTY(QString agentTrace READ agentTrace NOTIFY agentTraceChanged)
+    Q_PROPERTY(QString accessMode READ accessMode WRITE setAccessMode NOTIFY accessModeChanged)
+    Q_PROPERTY(QVariantList sessionList READ sessionList NOTIFY sessionChanged)
+    Q_PROPERTY(QVariantMap advisory READ advisory NOTIFY advisoryChanged)
+    Q_PROPERTY(bool advisoryRunning READ advisoryRunning NOTIFY advisoryChanged)
 
   public:
     explicit CompileController(QObject* parent = nullptr);
@@ -73,7 +82,7 @@ class CompileController : public QObject {
     [[nodiscard]] QVariantList toolCards() const;
     [[nodiscard]] QVariantList permissionCards() const;
     [[nodiscard]] QVariantList artifacts() const;
-    [[nodiscard]] QString advisorSummary() const;
+    [[nodiscard]] QString agentSummary() const;
     [[nodiscard]] bool agentRunning() const;
     [[nodiscard]] int agentProgress() const;
     [[nodiscard]] QString currentAgentAction() const;
@@ -90,14 +99,26 @@ class CompileController : public QObject {
     void setLlmModel(const QString& value);
     [[nodiscard]] bool llmApproved() const;
     void setLlmApproved(bool value);
-    [[nodiscard]] QString llmAdvice() const;
+    [[nodiscard]] QString agentResult() const;
+    [[nodiscard]] QString agentTrace() const;
+    [[nodiscard]] QString accessMode() const;
+    void setAccessMode(const QString& value);
+    [[nodiscard]] QVariantList sessionList() const;
+    [[nodiscard]] QVariantMap advisory() const;
+    [[nodiscard]] bool advisoryRunning() const;
 
     Q_INVOKABLE void runAudit();
     Q_INVOKABLE void runDiff();
-    Q_INVOKABLE void runLlmAdvice();
+    Q_INVOKABLE void runBrainTask(const QString& goal);
     Q_INVOKABLE void exportMarkdown(const QString& outputPath);
     Q_INVOKABLE void exportJson(const QString& outputPath);
     Q_INVOKABLE void submitMessage(const QString& message);
+    /** @brief 接收原生文件/目录选择器返回的 URL 或本地路径。 */
+    Q_INVOKABLE void selectProject(const QString& urlOrPath);
+    /** @brief 开始一个新的会话，清空当前对话与结果。 */
+    Q_INVOKABLE void newSession();
+    /** @brief 运行混合研判：LLM 先判断、确定性规则校验（需授权 LLM 且已有审计结果）。 */
+    Q_INVOKABLE void runAdvisory();
 
   signals:
     void projectPathChanged();
@@ -108,29 +129,45 @@ class CompileController : public QObject {
     void diffInputChanged();
     void auditDiffChanged();
     void llmConfigChanged();
-    void llmAdviceChanged();
+    void agentResultChanged();
+    void agentTraceChanged();
     void agentStateChanged();
+    void accessModeChanged();
+    void advisoryChanged();
 
   private:
     void advanceAuditRun();
     void finishAuditRun();
-    [[nodiscard]] QString advisorReply(const QString& message) const;
+    void previewAgentPlan(const QString& message, const QString& context);
+    void runAgentConversation(const QString& message, const QString& context);
+    [[nodiscard]] QString sessionStatusText() const;
+    [[nodiscard]] QString compactedContextText() const;
+    [[nodiscard]] QString accessModeLabel() const;
+    [[nodiscard]] cc::AgentRunRequest makeAgentRequest(const QString& goal) const;
 
     QString projectPath_;
     QString oldAuditPath_;
     QString newAuditPath_;
     QString llmApiKey_;
     QString llmEndpoint_{"https://api.openai.com/v1/chat/completions"};
-    QString llmModel_{"gpt-4o-mini"};
+    QString llmModel_{"deepseekv4pro"};
+    QString llmProvider_{"deepseek"};
+    QString llmApiKeyHeader_{"Authorization"};
+    QString llmApiKeyPrefix_{"Bearer "};
+    QString accessMode_{"ask"};
     bool llmApproved_{false};
     bool agentRunning_{false};
     int activeAuditStep_{-1};
     int completedAuditSteps_{0};
     QString currentAgentAction_;
     QTimer auditTimer_;
-    QString llmAdvice_;
+    std::unique_ptr<cc::StagedAuditPipeline> auditRun_;
+    QString agentResult_;
+    QString agentTrace_;
     QString status_{"等待导入项目"};
     std::optional<cc::AuditResult> result_;
     std::optional<cc::AuditDiff> auditDiff_;
+    std::optional<cc::ReconciledAdvisory> advisory_;
+    bool advisoryRunning_{false};
     std::vector<workbench::SessionMessage> conversation_;
 };

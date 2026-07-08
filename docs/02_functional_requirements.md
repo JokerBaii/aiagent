@@ -127,16 +127,22 @@ CPIR 即 Competition Project Intermediate Representation。系统将不同类型
 
 QML 只负责 UI，不允许承载核心业务逻辑。
 
-## 16. FR-16 竞赛顾问式 Agentic 协作
+## 16. FR-16 竞赛可信智能体协作
 
-系统可以提供会话协作体验，并将其作为桌面端主交互流程；但该能力必须绑定当前竞赛项目、审计会话和规则结果。
+系统可以提供会话式智能体体验，并将其作为桌面端主交互流程；该能力必须绑定当前竞赛项目、审计会话、规则结果和工具轨迹。
 
 必须支持：
 
 - 基于当前 AuditSession 解释 blocker、warning、可信债务和补证任务；
 - 根据赛道、CPIR、证据覆盖率和规则结果生成下一步计划；
+- Composer 使用 `/audit`、`/ask`、`/plan`、`/code`、`/bypass`、`/agent <任务>`、`/task <任务>`、`/help` 等显式命令；
+- 普通自然语言输入必须作为 agent task，不允许再用关键词判断“开始审计”等伪命令；
+- LLM Brain 必须按单步 decision 运行迭代工具循环：每一步基于已有 `AgentObservation` 决定继续调用一个工具或最终回答；
+- 本地 AgentRuntime 负责执行注册工具、权限检查、路径边界和观察记录；未授权 LLM 时才使用本地观察摘要；
+- 每轮智能体任务必须输出结构化 `AgentEvent` 和 JSON trace，Workbench 只能展示事件，不得在 Controller 中临时拼装工具轨迹；
 - 通过 ToolRegistry 调用受控工具，不允许自由调用未注册工具；
-- 高风险动作经过 PermissionGate、LifecycleHookManager 和 HumanApprovalGate；
+- 在项目副本内枚举文件、搜索文本、读取文本/Markdown，并将 Markdown 修订稿、新模板或清单写入会话工作区；
+- 高风险动作经过 PermissionGate、LifecycleHookManager 和 Workbench 权限模式；
 - 对话输出必须引用规则 ID、证据来源、缺失材料或明确的审计上下文；
 - 对话历史、用户确认和关键中间结果进入 AuditSessionStore 或 ProjectMemory；
 - LLM 关闭时，核心审计、评分、补证任务和报告导出仍然可用。

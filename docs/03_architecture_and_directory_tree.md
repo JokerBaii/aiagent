@@ -60,11 +60,10 @@ PermissionGate
 LifecycleHookManager
 ProjectMemory
 SpecializedAnalyzers
-ExternalToolAdapter
+AgentRuntime
+StagedAuditPipeline
 AuditSessionStore
 DiffWorkflow
-ContextCompactor
-HumanApprovalGate
 ```
 
 这些模块服务于竞赛审计流水线。它们负责组织工具调用、权限确认、审计会话、项目记忆和专用 analyzer，不直接替代 RuleEngine、EvidenceMatcher、TrustScoreCalculator 等确定性核心模块。
@@ -78,7 +77,6 @@ contest-compiler/
 ├── CMakeLists.txt
 ├── CMakePresets.json
 ├── README.md
-├── LICENSE
 ├── .clang-format
 ├── .clang-tidy
 ├── docs/

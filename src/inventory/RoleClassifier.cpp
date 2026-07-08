@@ -4,6 +4,7 @@
  */
 
 #include "cc/inventory/RoleClassifier.hpp"
+#include "cc/inventory/FormatDetector.hpp"
 #include "cc/loader/ArchiveExtractor.hpp"
 #include "cc/util/StringUtil.hpp"
 
@@ -25,16 +26,19 @@ AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
     if (ArchiveExtractor::isArchivePath(asset.relativePath)) {
         return AssetRole::Archive;
     }
-    if (name == "cmakelists.txt" || name == "makefile" || name == "package.json" ||
-        name == "pyproject.toml" || name == "pom.xml" || name == "build.gradle") {
+    if (name == "cmakelists.txt" || name == "makefile" || name == "dockerfile" ||
+        name == "package.json" || name == "pyproject.toml" || name == "pom.xml" ||
+        name == "build.gradle" || name == "settings.gradle" || name == "vite.config.js" ||
+        name == "webpack.config.js" || name == "tsconfig.json") {
         return AssetRole::BuildSystem;
     }
     if (name == "requirements.txt" || name == "package-lock.json" || name == "pnpm-lock.yaml" ||
-        name == "yarn.lock" || name == "cargo.toml" || name == "go.mod") {
+        name == "yarn.lock" || name == "cargo.toml" || name == "cargo.lock" || name == "go.mod" ||
+        name == "go.sum" || name == "poetry.lock" || name == "composer.json" || name == "gemfile" ||
+        name == "gemfile.lock") {
         return AssetRole::DependencyManifest;
     }
-    if (asset.language == "cpp" || asset.language == "hpp" || asset.language == "py" ||
-        asset.language == "js" || asset.language == "ts" || asset.language == "qml") {
+    if (!asset.language.empty() || isCodeExtension(asset.extension)) {
         return AssetRole::SourceCode;
     }
     if (util::contains(original, "申报") || util::contains(path, "declaration")) {
@@ -80,8 +84,15 @@ AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
     if (util::contains(original, "证明") || util::contains(original, "成果")) {
         return AssetRole::ProofMaterial;
     }
-    if (asset.extension == ".png" || asset.extension == ".jpg" || asset.extension == ".mp4") {
+    if (asset.mime.rfind("image/", 0) == 0U || asset.mime.rfind("video/", 0) == 0U ||
+        asset.mime.rfind("audio/", 0) == 0U) {
         return AssetRole::ResourceAsset;
+    }
+    if (asset.mime == "application/x-model-artifact") {
+        return AssetRole::ModelArtifact;
+    }
+    if (asset.mime == "application/octet-stream") {
+        return AssetRole::BinaryArtifact;
     }
     return AssetRole::Unknown;
 }

@@ -47,9 +47,9 @@ class AgentCommandRouter {
     /**
      * @brief 解析用户输入。
      *
-     * 支持 `/audit`、`/ask`、`/plan`、`/code`、`/bypass`、`/agent <task>`、
-     * `/permissions <mode>`、`/status`、`/compact`、`/clear` 和 `/help`；
-     * 其他非空文本作为普通智能体任务处理。
+     * 主入口支持 `/audit`、`/agent <task>`、`/status`、`/compact`、`/clear` 和
+     * `/help`；`/ask`、`/plan`、`/code`、`/bypass`、`/permissions <mode>` 保留为
+     * 设置页/高级入口兼容能力。其他非空文本作为普通智能体任务处理。
      */
     [[nodiscard]] Result<AgentCommand> route(const std::string& input) const;
 };

@@ -65,6 +65,9 @@ namespace {
 }
 
 [[nodiscard]] QString toolDisplayName(const std::string& name) {
+    if (name == "run_project_audit") {
+        return "运行规则审计";
+    }
     if (name == "summarize_audit_session") {
         return "压缩审计上下文";
     }
@@ -194,17 +197,17 @@ namespace {
         return accessMode == "bypass" ? "Bypass 模式下经授权读取原项目路径"
                                       : "只读取隔离工作区中的项目副本";
     case cc::ToolPermission::ReadExternalFiles:
-        return "默认拒绝读取项目外文件";
+        return allowed ? "Bypass 模式下允许读取用户授权的项目外文件" : "默认拒绝读取项目外文件";
     case cc::ToolPermission::WriteWorkspace:
         return "允许写入 .workspaces 会话产物";
     case cc::ToolPermission::ModifyOriginalProject:
         return allowed ? "Bypass 模式下允许接触原项目" : "默认拒绝覆盖原始项目";
     case cc::ToolPermission::ExecuteCommand:
-        return "默认拒绝自由执行脚本或 shell";
+        return allowed ? "Bypass 模式下允许执行受控外部命令" : "默认拒绝自由执行脚本或 shell";
     case cc::ToolPermission::NetworkAccess:
-        return allowed ? "已由 Brain 确认勾选临时允许" : "默认拒绝联网";
+        return allowed ? "默认允许联网；缺少 API key 时不会发起 LLM 请求" : "已关闭联网";
     case cc::ToolPermission::LLMAccess:
-        return allowed ? "已由 Brain 确认勾选临时允许" : "默认拒绝调用 LLM";
+        return allowed ? "默认允许调用 LLM；最终评分仍由规则引擎裁决" : "已关闭 LLM 调用";
     case cc::ToolPermission::ExportReport:
         return "允许导出用户指定的 Markdown/JSON 报告";
     }
@@ -404,18 +407,20 @@ QVariantList permissionCards(bool llmApproved, const QString& accessMode) {
     QVariantList items;
     cc::PermissionGate gate;
     for (const auto permission : gate.permissions()) {
-        const auto brainOverride =
-            llmApproved && (permission == cc::ToolPermission::NetworkAccess ||
-                            permission == cc::ToolPermission::LLMAccess);
+        const auto workbenchLlmBlock =
+            !llmApproved && (permission == cc::ToolPermission::NetworkAccess ||
+                             permission == cc::ToolPermission::LLMAccess);
         const auto bypassOverride =
-            accessMode == "bypass" && permission == cc::ToolPermission::ModifyOriginalProject;
+            accessMode == "bypass" && (permission == cc::ToolPermission::ReadExternalFiles ||
+                                       permission == cc::ToolPermission::ModifyOriginalProject ||
+                                       permission == cc::ToolPermission::ExecuteCommand);
         const auto planBlock =
             accessMode == "plan" && (permission == cc::ToolPermission::ModifyOriginalProject ||
                                      permission == cc::ToolPermission::ExecuteCommand ||
                                      permission == cc::ToolPermission::NetworkAccess ||
                                      permission == cc::ToolPermission::LLMAccess);
         const auto allowed =
-            !planBlock && (gate.isAllowed(permission) || brainOverride || bypassOverride);
+            !planBlock && !workbenchLlmBlock && (gate.isAllowed(permission) || bypassOverride);
         QVariantMap item;
         item["name"] = permissionName(permission);
         item["technicalName"] = stringText(cc::toString(permission));
@@ -433,23 +438,24 @@ QVariantList artifacts(const std::optional<cc::AuditResult>& result,
                        const std::optional<cc::AuditDiff>& auditDiff, const QString& agentResult) {
     QVariantList items;
     if (!result.has_value()) {
-        items.push_back(
-            artifactItem("等待审计产物", "待生成", "运行审计后生成报告、补证计划和审计数据包"));
+        items.push_back(artifactItem("等待审计资料", "待生成",
+                                     "拖入项目后自动整理材料和规则结果，供审计助手参考"));
         return items;
     }
 
-    items.push_back(artifactItem("审计数据包", "JSON", "包含资产、项目画像、声明证据、风险和评分"));
     items.push_back(
-        artifactItem("Markdown 报告", "Markdown", "包含项目概况、风险、补证任务和修复计划"));
-    items.push_back(artifactItem("修复计划", "Plan",
+        artifactItem("审计资料包", "数据", "审计助手自动参考资产、项目画像、声明证据、风险和评分"));
+    items.push_back(
+        artifactItem("缺点评审摘要", "文档", "审计助手自动参考规则风险、补证任务和改进计划"));
+    items.push_back(artifactItem("补证/改进计划", "计划",
                                  QStringLiteral("补证任务 %1 个").arg(result->fixTasks.size())));
-    items.push_back(artifactItem("修复建议片段", "Diff", "只生成建议，不覆盖原项目"));
+    items.push_back(artifactItem("材料修改建议", "修订", "审计助手可写入安全工作区，不覆盖原项目"));
     if (auditDiff.has_value()) {
         items.push_back(artifactItem("二次审计差分", "JSON", stringText(auditDiff->summary)));
     }
     if (!agentResult.isEmpty()) {
         items.push_back(
-            artifactItem("智能体运行结果", "Agent", "包含 Brain/本地循环、工具观察和工作区产物"));
+            artifactItem("审计助手运行结果", "记录", "包含审计过程、工具观察和项目资料"));
     }
     return items;
 }

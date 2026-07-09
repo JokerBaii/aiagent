@@ -8,7 +8,11 @@
 #include "cc/agent/AgentModels.hpp"
 #include "cc/core/Result.hpp"
 
+#include <functional>
+
 namespace cc {
+
+using AgentObservationObserver = std::function<void(const AgentObservation&)>;
 
 /**
  * @brief 执行 Brain 计划的受控运行时。
@@ -20,6 +24,10 @@ class AgentRuntime {
   public:
     /** @brief 在未授权 LLM 时生成并执行保守的本地计划。 */
     [[nodiscard]] Result<AgentRunResult> runLocal(const AgentRunRequest& request) const;
+    /** @brief 执行工具并保留工具产生的强类型结果。 */
+    [[nodiscard]] Result<AgentToolExecution>
+    runToolExecution(const AgentRunRequest& request, const AgentToolCall& call,
+                     AgentObservationObserver observe = {}) const;
     /** @brief 执行单个工具调用。 */
     [[nodiscard]] Result<AgentObservation> runTool(const AgentRunRequest& request,
                                                    const AgentToolCall& call) const;

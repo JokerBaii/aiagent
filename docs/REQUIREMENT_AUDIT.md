@@ -27,15 +27,15 @@
 | FR-12 | 修复计划和 diff-first 边界 | `RepairPlanner`、`RepairDiff`，只生成计划和 diff 文本 | `tests/repair/RepairTests.cpp` |
 | FR-13 | 二次审计差分 | `DiffVerifier`、`AuditDiff` JSON | `tests/audit/AuditTests.cpp` |
 | FR-14 | Markdown/JSON 报告 | `MarkdownReporter`、`JsonReporter` | `tests/report/ReportTests.cpp` |
-| FR-15 | Qt/QML Workbench | `CompileController` 桥接，`SessionWorkspacePage` 作为首屏展示项目上下文、会话历史、composer、受控工具卡片、权限卡片、artifact 列表、资产、评分、风险、证据、差分和导出入口 | CMake 构建 `contest-workbench`，acceptance 检查会话页、toolCards、permissionCards、artifacts 和 sessionHistory 绑定 |
-| FR-16 | 竞赛可信智能体协作 | `contest_agent` 管理结构化工具、权限、hooks、会话、slash command 路由、AgentEvent/trace、文件翻阅、项目文本搜索、Markdown 工作区修订和工作区文本产物写入；`contest_llm` 运行可选 Brain 迭代工具循环，解析单步 decision，并基于 observations 决定继续调用工具或最终回答 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp` |
+| FR-15 | Qt/QML Workbench | `CompileController` 桥接，`SessionWorkspacePage` 作为首屏展示项目上下文、会话历史、composer、受控工具观察、artifact 列表、资产、评分、风险、证据、差分和导出入口；权限边界集中在设置抽屉 | CMake 构建 `contest-workbench`，acceptance 检查会话页、toolCards、permissionCards、artifacts 和 sessionHistory 绑定 |
+| FR-16 | 竞赛可信智能体协作 | `contest_agent` 管理 `run_project_audit`、结构化工具、权限、hooks、会话、AgentEvent/trace、文件翻阅和工作区产物；授权 LLM 后拖入项目由 Brain 在工作线程调用确定性审计工具，取得各阶段观察和强类型结果后继续循环，后续回合携带对话历史；Brain 失败不静默降级，本地审计仅作为未配置 LLM 时的路径 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp` |
 
 ## 架构和模块边界
 
 | 要求 | 当前落实 |
 |---|---|
 | C++ Core 负责可信审计逻辑 | `contest_core` 包含数据模型、loader、inventory、text、cpir、claim、evidence、consistency、rules、audit、repair、report |
-| Agentic runtime 独立 | `contest_agent` 包含 `ToolRegistry`、`PermissionGate`、`LifecycleHookManager`、`ProjectMemory`、`AuditSessionStore`、`AgentRuntime`、`StagedAuditPipeline` 和专用 Analyzer |
+| Agentic runtime 独立 | `contest_agent` 包含 `ToolRegistry`、`PermissionGate`、`LifecycleHookManager`、`ProjectMemory`、`AuditSessionStore`、`AgentRuntime` 和 `StagedAuditPipeline`；赛道专用判断由 JSON 规则包隐式匹配 |
 | LLM 只能可选主控 | `contest_llm` 单独承载 `LlmBrain`、`BrainAgentLoop`、HTTPS 客户端、endpoint/parser 和工具 decision 解析；`contest_core` 不包含 LLM/OpenSSL 对象，最终评分不受 LLM 改写 |
 | QML Controller 只能桥接 | `CompileController` 调用 core/agent/llm/report 服务并转成 QML 模型，不实现扫描、规则、评分、证据匹配 |
 | 禁止单文件和万能 Manager | `include/cc/<module>/` 与 `src/<module>/` 拆分；没有 `all_in_one/app/core/manager` 等禁止命名 |
@@ -47,8 +47,8 @@
 | 路径穿越防护 | `PathGuard` 校验 root 内路径，解包前检查条目 | `tests/loader/LoaderTests.cpp` |
 | 不覆盖原项目 | 目录输入先复制到 `.workspaces/<session>/input`，修复只生成计划/diff | `tests/loader/LoaderTests.cpp`、`tests/repair/RepairTests.cpp` |
 | zip/libarchive/OpenXML/PDF 不执行 shell | `ZipArchiveReader`、`LibArchiveReader`、`OpenXmlTextExtractor` 和 `PdfContentStreamParser` 都不调用外部工具 | acceptance 禁止 `popen/std::system/unzip/pdftotext` 出现在相关产品代码 |
-| 默认不联网、不调用 LLM | `PermissionGate` 默认拒绝 `NetworkAccess` 和 `LLMAccess` | `tests/agent/AgentTests.cpp` |
-| LLM 显式授权 | `LlmBrain` 必须同时有联网授权、LLM 授权和 API key | `tests/llm/LlmTests.cpp` |
+| 默认允许联网和 LLM 边界 | `PermissionGate` 默认允许 `NetworkAccess` 和 `LLMAccess`，但没有 API key 时 `LlmBrain` 不会发起请求 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp` |
+| LLM 请求保护 | `LlmBrain` 必须同时有运行时授权标志和 API key | `tests/llm/LlmTests.cpp` |
 | hooks 阻断 | `LifecycleHookManager` 内置 PathSafety、SensitiveFile、NoOriginalOverwrite、RulePackValidation、ReportCompleteness、NoFabricatedEvidence | `tests/agent/AgentTests.cpp` |
 | 敏感文件识别 | `SensitiveFileDetector` 标记 `.env`、key、token、credentials 等 | `tests/inventory/InventoryTests.cpp` |
 

@@ -19,14 +19,19 @@
 #include "cc/llm/LlmBrain.hpp"
 #include "cc/report/JsonReporter.hpp"
 #include "cc/report/MarkdownReporter.hpp"
+#include "cc/util/FileUtil.hpp"
 
 #include <QCoreApplication>
 #include <QFileInfo>
+#include <QPointer>
 #include <QStringList>
+#include <QThread>
 #include <QUrl>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -77,6 +82,204 @@ namespace {
     return std::filesystem::is_regular_file(rulesDir / "common_rules.json", ec);
 }
 
+[[nodiscard]] QString severityLabel(cc::Severity severity) {
+    switch (severity) {
+    case cc::Severity::Blocker:
+        return "必须处理";
+    case cc::Severity::Warning:
+        return "需要关注";
+    case cc::Severity::Info:
+        return "提示";
+    }
+    return "未知";
+}
+
+[[nodiscard]] QString friendlyToolName(const std::string& name) {
+    if (name == "run_project_audit") {
+        return "运行项目规则审计";
+    }
+    if (name == "inventory_project") {
+        return "整理项目材料";
+    }
+    if (name == "extract_text") {
+        return "读取可审计文本";
+    }
+    if (name == "detect_competition_type") {
+        return "判断参赛类别";
+    }
+    if (name == "build_cpir") {
+        return "生成项目画像";
+    }
+    if (name == "extract_claims") {
+        return "提取关键声明";
+    }
+    if (name == "match_evidence") {
+        return "匹配声明证据";
+    }
+    if (name == "check_consistency") {
+        return "检查材料一致性";
+    }
+    if (name == "run_rules") {
+        return "执行审计规则";
+    }
+    if (name == "calculate_trust_score") {
+        return "计算可信评分";
+    }
+    if (name == "generate_fix_tasks") {
+        return "生成补证任务";
+    }
+    if (name == "generate_repair_plan") {
+        return "整理改进方案";
+    }
+    if (name == "summarize_audit_session") {
+        return "查看审计摘要";
+    }
+    if (name == "list_project_files") {
+        return "查看项目文件";
+    }
+    if (name == "inspect_project_file") {
+        return "识别文件类型";
+    }
+    if (name == "read_text_file") {
+        return "阅读项目材料";
+    }
+    if (name == "inspect_archive") {
+        return "检查项目压缩包";
+    }
+    if (name == "search_project_text") {
+        return "搜索项目内容";
+    }
+    if (name == "draft_markdown_revision") {
+        return "生成材料修订稿";
+    }
+    if (name == "write_workspace_file") {
+        return "保存审计产物";
+    }
+    return "执行受控审计步骤";
+}
+
+[[nodiscard]] bool wantsOptimization(const QString& message) {
+    const auto text = message.trimmed().toLower();
+    if (text.isEmpty()) {
+        return false;
+    }
+    return text == "是" || text == "好的" || text == "可以" || text == "开始" ||
+           text == "开始优化" || text == "优化" || text == "修复" || text == "yes" ||
+           text == "ok" || text.contains("帮我优化") || text.contains("开始优化") ||
+           text.contains("继续优化") || text.contains("修复项目") || text.contains("优化项目");
+}
+
+[[nodiscard]] QString defectReportText(const cc::AuditResult& result) {
+    QStringList lines;
+    lines << QStringLiteral("缺点评审完成：确定性评分 %1/100，可信债务 %2。")
+                 .arg(result.trustScore.totalScore)
+                 .arg(result.trustScore.trustDebt);
+    lines << QStringLiteral("我只列影响交付可信度的问题，不写无关优点。");
+
+    if (result.findings.empty() && result.consistencyIssues.empty() && result.fixTasks.empty()) {
+        lines << "当前规则包没有抓到必须处理项或补证任务。建议仍做人工复核后再提交。";
+        return lines.join("\n");
+    }
+
+    if (!result.findings.empty()) {
+        lines << "\n规则命中的缺点：";
+        const auto limit = std::min<std::size_t>(result.findings.size(), 8U);
+        for (std::size_t index = 0U; index < limit; ++index) {
+            const auto& finding = result.findings.at(index);
+            lines << QStringLiteral("%1. [%2] %3：%4")
+                         .arg(static_cast<int>(index + 1U))
+                         .arg(severityLabel(finding.severity))
+                         .arg(stringText(finding.title))
+                         .arg(stringText(finding.reason));
+        }
+        if (result.findings.size() > limit) {
+            lines << QStringLiteral("... 还有 %1 个规则问题已写入报告。")
+                         .arg(static_cast<int>(result.findings.size() - limit));
+        }
+    }
+
+    if (!result.consistencyIssues.empty()) {
+        lines << "\n材料一致性缺点：";
+        const auto limit = std::min<std::size_t>(result.consistencyIssues.size(), 5U);
+        for (std::size_t index = 0U; index < limit; ++index) {
+            const auto& issue = result.consistencyIssues.at(index);
+            lines << QStringLiteral("%1. [%2] %3；建议：%4")
+                         .arg(static_cast<int>(index + 1U))
+                         .arg(severityLabel(issue.severity))
+                         .arg(stringText(issue.description))
+                         .arg(stringText(issue.fixSuggestion));
+        }
+    }
+
+    if (!result.fixTasks.empty()) {
+        lines << "\n优先优化/补证任务：";
+        const auto limit = std::min<std::size_t>(result.fixTasks.size(), 6U);
+        for (std::size_t index = 0U; index < limit; ++index) {
+            const auto& task = result.fixTasks.at(index);
+            lines << QStringLiteral("%1. [%2] %3：%4")
+                         .arg(static_cast<int>(index + 1U))
+                         .arg(stringText(task.priority))
+                         .arg(stringText(task.title))
+                         .arg(stringText(task.reason));
+        }
+    }
+
+    lines << "\n是否需要我继续优化项目？回复“是”或“开始优化”，我会把缺点修复方案和补证清单写到安全"
+             "工作区。";
+    return lines.join("\n");
+}
+
+[[nodiscard]] std::string optimizationMarkdown(const cc::AuditResult& result) {
+    std::ostringstream output;
+    output << "# 项目缺点优化方案\n\n";
+    output << "本文件由 Workbench 根据规则审计、证据匹配和一致性检查生成。它只处理缺点，"
+              "不伪造用户、营收、合作、专利、实验结果或市场数据，也不覆盖原项目。\n\n";
+    output << "## 当前评分\n\n";
+    output << "- 可信评分：" << result.trustScore.totalScore << "/100\n";
+    output << "- 可信债务：" << result.trustScore.trustDebt << "\n";
+    output << "- 规则问题：" << result.findings.size() << "\n";
+    output << "- 补证任务：" << result.fixTasks.size() << "\n\n";
+
+    output << "## 必须处理的缺点\n\n";
+    bool hasBlocker = false;
+    for (const auto& finding : result.findings) {
+        if (finding.severity != cc::Severity::Blocker) {
+            continue;
+        }
+        hasBlocker = true;
+        output << "- [" << finding.ruleId << "] " << finding.title << "：" << finding.reason
+               << "\n  - 修复建议：" << finding.fixSuggestion << "\n";
+    }
+    if (!hasBlocker) {
+        output << "暂无 blocker 级问题。\n";
+    }
+
+    output << "\n## 补证清单\n\n";
+    if (result.fixTasks.empty()) {
+        output << "暂无补证任务。\n";
+    }
+    for (const auto& task : result.fixTasks) {
+        output << "- [ ] " << task.title << "\n";
+        output << "  - 优先级：" << task.priority << "\n";
+        output << "  - 原因：" << task.reason << "\n";
+        if (!task.requiredMaterial.empty()) {
+            output << "  - 需要材料：";
+            for (std::size_t index = 0U; index < task.requiredMaterial.size(); ++index) {
+                output << (index == 0U ? "" : "、") << task.requiredMaterial.at(index);
+            }
+            output << "\n";
+        }
+    }
+
+    output << "\n## 修复计划\n\n";
+    output << result.repairPlan.markdown << "\n";
+    if (!result.repairPlan.diffText.empty()) {
+        output << "\n## Diff-first 草稿\n\n";
+        output << "```diff\n" << result.repairPlan.diffText << "\n```\n";
+    }
+    return output.str();
+}
+
 void appendParentRuleCandidates(std::vector<std::filesystem::path>& candidates,
                                 std::filesystem::path start) {
     std::error_code ec;
@@ -125,8 +328,26 @@ void appendParentRuleCandidates(std::vector<std::filesystem::path>& candidates,
 } // namespace
 
 CompileController::CompileController(QObject* parent) : QObject(parent) {
+    const auto deepSeekKey = envText("DEEPSEEK_API_KEY").isEmpty() ? envText("DEEPSEEK_AUTH_TOKEN")
+                                                                   : envText("DEEPSEEK_API_KEY");
+    if (!deepSeekKey.isEmpty()) {
+        llmApiKey_ = deepSeekKey;
+        llmProvider_ = "deepseek";
+        llmApiKeyHeader_ = "Authorization";
+        llmApiKeyPrefix_ = "Bearer ";
+        const auto endpoint =
+            endpointFromBaseUrl(envText("DEEPSEEK_BASE_URL"), "/chat/completions");
+        if (!endpoint.isEmpty()) {
+            llmEndpoint_ = endpoint;
+        }
+        const auto model = envText("DEEPSEEK_MODEL");
+        if (!model.isEmpty()) {
+            llmModel_ = model;
+        }
+    }
+
     const auto anthropicToken = envText("ANTHROPIC_AUTH_TOKEN");
-    if (!anthropicToken.isEmpty()) {
+    if (llmApiKey_.isEmpty() && !anthropicToken.isEmpty()) {
         llmApiKey_ = anthropicToken;
         llmProvider_ = "anthropic";
         llmApiKeyHeader_ = "Authorization";
@@ -267,6 +488,9 @@ bool CompileController::agentRunning() const {
 int CompileController::agentProgress() const {
     const auto total = static_cast<int>(auditStageCount()) + 1;
     if (agentRunning_) {
+        if (activeAuditStep_ < 0) {
+            return 0;
+        }
         return std::clamp((completedAuditSteps_ * 100) / total, 0, 99);
     }
     return result_.has_value() ? 100 : 0;
@@ -319,9 +543,6 @@ void CompileController::setLlmApiKey(const QString& value) {
     llmApiKey_ = trimmed;
     if (!llmApiKey_.isEmpty() && !llmApproved_) {
         llmApproved_ = true;
-        emit workspaceChanged();
-    } else if (llmApiKey_.isEmpty() && llmApproved_) {
-        llmApproved_ = false;
         emit workspaceChanged();
     }
     emit llmConfigChanged();
@@ -402,12 +623,49 @@ void CompileController::selectProject(const QString& urlOrPath) {
     if (path.isEmpty()) {
         return;
     }
+    if (agentRunning_) {
+        conversation_.push_back({"系统", "当前审计仍在运行，完成后再切换新项目。", "项目导入",
+                                 "system", QString{}, false});
+        emit sessionChanged();
+        return;
+    }
     setProjectPath(path);
-    conversation_.push_back({"系统", QStringLiteral("已选择项目：%1").arg(path), accessModeLabel(),
-                             "system", QString{}, true});
-    status_ = "已选择项目，可开始审计或让智能体翻阅材料";
+    result_.reset();
+    auditDiff_.reset();
+    advisory_.reset();
+    agentResult_.clear();
+    agentTrace_.clear();
+    activeAuditStep_ = -1;
+    completedAuditSteps_ = 0;
+    currentAgentAction_.clear();
+    conversation_.push_back(
+        {"用户", QStringLiteral("审计项目：%1").arg(path), "项目导入", "user", QString{}, true});
+    const bool brainReady = llmApproved_ && !llmApiKey_.isEmpty();
+    conversation_.push_back(
+        {"智能体",
+         brainReady
+             ? "已接收项目。大模型审计助手会先运行材料与规则审计，再结合证据结果阅读项目"
+               "内容并给出清楚的改进建议。"
+             : "已接收项目。当前未配置 LLM Brain，将运行本地确定性规则审计；评分仍由"
+               "规则和证据链生成。",
+         brainReady ? "智能审计" : "本地规则审计", "assistant", QString{}, true});
+    status_ = brainReady ? "大模型审计助手正在分析项目" : "正在启动本地规则审计";
     emit statusChanged();
+    emit resultChanged();
+    emit auditDiffChanged();
+    emit advisoryChanged();
+    emit agentResultChanged();
+    emit agentTraceChanged();
+    emit workspaceChanged();
     emit sessionChanged();
+    if (brainReady) {
+        startDeferredAgentConversation(
+            "请审查当前项目。先调用 run_project_audit 获取确定性规则、证据匹配和评分结果，"
+            "再根据审计观察判断是否需要继续读取材料，最后回答主要缺点和下一步。",
+            "项目导入", false);
+        return;
+    }
+    runAudit();
 }
 
 void CompileController::newSession() {
@@ -561,6 +819,158 @@ void CompileController::runAdvisory() {
     emit sessionChanged();
 }
 
+void CompileController::runInlineAdvisory() {
+    if (!result_.has_value()) {
+        return;
+    }
+    if (!llmApproved_ || llmApiKey_.isEmpty()) {
+        conversation_.push_back(
+            {"系统", "未配置 LLM Brain，本轮使用确定性规则、证据匹配和一致性检查完成评审。",
+             "混合研判", "system", QString{}, true});
+        return;
+    }
+
+    advisoryRunning_ = true;
+    emit advisoryChanged();
+
+    cc::LlmConfig config;
+    config.apiKey = llmApiKey_.toStdString();
+    config.endpoint = llmEndpoint_.toStdString();
+    config.model = llmModel_.toStdString();
+    config.provider = llmProvider_.toStdString();
+    config.apiKeyHeader = llmApiKeyHeader_.toStdString();
+    config.apiKeyPrefix = llmApiKeyPrefix_.toStdString();
+    config.allowNetwork = true;
+    config.allowLlm = true;
+
+    auto proposed = cc::LlmBrain{}.requestAuditAdvisory(config, *result_);
+    if (!proposed.ok()) {
+        advisoryRunning_ = false;
+        conversation_.push_back({"系统",
+                                 QStringLiteral("LLM Brain 研判失败，已回退到确定性规则结果：%1")
+                                     .arg(QString::fromStdString(proposed.error())),
+                                 "混合研判", "system", QString{}, false});
+        emit advisoryChanged();
+        return;
+    }
+
+    advisory_ = cc::AdvisoryReconciler{}.reconcile(proposed.value(), *result_);
+    advisoryRunning_ = false;
+    conversation_.push_back({"工具", "LLM Brain 的风险判断已与规则和证据逐条校验。",
+                             QStringLiteral("确认 %1 · 待核实 %2 · 冲突 %3")
+                                 .arg(static_cast<int>(advisory_->confirmedCount))
+                                 .arg(static_cast<int>(advisory_->unverifiedCount))
+                                 .arg(static_cast<int>(advisory_->conflictingCount)),
+                             "tool", QString::fromStdString(advisory_->summary),
+                             advisory_->conflictingCount == 0});
+    emit advisoryChanged();
+}
+
+void CompileController::runGeneralAssistant(const QString& message, const QString& context) {
+    runGeneralAssistant(message, context, true);
+}
+
+void CompileController::runGeneralAssistant(const QString& message, const QString& context,
+                                            bool appendUserMessage) {
+    const auto trimmed = message.trimmed();
+    if (trimmed.isEmpty()) {
+        return;
+    }
+    if (appendUserMessage) {
+        conversation_.push_back({"用户", trimmed, context, "user", QString{}, true});
+    }
+
+    if (!llmApproved_ || llmApiKey_.isEmpty()) {
+        status_ = "常规问答需要先在设置中配置 LLM Brain";
+        conversation_.push_back(
+            {"智能体",
+             "我可以作为常规问答助手，也可以专门评审竞赛项目。当前没有配置 LLM Brain，所以"
+             "不能生成开放式回答；你可以先拖入项目让我做规则评审，或在设置里填入 API key 后再问。",
+             "常规问答", "assistant", QString{}, true});
+        emit statusChanged();
+        emit sessionChanged();
+        return;
+    }
+
+    cc::LlmConfig config;
+    config.apiKey = llmApiKey_.toStdString();
+    config.endpoint = llmEndpoint_.toStdString();
+    config.model = llmModel_.toStdString();
+    config.provider = llmProvider_.toStdString();
+    config.apiKeyHeader = llmApiKeyHeader_.toStdString();
+    config.apiKeyPrefix = llmApiKeyPrefix_.toStdString();
+    config.allowNetwork = true;
+    config.allowLlm = true;
+
+    std::vector<cc::LlmMessage> messages{
+        {.role = "system",
+         .content = "你是竞赛项目可信评审平台中的常规问答助手。回答要清楚、直接；涉及项目评审时"
+                    "提醒用户拖入项目以便结合规则和证据，不要伪造材料或评分。"}};
+    const auto historyStart =
+        conversation_.size() > 12U ? conversation_.size() - 12U : 0U;
+    for (std::size_t index = historyStart; index < conversation_.size(); ++index) {
+        const auto& item = conversation_.at(index);
+        const auto kind = item.kind.trimmed().toLower();
+        if ((kind != "user" && kind != "assistant") || item.text.trimmed().isEmpty()) {
+            continue;
+        }
+        messages.push_back(
+            {.role = kind.toStdString(), .content = item.text.trimmed().toStdString()});
+    }
+    if (messages.back().role != "user" || messages.back().content != trimmed.toStdString()) {
+        messages.push_back({.role = "user", .content = trimmed.toStdString()});
+    }
+    auto response = cc::LlmBrain{}.complete(config, messages);
+    if (!response.ok()) {
+        status_ = QString::fromStdString(response.error());
+        conversation_.push_back({"系统", status_, "常规问答", "system", QString{}, false});
+        emit statusChanged();
+        emit sessionChanged();
+        return;
+    }
+
+    status_ = "常规问答已完成";
+    conversation_.push_back({"智能体", QString::fromStdString(response.value().content), "常规问答",
+                             "assistant", QString{}, true});
+    emit statusChanged();
+    emit sessionChanged();
+}
+
+void CompileController::runOptimization() {
+    if (!result_.has_value()) {
+        status_ = "请先完成项目评审，再开始优化";
+        conversation_.push_back({"系统", status_, "优化项目", "system", QString{}, false});
+        emit statusChanged();
+        emit sessionChanged();
+        return;
+    }
+
+    const auto output =
+        result_->context.workspaceRoot / "agent" / "optimization" / "defect-fix-plan.md";
+    auto written = cc::util::writeTextFile(output, optimizationMarkdown(*result_));
+    if (!written.ok()) {
+        status_ = QString::fromStdString(written.error());
+        conversation_.push_back({"系统", status_, "优化项目", "system", QString{}, false});
+        emit statusChanged();
+        emit sessionChanged();
+        return;
+    }
+
+    agentResult_ = QStringLiteral("已生成缺点优化方案：%1")
+                       .arg(QString::fromStdString(cc::util::pathString(output)));
+    status_ = "优化方案已写入安全工作区";
+    conversation_.push_back({"产物", agentResult_, "优化产物", "artifact", QString{}, true});
+    conversation_.push_back(
+        {"智能体",
+         "我已把缺点修复方案、补证清单和 diff-first 草稿写入工作区。默认不会覆盖原项目；"
+         "完成补证或手动采纳修订后，可以再次拖入优化后的项目做二次审计。",
+         "优化完成", "assistant", QString{}, true});
+    emit statusChanged();
+    emit agentResultChanged();
+    emit workspaceChanged();
+    emit sessionChanged();
+}
+
 void CompileController::runAudit() {
     if (agentRunning_) {
         status_ = "审计正在进行";
@@ -580,6 +990,11 @@ void CompileController::runAudit() {
     options.rulesDir = resolveRulesDir(projectPath_);
     const auto normalizedPath = normalizedInputPath(projectPath_);
 
+    result_.reset();
+    auditDiff_.reset();
+    advisory_.reset();
+    agentResult_.clear();
+    agentTrace_.clear();
     auditRun_ = std::make_unique<cc::StagedAuditPipeline>();
     auto begun = auditRun_->begin(normalizedPath.toStdString(), options);
     if (!begun.ok()) {
@@ -601,10 +1016,16 @@ void CompileController::runAudit() {
          QStringLiteral(
              "已建立安全工作副本（会话 %1）。我会按受控流程逐步执行：整理材料、读取文本、"
              "判断赛道、生成项目画像、抽取声明、匹配证据、检查一致性、执行规则、计算评分、"
-             "生成补证任务和修复计划。整个过程只读取隔离副本，不覆盖原项目。")
+             "生成补证任务和修复计划。评审输出只抓缺点，最终评分由规则与证据裁决；整个过程"
+             "只读取隔离副本，不覆盖原项目。")
              .arg(stringText(begun.value().sessionId)),
          "审计计划"});
     emit statusChanged();
+    emit resultChanged();
+    emit auditDiffChanged();
+    emit advisoryChanged();
+    emit agentResultChanged();
+    emit agentTraceChanged();
     emit agentStateChanged();
     emit workspaceChanged();
     emit sessionChanged();
@@ -631,6 +1052,7 @@ void CompileController::advanceAuditRun() {
             emit agentStateChanged();
             emit workspaceChanged();
             emit sessionChanged();
+            flushQueuedComposerMessage();
             return;
         }
 
@@ -663,6 +1085,7 @@ void CompileController::advanceAuditRun() {
 void CompileController::finishAuditRun() {
     if (auditRun_ == nullptr) {
         agentRunning_ = false;
+        flushQueuedComposerMessage();
         return;
     }
     auto result = auditRun_->finish();
@@ -676,6 +1099,7 @@ void CompileController::finishAuditRun() {
         emit agentStateChanged();
         emit workspaceChanged();
         emit sessionChanged();
+        flushQueuedComposerMessage();
         return;
     }
     result_ = std::move(result.value());
@@ -684,16 +1108,19 @@ void CompileController::finishAuditRun() {
     agentRunning_ = false;
     completedAuditSteps_ = static_cast<int>(auditStageCount());
     currentAgentAction_ = "审计完成";
-    status_ = "审计完成";
+    status_ = "缺点评审完成，等待是否优化";
     conversation_.push_back(
         {"工具", "已完成材料整理、证据匹配、规则检查和评分。",
          QStringLiteral("会话 %1").arg(stringText(result_->context.sessionId))});
-    conversation_.push_back({"智能体", agentSummary(), "下一步建议"});
+    runInlineAdvisory();
+    conversation_.push_back(
+        {"智能体", defectReportText(*result_), "缺点评审报告", "assistant", QString{}, true});
     emit statusChanged();
     emit agentStateChanged();
     emit resultChanged();
     emit workspaceChanged();
     emit sessionChanged();
+    flushQueuedComposerMessage();
 }
 
 void CompileController::runDiff() {
@@ -722,7 +1149,7 @@ void CompileController::runBrainTask(const QString& goal) {
     const auto trimmed = goal.trimmed().isEmpty()
                              ? QStringLiteral("请接管当前竞赛项目，翻阅材料并给出可信审计下一步。")
                              : goal.trimmed();
-    runAgentConversation(trimmed, "Brain 任务");
+    startDeferredAgentConversation(trimmed, "Brain 任务", true);
 }
 
 QString CompileController::accessModeLabel() const {
@@ -788,10 +1215,17 @@ QString CompileController::compactedContextText() const {
 }
 
 void CompileController::previewAgentPlan(const QString& message, const QString& context) {
+    previewAgentPlan(message, context, true);
+}
+
+void CompileController::previewAgentPlan(const QString& message, const QString& context,
+                                         bool appendUserMessage) {
     const auto goal = message.trimmed().isEmpty()
                           ? QStringLiteral("为当前竞赛项目生成下一步审计计划。")
                           : message.trimmed();
-    conversation_.push_back({"用户", goal, context});
+    if (appendUserMessage) {
+        conversation_.push_back({"用户", goal, context});
+    }
 
     QStringList steps;
     steps << QStringLiteral("目标：%1").arg(goal);
@@ -812,8 +1246,9 @@ void CompileController::previewAgentPlan(const QString& message, const QString& 
     emit sessionChanged();
 }
 
-void CompileController::runAgentConversation(const QString& message, const QString& context) {
-    if (agentRunning_) {
+void CompileController::runAgentConversation(const QString& message, const QString& context,
+                                             bool appendUserMessage) {
+    if (agentRunning_ && appendUserMessage) {
         conversation_.push_back(
             {"智能体",
              QStringLiteral("我正在%1，等当前工具调用完成后再接管新任务。")
@@ -823,30 +1258,35 @@ void CompileController::runAgentConversation(const QString& message, const QStri
         return;
     }
 
-    if (accessMode_ == "plan") {
-        previewAgentPlan(message, context);
+    if (result_.has_value() && wantsOptimization(message)) {
+        if (appendUserMessage) {
+            conversation_.push_back({"用户", message.trimmed(), context, "user", QString{}, true});
+        }
+        runOptimization();
         return;
     }
 
-    conversation_.push_back({"用户", message, context});
     const auto request = makeAgentRequest(message);
     if (request.projectRoot.empty() && !result_.has_value()) {
-        status_ = "请先选择项目材料包";
-        conversation_.push_back(
-            {"智能体", "先选择项目目录或材料包，我才能自动翻阅文件并执行受控工具。", "等待材料"});
-        emit statusChanged();
-        emit sessionChanged();
+        runGeneralAssistant(message, context, appendUserMessage);
         return;
+    }
+
+    if (accessMode_ == "plan") {
+        previewAgentPlan(message, context, appendUserMessage);
+        return;
+    }
+
+    if (appendUserMessage) {
+        conversation_.push_back({"用户", message, context});
     }
 
     const bool brainReady = llmApproved_ && !llmApiKey_.isEmpty();
-    status_ = brainReady ? "Brain 正在运行工具循环" : "本地诊断：未启用 Brain";
+    status_ = brainReady ? "大模型审计助手正在分析" : "本地诊断：未启用大模型";
     emit statusChanged();
 
-    cc::Result<cc::AgentRunResult> run = cc::Result<cc::AgentRunResult>::failure("未执行");
-    QString planner = brainReady ? "LLM Brain" : "本地诊断";
-    cc::LlmConfig brainConfig;
     if (brainReady) {
+        cc::LlmConfig brainConfig;
         brainConfig.apiKey = llmApiKey_.toStdString();
         brainConfig.endpoint = llmEndpoint_.toStdString();
         brainConfig.model = llmModel_.toStdString();
@@ -855,62 +1295,269 @@ void CompileController::runAgentConversation(const QString& message, const QStri
         brainConfig.apiKeyPrefix = llmApiKeyPrefix_.toStdString();
         brainConfig.allowNetwork = request.allowNetwork;
         brainConfig.allowLlm = request.allowLlm;
-        auto brainRun = cc::BrainAgentLoop{}.run(brainConfig, request);
-        if (brainRun.ok()) {
-            run = std::move(brainRun);
-            planner = "LLM Brain";
-        } else {
-            conversation_.push_back(
-                {"Brain",
-                 QStringLiteral("LLM 工具循环失败：%1\n下面只执行本地上下文诊断，不冒充模型回答。")
-                     .arg(QString::fromStdString(brainRun.error())),
-                 "Brain 失败", "system", QString{}, true});
-            run = cc::AgentRuntime{}.runLocal(request);
-            planner = "本地诊断";
+
+        auto requestCopy = request;
+        auto auditSnapshot = std::make_shared<std::optional<cc::AuditResult>>();
+        if (request.auditResult != nullptr) {
+            *auditSnapshot = *request.auditResult;
+            requestCopy.auditResult = &auditSnapshot->value();
         }
-    } else {
-        conversation_.push_back({"系统", "未检测到已授权的大模型配置，本轮只执行本地上下文诊断。",
-                                 "Brain 未启用", "system", QString{}, true});
-        run = cc::AgentRuntime{}.runLocal(request);
+        const QPointer<CompileController> guard{this};
+        brainWorkerRunning_ = true;
+        auto* worker = QThread::create(
+            [guard, brainConfig = std::move(brainConfig),
+             requestCopy = std::move(requestCopy), auditSnapshot]() mutable {
+                const auto streamEvent = [guard](const cc::AgentEvent& event) {
+                    auto sharedEvent = std::make_shared<cc::AgentEvent>(event);
+                    if (guard.isNull()) {
+                        return;
+                    }
+                    QMetaObject::invokeMethod(
+                        guard,
+                        [guard, sharedEvent]() {
+                            if (!guard.isNull()) {
+                                guard->appendAgentEvent(*sharedEvent);
+                            }
+                        },
+                        Qt::QueuedConnection);
+                };
+                auto outcome =
+                    std::make_shared<cc::Result<cc::AgentRunResult>>(
+                        cc::BrainAgentLoop{}.run(brainConfig, requestCopy, streamEvent));
+                if (guard.isNull()) {
+                    return;
+                }
+                QMetaObject::invokeMethod(
+                    guard,
+                    [guard, outcome]() mutable {
+                        if (guard.isNull()) {
+                            return;
+                        }
+                        guard->brainWorkerRunning_ = false;
+                        guard->applyAgentRunResult(std::move(*outcome), "LLM Brain", false);
+                        guard->finishDeferredAgentConversation();
+                    },
+                    Qt::QueuedConnection);
+            });
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        worker->start();
+        return;
     }
 
+    conversation_.push_back({"系统", "未检测到已授权的大模型配置，本轮只执行本地上下文诊断。",
+                             "Brain 未启用", "system", QString{}, true});
+    applyAgentRunResult(cc::AgentRuntime{}.runLocal(request), "本地诊断");
+}
+
+void CompileController::appendAgentEvent(const cc::AgentEvent& event) {
+    workbench::SessionMessage message;
+    message.ok = event.kind == cc::AgentEventKind::Tool
+                     ? event.payload.at("ok").asBool(false)
+                     : true;
+
+    if (event.kind == cc::AgentEventKind::Plan) {
+        const auto toolName = event.payload.at("call").at("name").asString();
+        const auto label = friendlyToolName(toolName);
+        message.role = "审计过程";
+        message.kind = "tool";
+        message.text = QStringLiteral("准备%1").arg(label);
+        message.context = "审计流程";
+        currentAgentAction_ = label;
+        status_ = QStringLiteral("正在%1").arg(label);
+    } else if (event.kind == cc::AgentEventKind::Tool) {
+        const auto toolName = event.payload.at("tool_name").asString();
+        const auto& output = event.payload.at("output");
+        const auto title = output.at("title").asString();
+        const auto detail = output.at("detail").asString();
+        message.role = "审计工具";
+        message.kind = "tool";
+        message.text = title.empty() ? QString::fromStdString(event.text)
+                                     : QString::fromStdString(title);
+        message.detail = QString::fromStdString(detail);
+        if (toolName == "run_project_audit") {
+            message.text = "项目规则审计完成";
+            message.detail = QString::fromStdString(output.at("summary").asString());
+        }
+        message.context = friendlyToolName(toolName);
+        currentAgentAction_ = message.text;
+        status_ = message.ok ? QStringLiteral("已%1").arg(message.text)
+                             : QStringLiteral("%1未完成").arg(message.text);
+    } else if (event.kind == cc::AgentEventKind::Assistant) {
+        message.role = "项目审计助手";
+        message.kind = "assistant";
+        message.text = QString::fromStdString(event.text);
+        message.context.clear();
+        currentAgentAction_ = "整理审计结论";
+    } else {
+        message.role = "系统";
+        message.kind = "system";
+        message.text = QString::fromStdString(event.text);
+        message.context.clear();
+    }
+
+    conversation_.push_back(std::move(message));
+    emit statusChanged();
+    emit agentStateChanged();
+    emit workspaceChanged();
+    emit sessionChanged();
+}
+
+void CompileController::applyAgentRunResult(cc::Result<cc::AgentRunResult> run,
+                                            const QString& planner, bool appendEvents) {
     if (!run.ok()) {
-        status_ = QString::fromStdString(run.error());
-        conversation_.push_back({"系统", status_, "智能体失败"});
+        status_ = planner == "LLM Brain"
+                      ? QStringLiteral("LLM 工具循环失败：%1").arg(
+                            QString::fromStdString(run.error()))
+                      : QString::fromStdString(run.error());
+        conversation_.push_back(
+            {"系统",
+             planner == "LLM Brain"
+                 ? status_ + "\n本轮已停止，没有静默切换成本地回答；请检查配置或网络后重试。"
+                 : status_,
+             "智能体失败", "system", QString{}, false});
         emit statusChanged();
         emit sessionChanged();
         return;
     }
 
-    for (const auto& event : run.value().events) {
-        conversation_.push_back(
-            {QString::fromStdString(event.role), QString::fromStdString(event.text),
-             QString::fromStdString(event.context),
-             QString::fromStdString(cc::toString(event.kind)), QString{}, true});
+    if (appendEvents) {
+        for (const auto& event : run.value().events) {
+            appendAgentEvent(event);
+        }
     }
     agentResult_ = QString::fromStdString(run.value().finalAnswer);
     agentTrace_ = QString::fromStdString(cc::writeJson(cc::agentRunTraceJson(run.value()), 2));
-    status_ = planner == "LLM Brain" ? "LLM Brain 已完成受控工具调用" : "仅完成本地上下文诊断";
+    const bool producedAudit = run.value().auditResult.has_value();
+    if (producedAudit) {
+        result_ = std::move(run.value().auditResult.value());
+        (void)cc::ProjectMemory{}.init(result_->context.workspaceRoot,
+                                       result_->cpir.competitionType);
+        (void)cc::AuditSessionStore{}.save(*result_,
+                                           result_->context.workspaceRoot / "audit.json");
+        completedAuditSteps_ = static_cast<int>(auditStageCount());
+        activeAuditStep_ = -1;
+        currentAgentAction_ = "项目材料审计完成";
+    }
+    status_ = producedAudit
+                  ? "项目材料审计完成"
+                  : planner == "LLM Brain" ? "大模型审计助手已完成分析"
+                                           : "仅完成本地上下文诊断";
     emit statusChanged();
+    if (producedAudit) {
+        emit resultChanged();
+        emit advisoryChanged();
+        emit agentStateChanged();
+    }
     emit agentResultChanged();
     emit agentTraceChanged();
     emit workspaceChanged();
     emit sessionChanged();
 }
 
+void CompileController::startDeferredAgentConversation(const QString& message,
+                                                       const QString& context,
+                                                       bool appendUserMessage) {
+    const auto trimmed = message.trimmed();
+    if (trimmed.isEmpty()) {
+        return;
+    }
+
+    if (appendUserMessage) {
+        conversation_.push_back({"用户", trimmed, context, "user", QString{}, true});
+    }
+
+    if (agentRunning_) {
+        pendingComposerMessages_.push_back({trimmed, context});
+        status_ = QStringLiteral("已加入发送队列（%1）")
+                      .arg(static_cast<int>(pendingComposerMessages_.size()));
+        emit statusChanged();
+        emit sessionChanged();
+        return;
+    }
+
+    agentRunning_ = true;
+    activeAuditStep_ = -1;
+    completedAuditSteps_ = 0;
+    currentAgentAction_ = "思考中";
+    status_ = "Agent 正在思考";
+    emit statusChanged();
+    emit agentStateChanged();
+    emit workspaceChanged();
+    emit sessionChanged();
+
+    // Give QML a frame to paint the submitted turn and thinking indicator first.
+    QTimer::singleShot(40, this, [this, trimmed, context]() {
+        runAgentConversation(trimmed, context, false);
+        if (!brainWorkerRunning_) {
+            finishDeferredAgentConversation();
+        }
+    });
+}
+
+void CompileController::finishDeferredAgentConversation() {
+    if (!auditTimer_.isActive()) {
+        agentRunning_ = false;
+        if (currentAgentAction_ == "思考中") {
+            currentAgentAction_.clear();
+        }
+        emit agentStateChanged();
+    }
+
+    emit workspaceChanged();
+    emit sessionChanged();
+
+    if (!agentRunning_) {
+        flushQueuedComposerMessage();
+    }
+}
+
+void CompileController::flushQueuedComposerMessage() {
+    if (agentRunning_ || pendingComposerMessages_.empty()) {
+        return;
+    }
+
+    const auto next = pendingComposerMessages_.front();
+    pendingComposerMessages_.erase(pendingComposerMessages_.begin());
+    startDeferredAgentConversation(next.message, next.context, false);
+}
+
 cc::AgentRunRequest CompileController::makeAgentRequest(const QString& goal) const {
     cc::AgentRunRequest request;
     request.userGoal = goal.toStdString();
     request.auditResult = result_.has_value() ? &(*result_) : nullptr;
+    request.auditOptions.rulesDir = resolveRulesDir(projectPath_);
     request.permissionMode = accessMode_.toStdString();
     const bool brainReady = llmApproved_ && !llmApiKey_.isEmpty();
-    request.allowNetwork = brainReady;
+    request.allowNetwork = llmApproved_;
     request.allowLlm = brainReady;
     // Bypass 模式：经用户明确授权后，智能体可读取原项目位置，并放开高风险能力标记。
     const bool bypass = accessMode_ == "bypass";
     request.allowReadExternal = bypass;
     request.allowModifyOriginal = bypass;
     request.allowExecuteCommand = bypass;
+    std::size_t historyEnd = conversation_.size();
+    const auto goalText = goal.trimmed();
+    for (std::size_t index = conversation_.size(); index > 0U; --index) {
+        const auto& item = conversation_.at(index - 1U);
+        if (item.kind.trimmed().toLower() == "user" && item.text.trimmed() == goalText) {
+            historyEnd = index;
+            break;
+        }
+    }
+    const auto historyStart = historyEnd > 20U ? historyEnd - 20U : 0U;
+    for (std::size_t index = historyStart; index < historyEnd; ++index) {
+        const auto& item = conversation_.at(index);
+        const auto kind = item.kind.trimmed().toLower();
+        if (kind != "user" && kind != "assistant") {
+            continue;
+        }
+        const auto text = item.text.trimmed();
+        if (text.isEmpty()) {
+            continue;
+        }
+        request.conversationHistory.push_back(
+            {.role = kind.toStdString(), .content = text.toStdString()});
+    }
     if (result_.has_value()) {
         request.projectRoot = bypass ? result_->context.originalRoot : result_->context.inputRoot;
         request.workspaceRoot = result_->context.workspaceRoot / "agent";
@@ -924,6 +1571,7 @@ cc::AgentRunRequest CompileController::makeAgentRequest(const QString& goal) con
             std::filesystem::is_regular_file(selected, ec) ? selected.parent_path() : selected;
         request.projectRoot = selected;
         request.workspaceRoot = workspaceBase / ".project-trust" / "agent-workspace";
+        request.requireAudit = true;
     }
     return request;
 }
@@ -963,6 +1611,15 @@ void CompileController::exportJson(const QString& outputPath) {
 }
 
 void CompileController::submitMessage(const QString& message) {
+    const auto directPath = normalizedInputPath(message.trimmed());
+    if (!directPath.isEmpty()) {
+        const QFileInfo info{directPath};
+        if (info.exists() && (info.isDir() || info.isFile())) {
+            selectProject(directPath);
+            return;
+        }
+    }
+
     auto routed = cc::AgentCommandRouter{}.route(message.toStdString());
     if (!routed.ok()) {
         const auto trimmed = message.trimmed();
@@ -984,6 +1641,23 @@ void CompileController::submitMessage(const QString& message) {
         conversation_.push_back({"用户", QString::fromStdString(command.prompt),
                                  QString::fromStdString(command.context)});
         emit sessionChanged();
+        if (llmApproved_ && !llmApiKey_.isEmpty() &&
+            !normalizedInputPath(projectPath_).trimmed().isEmpty()) {
+            result_.reset();
+            auditDiff_.reset();
+            advisory_.reset();
+            agentResult_.clear();
+            agentTrace_.clear();
+            emit resultChanged();
+            emit auditDiffChanged();
+            emit advisoryChanged();
+            emit agentResultChanged();
+            emit agentTraceChanged();
+            startDeferredAgentConversation(
+                "请重新审查当前项目。必须先调用 run_project_audit，再依据规则和证据结果回答。",
+                QString::fromStdString(command.context), false);
+            return;
+        }
         runAudit();
         return;
     case cc::AgentCommandKind::PlanTask: {
@@ -1052,13 +1726,13 @@ void CompileController::submitMessage(const QString& message) {
     case cc::AgentCommandKind::RunModePrefixedTask: {
         const auto mode = QString::fromStdString(command.context).remove(0, 1);
         setAccessMode(mode);
-        runAgentConversation(QString::fromStdString(command.prompt),
-                             QString::fromStdString(command.context));
+        startDeferredAgentConversation(QString::fromStdString(command.prompt),
+                                       QString::fromStdString(command.context), true);
         return;
     }
     case cc::AgentCommandKind::RunAgentTask:
-        runAgentConversation(QString::fromStdString(command.prompt),
-                             QString::fromStdString(command.context));
+        startDeferredAgentConversation(QString::fromStdString(command.prompt),
+                                       QString::fromStdString(command.context), true);
         return;
     }
 }

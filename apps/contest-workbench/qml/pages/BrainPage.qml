@@ -19,7 +19,7 @@ Item {
             spacing: 12
 
             SectionTitle {
-                title: "Agent Brain"
+                title: "大模型审计助手"
                 subtitle: "模型逐步选择工具，本地运行时执行"
             }
 
@@ -104,7 +104,7 @@ Item {
 
                     PrimaryButton {
                         Layout.fillWidth: true
-                        text: root.compiler.llmApproved ? "Brain 接管任务" : "本地受控执行"
+                        text: root.compiler.llmApproved ? "开始智能审计" : "运行本地规则审计"
                         onClicked: root.compiler.runBrainTask(brainTask.text)
                     }
 
@@ -227,7 +227,7 @@ Item {
             SectionTitle { title: "运行结果" }
             Card {
                 Layout.fillWidth: true
-                Layout.preferredHeight: parent.height * 0.46
+                Layout.preferredHeight: Math.max(180, root.height * 0.28)
                 padding: 4
                 ScrollView {
                     anchors.fill: parent

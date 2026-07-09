@@ -83,11 +83,12 @@ ExportReport
 默认禁止：
 
 ```text
+ReadExternalFiles
 ModifyOriginalProject
 ExecuteCommand
-NetworkAccess
-LLMAccess
 ```
+
+NetworkAccess 和 LLMAccess 默认允许；但 LLM 请求仍必须同时具备运行时授权标志和 API key，缺少 key 时不得向外部模型 endpoint 发起请求。
 
 ## 5. 高风险动作
 

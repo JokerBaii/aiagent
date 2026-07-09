@@ -29,6 +29,13 @@ struct HttpResponse {
 class HttpResponseParser {
   public:
     /**
+     * @brief 判断缓冲区是否已包含一份完整的 HTTP/1.1 响应。
+     *
+     * 支持 Content-Length 和 chunked 边界；没有显式长度时由连接关闭表示完成。
+     */
+    [[nodiscard]] bool isComplete(const std::string& response) const;
+
+    /**
      * @brief 解析原始 HTTP 响应文本。
      */
     [[nodiscard]] Result<HttpResponse> parse(const std::string& response) const;

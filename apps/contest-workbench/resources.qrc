@@ -23,5 +23,7 @@
     <file>qml/components/EmptyState.qml</file>
     <file>qml/components/ChatTurn.qml</file>
     <file>qml/components/Composer.qml</file>
+    <file>qml/components/Icon.qml</file>
+    <file>qml/components/AiAvatar.qml</file>
   </qresource>
 </RCC>

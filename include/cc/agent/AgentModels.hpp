@@ -9,6 +9,7 @@
 #include "cc/core/JsonValue.hpp"
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,14 @@ struct AgentPlan {
 };
 
 /**
+ * @brief 跨回合提供给 Brain 的精简对话消息。
+ */
+struct AgentConversationMessage {
+    std::string role;
+    std::string content;
+};
+
+/**
  * @brief Brain 在一轮工具循环中的下一步决策类型。
  */
 enum class AgentDecisionKind { ToolCall, FinalAnswer };
@@ -105,7 +114,10 @@ struct AgentRunRequest {
     std::string userGoal;
     std::filesystem::path projectRoot;
     std::filesystem::path workspaceRoot;
+    AuditOptions auditOptions;
+    std::vector<AgentConversationMessage> conversationHistory;
     std::string permissionMode{"ask"};
+    bool requireAudit{false};
     bool allowReadExternal{false};
     bool allowModifyOriginal{false};
     bool allowExecuteCommand{false};
@@ -123,6 +135,17 @@ struct AgentRunResult {
     std::vector<AgentEvent> events;
     std::string finalAnswer;
     JsonValue trace;
+    std::optional<AuditResult> auditResult;
+};
+
+/**
+ * @brief 单次工具执行的展示观察和可选强类型审计结果。
+ *
+ * run_project_audit 会返回全部阶段观察及 AuditResult；普通工具只返回一个观察。
+ */
+struct AgentToolExecution {
+    std::vector<AgentObservation> observations;
+    std::optional<AuditResult> auditResult;
 };
 
 /** @brief 将回合事件类型转为稳定字符串。 */

@@ -8,6 +8,7 @@
 #include "WorkbenchSessionModels.hpp"
 #include "cc/agent/AgentModels.hpp"
 #include "cc/agent/StagedAuditPipeline.hpp"
+#include "cc/core/Result.hpp"
 #include "cc/llm/AuditAdvisory.hpp"
 
 #include <QObject>
@@ -138,8 +139,22 @@ class CompileController : public QObject {
   private:
     void advanceAuditRun();
     void finishAuditRun();
+    void runInlineAdvisory();
+    void runGeneralAssistant(const QString& message, const QString& context);
+    void runOptimization();
     void previewAgentPlan(const QString& message, const QString& context);
-    void runAgentConversation(const QString& message, const QString& context);
+    void startDeferredAgentConversation(const QString& message, const QString& context,
+                                        bool appendUserMessage);
+    void finishDeferredAgentConversation();
+    void flushQueuedComposerMessage();
+    void runGeneralAssistant(const QString& message, const QString& context,
+                             bool appendUserMessage);
+    void previewAgentPlan(const QString& message, const QString& context, bool appendUserMessage);
+    void runAgentConversation(const QString& message, const QString& context,
+                              bool appendUserMessage = true);
+    void appendAgentEvent(const cc::AgentEvent& event);
+    void applyAgentRunResult(cc::Result<cc::AgentRunResult> run, const QString& planner,
+                             bool appendEvents = true);
     [[nodiscard]] QString sessionStatusText() const;
     [[nodiscard]] QString compactedContextText() const;
     [[nodiscard]] QString accessModeLabel() const;
@@ -149,14 +164,15 @@ class CompileController : public QObject {
     QString oldAuditPath_;
     QString newAuditPath_;
     QString llmApiKey_;
-    QString llmEndpoint_{"https://api.openai.com/v1/chat/completions"};
-    QString llmModel_{"deepseekv4pro"};
+    QString llmEndpoint_{"https://api.deepseek.com/chat/completions"};
+    QString llmModel_{"deepseek-v4-flash"};
     QString llmProvider_{"deepseek"};
     QString llmApiKeyHeader_{"Authorization"};
     QString llmApiKeyPrefix_{"Bearer "};
     QString accessMode_{"ask"};
-    bool llmApproved_{false};
+    bool llmApproved_{true};
     bool agentRunning_{false};
+    bool brainWorkerRunning_{false};
     int activeAuditStep_{-1};
     int completedAuditSteps_{0};
     QString currentAgentAction_;
@@ -169,5 +185,10 @@ class CompileController : public QObject {
     std::optional<cc::AuditDiff> auditDiff_;
     std::optional<cc::ReconciledAdvisory> advisory_;
     bool advisoryRunning_{false};
+    struct PendingComposerMessage {
+        QString message;
+        QString context;
+    };
+    std::vector<PendingComposerMessage> pendingComposerMessages_;
     std::vector<workbench::SessionMessage> conversation_;
 };

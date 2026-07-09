@@ -59,14 +59,13 @@ ToolRegistry
 PermissionGate
 LifecycleHookManager
 ProjectMemory
-SpecializedAnalyzers
 AgentRuntime
 StagedAuditPipeline
 AuditSessionStore
 DiffWorkflow
 ```
 
-这些模块服务于竞赛审计流水线。它们负责组织工具调用、权限确认、审计会话、项目记忆和专用 analyzer，不直接替代 RuleEngine、EvidenceMatcher、TrustScoreCalculator 等确定性核心模块。
+这些模块服务于竞赛审计流水线。它们负责组织工具调用、权限确认、审计会话和项目记忆，不直接替代 RuleEngine、EvidenceMatcher、TrustScoreCalculator 等确定性核心模块。风险研判由 RuleEngine 基于 JSON 规则包按赛道逐条给出，不再维护一套硬编码 analyzer。
 
 Agentic Runtime 的输入必须来自 ProjectContext、ProjectInventory、CPIR、EvidenceGraph、AuditResult 或用户明确确认；输出必须进入 AuditSession、RepairPlan、AuditDiff 或 Report，不允许生成脱离项目证据链的结论。
 
@@ -147,7 +146,7 @@ add_library(contest_llm STATIC ...)
 add_executable(contest-workbench apps/contest-workbench/main.cpp)
 ```
 
-`contest-workbench` 可以实现侧边栏、会话流、composer、工具调用卡片、artifact 预览和权限确认界面，但只能依赖 `contest_core`、`contest_agent`、可选 `contest_llm` 和 UI Controller，不得把业务逻辑写进 QML。
+`contest-workbench` 可以实现侧边栏、会话流、composer、工具调用观察、artifact 预览和设置式权限边界，但只能依赖 `contest_core`、`contest_agent`、可选 `contest_llm` 和 UI Controller，不得把业务逻辑写进 QML。
 
 如果桌面端使用 LLM Brain，必须通过显式授权的桥接服务调用 `contest_llm`，不得在 QML 中拼接提示词、读取敏感文件或计算审计结论。
 

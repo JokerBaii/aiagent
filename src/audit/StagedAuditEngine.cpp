@@ -24,10 +24,6 @@
 namespace cc {
 namespace {
 
-[[nodiscard]] std::string detailText(const std::string& value) {
-    return value;
-}
-
 [[nodiscard]] AuditStageOutcome ok(const AuditStageInfo& info, std::string detail) {
     return AuditStageOutcome{
         .name = info.name, .title = info.title, .detail = std::move(detail), .ok = true};
@@ -171,8 +167,7 @@ Result<AuditStageOutcome> StagedAuditEngine::advance() {
         }
         result_.toolOutputs = std::move(outputs);
         ++stageIndex_;
-        return Result<AuditStageOutcome>::success(
-            ok(info, detailText("已生成修复建议，不覆盖原项目")));
+        return Result<AuditStageOutcome>::success(ok(info, "已生成修复建议，不覆盖原项目"));
     }
     default:
         return Result<AuditStageOutcome>::failure("未知审计步骤");

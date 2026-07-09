@@ -44,7 +44,50 @@ namespace {
     return Result<std::string>::failure("HTTP chunked 响应缺少结束块");
 }
 
+[[nodiscard]] std::map<std::string, std::string> parseHeaders(const std::string& headerText) {
+    std::istringstream headerStream{headerText};
+    std::string line;
+    std::getline(headerStream, line);
+
+    std::map<std::string, std::string> headers;
+    while (std::getline(headerStream, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        const auto colon = line.find(':');
+        if (colon == std::string::npos) {
+            continue;
+        }
+        headers[lowerHeader(line.substr(0, colon))] = util::trim(line.substr(colon + 1U));
+    }
+    return headers;
+}
+
 } // namespace
+
+bool HttpResponseParser::isComplete(const std::string& response) const {
+    const auto split = response.find("\r\n\r\n");
+    if (split == std::string::npos) {
+        return false;
+    }
+
+    const auto headers = parseHeaders(response.substr(0, split));
+    const auto body = response.substr(split + 4U);
+    const auto transfer = headers.find("transfer-encoding");
+    if (transfer != headers.end() && util::containsLower(transfer->second, "chunked")) {
+        return decodeChunked(body).ok();
+    }
+
+    const auto length = headers.find("content-length");
+    if (length == headers.end()) {
+        return false;
+    }
+    try {
+        return body.size() >= std::stoull(length->second);
+    } catch (const std::exception&) {
+        return false;
+    }
+}
 
 Result<HttpResponse> HttpResponseParser::parse(const std::string& response) const {
     const auto split = response.find("\r\n\r\n");
@@ -63,17 +106,7 @@ Result<HttpResponse> HttpResponseParser::parse(const std::string& response) cons
         return Result<HttpResponse>::failure("LLM HTTP 状态行解析失败");
     }
 
-    std::string line;
-    while (std::getline(headerStream, line)) {
-        if (!line.empty() && line.back() == '\r') {
-            line.pop_back();
-        }
-        const auto colon = line.find(':');
-        if (colon == std::string::npos) {
-            continue;
-        }
-        parsed.headers[lowerHeader(line.substr(0, colon))] = util::trim(line.substr(colon + 1U));
-    }
+    parsed.headers = parseHeaders(response.substr(0, split));
 
     parsed.body = response.substr(split + 4U);
     const auto transfer = parsed.headers.find("transfer-encoding");

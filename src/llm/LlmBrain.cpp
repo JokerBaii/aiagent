@@ -77,7 +77,7 @@ namespace {
 }
 
 [[nodiscard]] std::string agentStepSystemPrompt() {
-    return "你是大学生竞赛可信智能体平台的 Brain。你要像 Codex/Claude Code 一样"
+    return "你是大学生项目材料审计平台的智能审计助手。你要"
            "在受控工具循环中逐步工作：先看已有 observations，再决定调用一个工具，"
            "或在信息足够时给出最终回答。只能输出一个 JSON object。调用工具时输出 "
            "{\"action\":\"tool\",\"summary\":string,\"call\":{\"id\":string,"
@@ -85,11 +85,19 @@ namespace {
            "{\"action\":\"final\",\"summary\":string,\"final_answer\":string}。"
            "只能选择工具清单中的 name；不要要求自由执行 shell；不要读取项目外文件；"
            "不要覆盖原项目；需要产出代码、配置、报告或材料包内容时写入 workspace 工具；"
+           "当 audit_required=true 且 audit_context.available=false 时，必须先调用 "
+           "run_project_audit，让确定性规则引擎生成审计结果，禁止直接给出评审结论；"
+           "run_project_audit 返回后要基于规则结果继续研判，必要时再读取或搜索项目文件；"
            "先利用文件列表里的 format/mime/language/text_readable 元数据判断能否读取；"
            "遇到 zip/tar/7z/tgz 等项目包时先 inspect_archive；遇到代码文件时可 read_text_file；"
            "如果当前 permission_mode 不允许某项能力，选择可用工具或在 final_answer "
            "中说明需要切换模式；"
-           "不要伪造竞赛数据；不要改写最终评分。";
+           "不要伪造竞赛数据；不要改写最终评分。最终回答面向第一次准备大学生竞赛材料的"
+           "学生：项目可能用于竞赛、大创、课程或毕业设计，也可能包含论文、专利、软著等"
+           "成果材料。使用自然、具体的中文，先说明结论，再列最重要的 3 至 6 个问题和可执行"
+           "下一步；解释专业词，不直接暴露 audit_context、run_project_audit、Brain step、"
+           "RuleEngine 等内部字段或类名；把 blocker/warning、P0/P1 分别说成"
+           "“必须处理/建议处理”和“最高优先级/较高优先级”。";
 }
 
 [[nodiscard]] std::string truncateText(const std::string& text, std::size_t limit) {
@@ -122,6 +130,16 @@ namespace {
     return JsonValue{array};
 }
 
+[[nodiscard]] JsonValue
+conversationHistoryToJson(const std::vector<AgentConversationMessage>& history) {
+    JsonValue::Array array;
+    for (const auto& message : history) {
+        array.push_back(
+            JsonValue::Object{{"role", message.role}, {"content", message.content}});
+    }
+    return JsonValue{array};
+}
+
 [[nodiscard]] JsonValue planToJson(const AgentPlan& plan) {
     JsonValue::Array calls;
     for (const auto& call : plan.calls) {
@@ -144,9 +162,12 @@ buildAgentNextStepMessages(const AgentRunRequest& request, const AgentRunResult&
                           {"llm_access", request.allowLlm}};
     const JsonValue context =
         JsonValue::Object{{"user_goal", request.userGoal},
+                          {"conversation_history",
+                           conversationHistoryToJson(request.conversationHistory)},
                           {"project_root", util::pathString(request.projectRoot)},
                           {"workspace_root", util::pathString(request.workspaceRoot)},
                           {"permission_mode", request.permissionMode},
+                          {"audit_required", request.requireAudit},
                           {"capabilities", capabilities},
                           {"audit_context", compactAuditJson(request.auditResult)},
                           {"tools", toolSpecsToJson(tools)},
@@ -279,8 +300,8 @@ buildAgentNextStepMessages(const AgentRunRequest& request, const AgentRunResult&
 
 Result<LlmResponse> LlmBrain::complete(const LlmConfig& config,
                                        const std::vector<LlmMessage>& messages) const {
-    // 默认拒绝联网和 LLM；只有 Workbench 明确传入授权标志时才会调用外部
-    // endpoint。
+    // 即使 Workbench 默认允许联网和 LLM，这里仍要求运行时显式传入授权标志和
+    // API key，避免无配置时发起外部请求。
     if (!config.allowNetwork || !config.allowLlm) {
         return Result<LlmResponse>::failure("未授权联网或 LLM 调用，已阻止大模型 Brain");
     }

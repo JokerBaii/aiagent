@@ -2,6 +2,9 @@ import QtQuick
 import QtQuick.Layouts
 import ".."
 
+// 会话流中的单条消息，按 kind 内联渲染：
+// user 右侧气泡、assistant 左侧头像+全宽正文、tool 缩进单行、plan 强调卡片、
+// system 居中胶囊、artifact 产物卡片。C++ 侧 WorkbenchSessionModels 已提供各字段。
 Item {
     id: root
     required property string kind
@@ -12,49 +15,43 @@ Item {
     property bool ok: true
 
     height: implicitHeight
-    implicitHeight: layout.implicitHeight
+    implicitHeight: Math.max(root.showAvatar ? avatar.height : 0, contentHeight)
+    readonly property real contentHeight: content.item ? content.item.implicitHeight : 0
 
     readonly property bool isUser: kind === "user"
     readonly property bool isTool: kind === "tool"
     readonly property bool isPlan: kind === "plan"
     readonly property bool isSystem: kind === "system"
     readonly property bool isArtifact: kind === "artifact"
+    readonly property bool showAvatar: !root.isUser && !root.isSystem && !root.isTool
+                                      && !root.isPlan && !root.isArtifact
+    // 头像宽度 32 + 间距 12 = 44，tool/system 行缩进到正文左缘，与参考 ml-11 一致。
+    readonly property int contentIndent: 44
 
-    RowLayout {
-        id: layout
-        width: parent.width
-        spacing: 14
-        layoutDirection: root.isUser ? Qt.RightToLeft : Qt.LeftToRight
-
-        Rectangle {
-            Layout.alignment: Qt.AlignTop
-            visible: !root.isUser && !root.isSystem && !root.isTool
-            width: 38
-            height: 38
-            radius: 12
-            color: Theme.isDark ? "#F0F0F0" : "#000000"
-            Text {
-                anchors.centerIn: parent
-                text: "</>"
-                color: Theme.isDark ? "#000000" : "#FFFFFF"
-                font.family: Theme.monoFamily
-                font.pixelSize: 13
-                font.bold: true
-            }
-        }
-
-        Loader {
-            id: content
-            Layout.fillWidth: true
-            sourceComponent: root.isUser ? userBubble
-                           : root.isTool ? toolLine
-                           : root.isPlan ? planCard
-                           : root.isSystem ? systemLine
-                           : root.isArtifact ? artifactCard
-                           : assistantText
-        }
+    // 仅 assistant 显示 </> 头像；tool/system/plan/artifact 走缩进而非头像。
+    AiAvatar {
+        id: avatar
+        x: 0
+        y: 0
+        visible: root.showAvatar
+        size: 32
     }
 
+    Loader {
+        id: content
+        x: root.showAvatar ? root.contentIndent : 0
+        y: 0
+        width: Math.max(1, root.width - x)
+        height: root.contentHeight
+        sourceComponent: root.isUser ? userBubble
+                       : root.isTool ? toolLine
+                       : root.isPlan ? planCard
+                       : root.isSystem ? systemLine
+                       : root.isArtifact ? artifactCard
+                       : assistantText
+    }
+
+    // user：右对齐气泡，rounded-2xl 且右下角收窄，shadow-md。
     Component {
         id: userBubble
         Item {
@@ -63,40 +60,46 @@ Item {
             Rectangle {
                 id: bubble
                 anchors.right: parent.right
-                width: Math.min(parent.width * 0.72, Math.max(180, userText.implicitWidth + 34))
-                implicitHeight: userText.implicitHeight + 22
-                radius: 20
+                width: Math.min(parent.width * 0.75, Math.max(140, userText.implicitWidth + 28))
+                implicitHeight: userText.implicitHeight + 20
+                radius: Theme.radiusMd
+                bottomRightRadius: 6
                 color: Theme.userBubble
                 Text {
                     id: userText
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.margins: 12
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 14
+                    anchors.topMargin: 10
                     text: root.text
                     color: Theme.userBubbleText
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontLg
                     wrapMode: Text.WordWrap
-                    lineHeight: 1.35
+                    lineHeight: 1.4
+                    textFormat: Text.PlainText
                 }
             }
         }
     }
 
+    // assistant：全宽正文，text-base leading-relaxed，可带次要说明行。
     Component {
         id: assistantText
         Column {
             width: content.width
-            spacing: 12
+            spacing: 10
             Text {
                 width: parent.width
-                text: root.text
+                text: root.text.length > 0 ? root.text : root.detail
                 color: Theme.textPrimary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontXl
                 wrapMode: Text.WordWrap
-                lineHeight: 1.45
+                lineHeight: 1.5
+                textFormat: Text.MarkdownText
             }
             Text {
                 visible: root.context.length > 0
@@ -107,158 +110,220 @@ Item {
         }
     }
 
+    // tool：缩进单行，展开箭头 + 工具图标 + 文案 + 结果指示，对齐参考 ToolUseMsg。
     Component {
         id: toolLine
-        RowLayout {
+        Item {
             width: content.width
-            spacing: 10
-            Text {
-                text: "›"
-                color: Theme.textMuted
-                font.pixelSize: 22
-                Layout.alignment: Qt.AlignTop
-            }
-            Text {
-                Layout.fillWidth: true
-                text: root.text + (root.detail.length > 0 ? "  " + root.detail : "")
-                color: root.ok ? Theme.textMuted : Theme.danger
-                font.pixelSize: Theme.fontMd
-                wrapMode: Text.WordWrap
-                lineHeight: 1.3
-            }
-            Text {
-                text: root.ok ? "✓" : "!"
-                color: root.ok ? Theme.success : Theme.danger
-                font.pixelSize: Theme.fontMd
-                font.bold: true
-            }
-        }
-    }
-
-    Component {
-        id: systemLine
-        RowLayout {
-            width: content.width
-            spacing: 8
-            Text { text: "•"; color: root.ok ? Theme.textMuted : Theme.danger; font.pixelSize: Theme.fontLg }
-            Text {
-                Layout.fillWidth: true
-                text: root.text
-                color: root.ok ? Theme.textMuted : Theme.danger
-                font.pixelSize: Theme.fontMd
-                wrapMode: Text.WordWrap
-            }
-        }
-    }
-
-    Component {
-        id: planCard
-        Rectangle {
-            width: Math.min(content.width, 820)
-            implicitHeight: planCol.implicitHeight + 26
-            radius: 16
-            color: Theme.surface
-            border.color: Theme.borderStrong
-            border.width: 1
-            Rectangle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                width: 3
-                radius: 2
-                color: Theme.accent
-            }
-            ColumnLayout {
-                id: planCol
-                anchors.fill: parent
-                anchors.margins: 18
-                spacing: 14
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "⌄  审查智能体的计划"
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fontLg
-                        font.bold: true
-                    }
-                    Pill {
-                        text: root.context.length > 0 ? root.context : "计划"
-                        bg: Theme.surfaceMuted
-                        fg: Theme.textMuted
-                    }
+            implicitHeight: toolRow.implicitHeight
+            RowLayout {
+                id: toolRow
+                x: root.contentIndent
+                width: parent.width - root.contentIndent
+                spacing: 8
+                Icon {
+                    name: "chevronRight"
+                    size: 11
+                    color: Theme.textTertiary
+                    Layout.alignment: Qt.AlignTop
+                    Layout.topMargin: 3
+                }
+                Icon {
+                    name: "toolStack"
+                    size: 13
+                    color: Theme.textTertiary
+                    Layout.alignment: Qt.AlignTop
+                    Layout.topMargin: 2
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: root.text
-                    color: Theme.textPrimary
-                    font.pixelSize: Theme.fontXl
-                    font.bold: true
-                    wrapMode: Text.WordWrap
-                    lineHeight: 1.35
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 10
-                    Rectangle {
-                        implicitWidth: approveText.implicitWidth + 28
-                        implicitHeight: 40
-                        radius: 12
-                        color: Theme.accent
-                        Text {
-                            id: approveText
-                            anchors.centerIn: parent
-                            text: "✓  批准并执行"
-                            color: Theme.isDark && Theme.colorTheme === "black" ? "#101010" : "#FFFFFF"
-                            font.pixelSize: Theme.fontMd
-                            font.bold: true
-                        }
-                    }
-                    Rectangle {
-                        implicitWidth: reviseText.implicitWidth + 28
-                        implicitHeight: 40
-                        radius: 12
-                        color: Theme.surfaceMuted
-                        border.color: Theme.border
-                        Text {
-                            id: reviseText
-                            anchors.centerIn: parent
-                            text: "告诉智能体如何修改"
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontMd
-                            font.bold: true
-                        }
-                    }
-                    Item { Layout.fillWidth: true }
-                }
-            }
-        }
-    }
-
-    Component {
-        id: artifactCard
-        Rectangle {
-            width: Math.min(content.width, 780)
-            implicitHeight: artCol.implicitHeight + 20
-            radius: 14
-            color: Theme.surface
-            border.color: Theme.border
-            ColumnLayout {
-                id: artCol
-                anchors.fill: parent
-                anchors.margins: 12
-                spacing: 5
-                Text {
-                    text: root.context.length > 0 ? root.context : "产物"
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSm
-                    font.bold: true
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: root.text
-                    color: Theme.textPrimary
+                    text: root.text + (root.detail.length > 0 ? "  ·  " + root.detail : "")
+                    color: root.ok ? Theme.textMuted : Theme.danger
                     font.pixelSize: Theme.fontMd
                     wrapMode: Text.WordWrap
+                    lineHeight: 1.3
+                }
+                Icon {
+                    name: root.ok ? "checkSmall" : "close"
+                    size: 12
+                    color: root.ok ? Theme.success : Theme.danger
+                    Layout.alignment: Qt.AlignTop
+                    Layout.topMargin: 3
+                }
+            }
+        }
+    }
+
+    // system：居中胶囊反馈（模式切换 / 命令结果），对齐参考 CommandFeedbackMsg。
+    Component {
+        id: systemLine
+        Item {
+            width: content.width
+            implicitHeight: 34
+            Rectangle {
+                anchors.centerIn: parent
+                width: Math.min(content.width, sysRow.implicitWidth + 28)
+                height: 30
+                radius: 15
+                color: root.ok ? Theme.surfaceMuted : Theme.dangerSoft
+                border.color: root.ok ? Theme.border : Theme.danger
+                border.width: 1
+                RowLayout {
+                    id: sysRow
+                    anchors.centerIn: parent
+                    spacing: 7
+                    Icon {
+                        name: root.ok ? "checkSmall" : "close"
+                        size: 12
+                        color: root.ok ? Theme.textMuted : Theme.danger
+                    }
+                    Text {
+                        text: root.text
+                        color: root.ok ? Theme.textMuted : Theme.danger
+                        font.pixelSize: Theme.fontSm
+                        elide: Text.ElideRight
+                        Layout.maximumWidth: content.width - 60
+                    }
+                }
+            }
+        }
+    }
+
+    // plan：强调左边框 + 渐隐底色的计划卡片，含批准/修改动作，对齐 PlanReviewCard。
+    Component {
+        id: planCard
+        Item {
+            width: content.width
+            implicitHeight: planCard2.implicitHeight
+            Rectangle {
+                id: planCard2
+                x: root.contentIndent
+                width: Math.min(parent.width - root.contentIndent, 760)
+                implicitHeight: planCol.implicitHeight + 32
+                radius: Theme.radius
+                color: Theme.surface
+                border.color: Theme.accentGhost
+                border.width: 1
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: 3
+                    topLeftRadius: Theme.radius
+                    bottomLeftRadius: Theme.radius
+                    color: Theme.accent
+                }
+                ColumnLayout {
+                    id: planCol
+                    anchors.fill: parent
+                    anchors.margins: 16
+                    anchors.leftMargin: 18
+                    spacing: 12
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Icon { name: "list"; size: 14; color: Theme.accent }
+                        Text {
+                            text: "审查智能体的计划"
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontLg
+                            font.bold: true
+                        }
+                        Item { Layout.fillWidth: true }
+                        Pill {
+                            text: root.context.length > 0 ? root.context : "计划"
+                            bg: Theme.accentSoft
+                            fg: Theme.accent
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.text
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontLg
+                        wrapMode: Text.WordWrap
+                        lineHeight: 1.45
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 10
+                        Rectangle {
+                            implicitWidth: approveRow.implicitWidth + 24
+                            implicitHeight: 38
+                            radius: Theme.radiusSm
+                            color: Theme.accent
+                            RowLayout {
+                                id: approveRow
+                                anchors.centerIn: parent
+                                spacing: 6
+                                Icon { name: "check"; size: 13; color: Theme.isDark && Theme.colorTheme === "black" ? "#101010" : "#FFFFFF" }
+                                Text {
+                                    text: "批准并执行"
+                                    color: Theme.isDark && Theme.colorTheme === "black" ? "#101010" : "#FFFFFF"
+                                    font.pixelSize: Theme.fontMd
+                                    font.bold: true
+                                }
+                            }
+                        }
+                        Rectangle {
+                            implicitWidth: reviseText.implicitWidth + 28
+                            implicitHeight: 38
+                            radius: Theme.radiusSm
+                            color: Theme.surfaceMuted
+                            border.color: Theme.border
+                            Text {
+                                id: reviseText
+                                anchors.centerIn: parent
+                                text: "告诉智能体如何修改"
+                                color: Theme.textMuted
+                                font.pixelSize: Theme.fontMd
+                                font.bold: true
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+                }
+            }
+        }
+    }
+
+    // artifact：产物卡片，缩进对齐正文。
+    Component {
+        id: artifactCard
+        Item {
+            width: content.width
+            implicitHeight: artCard2.implicitHeight
+            Rectangle {
+                id: artCard2
+                x: root.contentIndent
+                width: Math.min(parent.width - root.contentIndent, 720)
+                implicitHeight: artCol.implicitHeight + 20
+                radius: Theme.radius
+                color: Theme.surface
+                border.color: Theme.border
+                ColumnLayout {
+                    id: artCol
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 5
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 7
+                        Icon { name: "file"; size: 13; color: Theme.textMuted }
+                        Text {
+                            text: root.context.length > 0 ? root.context : "产物"
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSm
+                            font.bold: true
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.text
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontMd
+                        wrapMode: Text.WordWrap
+                    }
                 }
             }
         }

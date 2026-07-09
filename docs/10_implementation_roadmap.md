@@ -45,7 +45,7 @@
 
 ## 8. Milestone 8：Agent Runtime
 
-交付 ToolRegistry、PermissionGate、LifecycleHookManager、ProjectMemory、AuditSessionStore、AgentRuntime、StagedAuditPipeline、SpecializedAnalyzers。
+交付 ToolRegistry、PermissionGate、LifecycleHookManager、ProjectMemory、AuditSessionStore、AgentRuntime、StagedAuditPipeline。赛道专用判断由 JSON 规则包隐式匹配，不再新增显式 analyzer 模块。
 
 ## 9. Milestone 9：可选 LLM Brain
 
@@ -57,7 +57,7 @@
 
 交付 CompileController、AuditResultModels、WorkbenchSessionModels、QML pages、资源注册、会话工作区首屏、导出流程和二次审计差分流程。
 
-验收：Workbench 能展示项目上下文、受控工具、权限、artifact、资产、CPIR、风险、补证任务、报告和差分。
+验收：Workbench 能展示项目上下文、受控工具观察、设置式权限边界、artifact、资产、CPIR、风险、补证任务、报告和差分。
 
 ## 11. Milestone 11：质量和打包
 

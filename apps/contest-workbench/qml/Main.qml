@@ -15,7 +15,7 @@ ApplicationWindow {
     minimumWidth: 1100
     minimumHeight: 700
     visible: true
-    title: "Contest Trust Workbench"
+    title: "大学生项目材料审计平台"
     color: Theme.window
     font.family: Theme.fontFamily
 
@@ -48,22 +48,9 @@ ApplicationWindow {
         function onUiFontSizeChanged() { persistedTheme.uiFontSize = Theme.uiFontSize }
     }
 
-    readonly property var reportItems: [
-        { icon: "▦", label: "可信仪表盘" },
-        { icon: "⌘", label: "资产清单" },
-        { icon: "◈", label: "项目画像" },
-        { icon: "◎", label: "声明证据" },
-        { icon: "≡", label: "一致性" },
-        { icon: "!", label: "规则风险" },
-        { icon: "✓", label: "补证任务" },
-        { icon: "⇄", label: "二次审计差分" },
-        { icon: "AI", label: "LLM Brain" },
-        { icon: "⇩", label: "报告导出" }
-    ]
     readonly property var panelTabs: [
-        { key: "files", label: "文件", icon: "▦" },
-        { key: "preview", label: "预览", icon: "◌" },
-        { key: "skills", label: "技能", icon: "◇" }
+        { key: "files", label: "文件", icon: "file" },
+        { key: "preview", label: "上下文", icon: "think" }
     ]
     readonly property var colorChoices: [
         { key: "black", label: "Black", color: "#333333" },
@@ -87,17 +74,16 @@ ApplicationWindow {
         { key: "lxgw", label: "霞鹜文楷" },
         { key: "mono", label: "等宽字体" }
     ]
+    readonly property var accessModeChoices: [
+        { key: "ask", label: "Ask", hint: "常规问答与安全读取" },
+        { key: "plan", label: "Plan", hint: "只生成计划，不执行工具" },
+        { key: "code", label: "Code", hint: "写入受控工作区产物" },
+        { key: "bypass", label: "Bypass", hint: "完全授权，仅确认需要时使用" }
+    ]
 
-    property int reportIndex: 0
-    property bool reportOpen: false
     property bool settingsOpen: false
     property bool rightPanelOpen: true
     property string rightPanelTab: "files"
-
-    function openReport(index) {
-        root.reportIndex = index
-        root.reportOpen = true
-    }
 
     function fileName(path) {
         if (!path || path.length === 0) return "FocusZone"
@@ -142,43 +128,28 @@ ApplicationWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
+                    AiAvatar { size: 30 }
                     Text {
-                        text: "TOKEN"
+                        text: "大学生项目材料审计平台"
                         color: Theme.sidebarTextActive
-                        font.pixelSize: 18
+                        font.pixelSize: 16
                         font.bold: true
-                        font.letterSpacing: 0
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
                     }
-                    Text {
-                        text: "/"
-                        color: Theme.accent
-                        font.pixelSize: 18
-                        font.bold: true
-                    }
-                    Text {
-                        text: "CODE"
-                        color: Theme.sidebarTextActive
-                        font.pixelSize: 18
-                        font.bold: true
-                    }
-                    Item { Layout.fillWidth: true }
-                    Text {
-                        text: "‹"
-                        color: Theme.sidebarText
-                        font.pixelSize: 24
-                    }
+                    Icon { name: "chevronLeft"; size: 16; color: Theme.sidebarText }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 52
-                    radius: 26
+                    Layout.preferredHeight: 44
+                    radius: Theme.radiusLg
                     color: newTaskMouse.containsMouse ? Theme.accentHover : Theme.accent
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
                     RowLayout {
                         anchors.centerIn: parent
-                        spacing: 10
-                        Text { text: "+"; color: Theme.isDark && Theme.colorTheme === "black" ? "#101010" : "#FFFFFF"; font.pixelSize: 20; font.bold: true }
+                        spacing: 8
+                        Icon { name: "plus"; size: 16; strokeWidth: 2; color: Theme.isDark && Theme.colorTheme === "black" ? "#101010" : "#FFFFFF" }
                         Text {
                             text: "新任务"
                             color: Theme.isDark && Theme.colorTheme === "black" ? "#101010" : "#FFFFFF"
@@ -198,7 +169,7 @@ ApplicationWindow {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 42
-                    radius: 16
+                    radius: Theme.radiusMd
                     color: addMouse.containsMouse ? Theme.surfaceHover : Theme.surfaceMuted
                     border.color: Theme.border
                     RowLayout {
@@ -206,7 +177,7 @@ ApplicationWindow {
                         anchors.leftMargin: 14
                         anchors.rightMargin: 12
                         spacing: 9
-                        Text { text: "▣"; color: Theme.textMuted; font.pixelSize: 14 }
+                        Icon { name: "folderPlus"; size: 15; color: Theme.textMuted }
                         Text {
                             Layout.fillWidth: true
                             text: "添加项目"
@@ -228,7 +199,7 @@ ApplicationWindow {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 42
-                    radius: 16
+                    radius: Theme.radius
                     color: Theme.surface
                     border.color: Theme.border
                     RowLayout {
@@ -236,18 +207,18 @@ ApplicationWindow {
                         anchors.leftMargin: 12
                         anchors.rightMargin: 12
                         spacing: 9
-                        Rectangle { width: 9; height: 9; radius: 5; color: compiler.agentRunning ? Theme.warning : Theme.success }
+                        Rectangle { width: 8; height: 8; radius: 4; color: compiler.agentRunning ? Theme.warning : Theme.success }
                         Text {
                             Layout.fillWidth: true
-                            text: compiler.trustScore > 0 ? "Score " + compiler.trustScore : "DeepSeek"
+                            text: compiler.trustScore > 0 ? "可信评分 " + compiler.trustScore : "等待审计"
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fontMd
                             font.bold: true
                             elide: Text.ElideRight
                         }
                         Text {
-                            text: compiler.agentRunning ? "running" : (compiler.trustScore > 0 ? "completed" : "ready")
-                            color: Theme.textMuted
+                            text: compiler.agentRunning ? "审计中" : (compiler.trustScore > 0 ? "已完成" : "待开始")
+                            color: Theme.textTertiary
                             font.pixelSize: Theme.fontXs
                         }
                     }
@@ -256,17 +227,22 @@ ApplicationWindow {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 40
-                    radius: 16
+                    radius: Theme.radius
                     color: Theme.surface
                     border.color: Theme.border
-                    Text {
+                    RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 16
-                        anchors.rightMargin: 16
-                        text: "⌕  搜索任务..."
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontMd
-                        verticalAlignment: Text.AlignVCenter
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        spacing: 9
+                        Icon { name: "search"; size: 14; color: Theme.textMuted }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "搜索任务..."
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontMd
+                            verticalAlignment: Text.AlignVCenter
+                        }
                     }
                 }
 
@@ -280,27 +256,28 @@ ApplicationWindow {
                     section.property: "active"
                     delegate: Rectangle {
                         width: sessionList.width
-                        implicitHeight: 46
-                        radius: 18
-                        color: modelData.active ? Theme.sidebarActive
-                             : sessionMouse.containsMouse ? Qt.rgba(0, 0, 0, Theme.isDark ? 0.16 : 0.04)
+                        implicitHeight: 44
+                        radius: Theme.radius
+                        color: modelData.active ? Theme.accentSoft
+                             : sessionMouse.containsMouse ? Theme.surfaceMuted
                              : "transparent"
+                        border.color: modelData.active ? Theme.accentGhost : "transparent"
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 14
+                            anchors.leftMargin: 12
                             anchors.rightMargin: 12
                             spacing: 8
                             Text {
                                 Layout.fillWidth: true
                                 text: modelData.title
-                                color: modelData.active ? Theme.sidebarTextActive : Theme.sidebarText
+                                color: modelData.active ? Theme.textPrimary : Theme.sidebarText
                                 font.pixelSize: Theme.fontMd
                                 font.bold: modelData.active
                                 elide: Text.ElideRight
                             }
                             Text {
                                 text: modelData.subtitle
-                                color: Theme.textMuted
+                                color: Theme.textTertiary
                                 font.pixelSize: Theme.fontXs
                                 elide: Text.ElideRight
                             }
@@ -332,13 +309,13 @@ ApplicationWindow {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 38
-                        radius: 14
+                        radius: Theme.radius
                         color: packMouse.containsMouse ? Theme.surfaceHover : "transparent"
                         RowLayout {
                             anchors.centerIn: parent
                             spacing: 8
-                            Text { text: "▤"; color: Theme.textMuted; font.pixelSize: 15 }
-                            Text { text: "预览"; color: Theme.sidebarText; font.pixelSize: Theme.fontSm; font.bold: true }
+                            Icon { name: "think"; size: 15; color: Theme.textMuted }
+                            Text { text: "上下文"; color: Theme.sidebarText; font.pixelSize: Theme.fontSm; font.bold: true }
                         }
                         MouseArea {
                             id: packMouse
@@ -354,34 +331,12 @@ ApplicationWindow {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 38
-                        radius: 14
-                        color: skillsMouse.containsMouse ? Theme.surfaceHover : "transparent"
-                        RowLayout {
-                            anchors.centerIn: parent
-                            spacing: 8
-                            Text { text: "◇"; color: Theme.textMuted; font.pixelSize: 15 }
-                            Text { text: "技能"; color: Theme.sidebarText; font.pixelSize: Theme.fontSm; font.bold: true }
-                        }
-                        MouseArea {
-                            id: skillsMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                root.rightPanelTab = "skills"
-                                root.rightPanelOpen = true
-                            }
-                        }
-                    }
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 38
-                        radius: 14
+                        radius: Theme.radius
                         color: settingsMouse.containsMouse ? Theme.surfaceHover : "transparent"
                         RowLayout {
                             anchors.centerIn: parent
                             spacing: 8
-                            Text { text: "⚙"; color: Theme.textMuted; font.pixelSize: 15 }
+                            Icon { name: "settings"; size: 15; color: Theme.textMuted }
                             Text { text: "设置"; color: Theme.sidebarText; font.pixelSize: Theme.fontSm; font.bold: true }
                         }
                         MouseArea {
@@ -409,15 +364,15 @@ ApplicationWindow {
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 64
+                Layout.preferredHeight: 60
                 color: Theme.window
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 24
-                    anchors.rightMargin: 24
-                    spacing: 16
+                    anchors.rightMargin: 20
+                    spacing: 14
                     Text {
-                        text: compiler.trustScore > 0 ? "Trust " + compiler.trustScore : "DeepseekV4Flash"
+                        text: compiler.trustScore > 0 ? "可信评分 " + compiler.trustScore : "项目材料审计"
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fontXl
                         font.bold: true
@@ -428,27 +383,17 @@ ApplicationWindow {
                         font.pixelSize: Theme.fontMd
                         elide: Text.ElideRight
                     }
-                    Rectangle { width: 8; height: 8; radius: 4; color: Theme.success }
-                    Text { text: "Agent"; color: Theme.success; font.pixelSize: Theme.fontSm; font.bold: true }
-                    Rectangle { width: 8; height: 8; radius: 4; color: Theme.borderStrong }
-                    Text { text: "CLI"; color: Theme.textMuted; font.pixelSize: Theme.fontSm }
+                    Rectangle { width: 7; height: 7; radius: 4; color: Theme.success }
+                    Text { text: "审计助手"; color: Theme.success; font.pixelSize: Theme.fontSm; font.bold: true }
+                    Rectangle { width: 7; height: 7; radius: 4; color: Theme.borderStrong }
+                    Text { text: "规则引擎"; color: Theme.textMuted; font.pixelSize: Theme.fontSm }
                     Item { Layout.fillWidth: true }
-                    Text {
-                        text: "⇩"
-                        color: Theme.textMuted
-                        font.pixelSize: 20
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.openReport(9)
-                        }
-                    }
                     Rectangle {
                         width: 32
                         height: 32
-                        radius: 10
+                        radius: Theme.radiusSm
                         color: panelMouse.containsMouse ? Theme.surfaceMuted : "transparent"
-                        Text { anchors.centerIn: parent; text: root.rightPanelOpen ? "▥" : "▤"; color: Theme.textMuted; font.pixelSize: 18 }
+                        Icon { anchors.centerIn: parent; name: "sidebar"; size: 16; color: root.rightPanelOpen ? Theme.accent : Theme.textMuted }
                         MouseArea {
                             id: panelMouse
                             anchors.fill: parent
@@ -465,7 +410,6 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 compiler: compiler
-                onOpenReport: function(index) { root.openReport(index) }
             }
         }
 
@@ -482,7 +426,7 @@ ApplicationWindow {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 64
+                    Layout.preferredHeight: 60
                     color: Theme.surfaceMuted
                     RowLayout {
                         anchors.fill: parent
@@ -492,16 +436,16 @@ ApplicationWindow {
                         Repeater {
                             model: root.panelTabs
                             delegate: Rectangle {
-                                implicitWidth: tabText.implicitWidth + 34
-                                implicitHeight: 38
-                                radius: 12
+                                implicitWidth: tabRow.implicitWidth + 30
+                                implicitHeight: 36
+                                radius: Theme.radiusSm
                                 color: root.rightPanelTab === modelData.key ? Theme.surfaceHover : "transparent"
-                                Row {
+                                RowLayout {
+                                    id: tabRow
                                     anchors.centerIn: parent
                                     spacing: 7
-                                    Text { text: modelData.icon; color: Theme.textMuted; font.pixelSize: 13 }
+                                    Icon { name: modelData.icon; size: 14; color: root.rightPanelTab === modelData.key ? Theme.textPrimary : Theme.textMuted }
                                     Text {
-                                        id: tabText
                                         text: modelData.label
                                         color: root.rightPanelTab === modelData.key ? Theme.textPrimary : Theme.textMuted
                                         font.pixelSize: Theme.fontMd
@@ -516,12 +460,14 @@ ApplicationWindow {
                             }
                         }
                         Item { Layout.fillWidth: true }
-                        Text {
-                            text: "×"
-                            color: Theme.textMuted
-                            font.pixelSize: 20
+                        Rectangle {
+                            width: 30; height: 30; radius: Theme.radiusSm
+                            color: closePanelMouse.containsMouse ? Theme.surfaceHover : "transparent"
+                            Icon { anchors.centerIn: parent; name: "close"; size: 14; color: Theme.textMuted }
                             MouseArea {
+                                id: closePanelMouse
                                 anchors.fill: parent
+                                hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: root.rightPanelOpen = false
                             }
@@ -534,8 +480,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     currentIndex: root.rightPanelTab === "files" ? 0
-                                  : root.rightPanelTab === "skills" ? 1
-                                  : 2
+                                  : 1
 
                     ColumnLayout {
                         spacing: 12
@@ -548,7 +493,7 @@ ApplicationWindow {
                                 anchors.leftMargin: 20
                                 anchors.rightMargin: 20
                                 spacing: 10
-                                Text { text: "▱"; color: Theme.textMuted; font.pixelSize: 15 }
+                                Icon { name: "folder"; size: 15; color: Theme.textMuted }
                                 Text {
                                     Layout.fillWidth: true
                                     text: root.fileName(compiler.projectContext.originalRoot)
@@ -571,17 +516,22 @@ ApplicationWindow {
                             Layout.leftMargin: 14
                             Layout.rightMargin: 14
                             Layout.preferredHeight: 42
-                            radius: 14
+                            radius: Theme.radius
                             color: Theme.surface
                             border.color: Theme.border
-                            Text {
+                            RowLayout {
                                 anchors.fill: parent
                                 anchors.leftMargin: 14
                                 anchors.rightMargin: 14
-                                text: "⌕  搜索文件..."
-                                color: Theme.textMuted
-                                font.pixelSize: Theme.fontMd
-                                verticalAlignment: Text.AlignVCenter
+                                spacing: 9
+                                Icon { name: "search"; size: 14; color: Theme.textMuted }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "搜索文件..."
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontMd
+                                    verticalAlignment: Text.AlignVCenter
+                                }
                             }
                         }
                         ListView {
@@ -591,24 +541,24 @@ ApplicationWindow {
                             Layout.leftMargin: 14
                             Layout.rightMargin: 14
                             clip: true
-                            spacing: 4
+                            spacing: 2
                             model: compiler.assets
                             delegate: Rectangle {
                                 width: fileList.width
-                                implicitHeight: 36
-                                radius: 10
+                                implicitHeight: 34
+                                radius: Theme.radiusSm
                                 color: fileMouse.containsMouse ? Theme.surface : "transparent"
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.leftMargin: 8
                                     anchors.rightMargin: 8
                                     spacing: 8
-                                    Text {
-                                        text: modelData.roleCode === "SourceCode" ? "◇"
-                                             : modelData.roleCode === "Archive" ? "▣"
-                                             : modelData.auditable ? "▤" : "◌"
-                                        color: modelData.risk && modelData.risk.length > 0 ? Theme.warning : Theme.textMuted
-                                        font.pixelSize: 14
+                                    Icon {
+                                        name: modelData.roleCode === "SourceCode" ? "code"
+                                             : modelData.roleCode === "Archive" ? "folder"
+                                             : "file"
+                                        size: 13
+                                        color: modelData.risk && modelData.risk.length > 0 ? Theme.warning : Theme.textTertiary
                                     }
                                     Text {
                                         Layout.fillWidth: true
@@ -630,91 +580,17 @@ ApplicationWindow {
                     }
 
                     ScrollView {
+                        id: artifactScroll
                         clip: true
+                        contentWidth: availableWidth
                         ColumnLayout {
-                            width: parent.width
-                            spacing: 14
-                            anchors.margins: 14
-                            SectionTitle { Layout.leftMargin: 14; title: "审计技能" }
-                            Repeater {
-                                model: compiler.toolCards
-                                delegate: Rectangle {
-                                    Layout.leftMargin: 14
-                                    Layout.rightMargin: 14
-                                    Layout.fillWidth: true
-                                    implicitHeight: skillCol.implicitHeight + 18
-                                    radius: 14
-                                    color: Theme.surface
-                                    border.color: Theme.border
-                                    ColumnLayout {
-                                        id: skillCol
-                                        anchors.fill: parent
-                                        anchors.margins: 10
-                                        spacing: 4
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: modelData.name
-                                                color: Theme.textPrimary
-                                                font.pixelSize: Theme.fontMd
-                                                font.bold: true
-                                            }
-                                            Pill {
-                                                text: modelData.status
-                                                bg: modelData.status === "完成" ? Theme.successSoft
-                                                    : modelData.status === "进行中" ? Theme.accentSoft
-                                                    : Theme.surfaceMuted
-                                                fg: modelData.status === "完成" ? Theme.success
-                                                    : modelData.status === "进行中" ? Theme.accent
-                                                    : Theme.textMuted
-                                            }
-                                        }
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: modelData.detail
-                                            color: Theme.textMuted
-                                            font.pixelSize: Theme.fontSm
-                                            wrapMode: Text.WordWrap
-                                        }
-                                    }
-                                }
-                            }
-                            SectionTitle { Layout.leftMargin: 14; title: "权限边界" }
-                            Repeater {
-                                model: compiler.permissionCards
-                                delegate: Rectangle {
-                                    Layout.leftMargin: 14
-                                    Layout.rightMargin: 14
-                                    Layout.fillWidth: true
-                                    implicitHeight: permCol.implicitHeight + 18
-                                    radius: 14
-                                    color: modelData.allowed ? Theme.successSoft : Theme.dangerSoft
-                                    border.color: Theme.border
-                                    ColumnLayout {
-                                        id: permCol
-                                        anchors.fill: parent
-                                        anchors.margins: 10
-                                        spacing: 4
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            Text { Layout.fillWidth: true; text: modelData.name; color: Theme.textPrimary; font.pixelSize: Theme.fontMd; font.bold: true }
-                                            Text { text: modelData.status; color: modelData.allowed ? Theme.success : Theme.danger; font.pixelSize: Theme.fontSm; font.bold: true }
-                                        }
-                                        Text { Layout.fillWidth: true; text: modelData.detail; color: Theme.textMuted; font.pixelSize: Theme.fontSm; wrapMode: Text.WordWrap }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    ScrollView {
-                        clip: true
-                        ColumnLayout {
-                            width: parent.width
+                            width: artifactScroll.availableWidth
                             spacing: 10
-                            anchors.margins: 14
-                            SectionTitle { Layout.leftMargin: 14; title: "产物" }
+                            SectionTitle {
+                                Layout.leftMargin: 14
+                                title: "审计资料"
+                                subtitle: "项目申报、成果证明和软著相关材料会自动提供给审计助手。"
+                            }
                             Repeater {
                                 model: compiler.artifacts
                                 delegate: Rectangle {
@@ -722,7 +598,7 @@ ApplicationWindow {
                                     Layout.rightMargin: 14
                                     Layout.fillWidth: true
                                     implicitHeight: artifactCol.implicitHeight + 20
-                                    radius: 14
+                                    radius: Theme.radius
                                     color: Theme.surface
                                     border.color: Theme.border
                                     ColumnLayout {
@@ -732,19 +608,16 @@ ApplicationWindow {
                                         spacing: 6
                                         RowLayout {
                                             Layout.fillWidth: true
+                                            Icon { name: "file"; size: 13; color: Theme.textMuted }
                                             Text { Layout.fillWidth: true; text: modelData.title; color: Theme.textPrimary; font.pixelSize: Theme.fontMd; font.bold: true }
                                             Pill { text: modelData.kind; bg: Theme.surfaceMuted; fg: Theme.textMuted }
                                         }
                                         Text { Layout.fillWidth: true; text: modelData.detail; color: Theme.textMuted; font.pixelSize: Theme.fontSm; wrapMode: Text.WordWrap }
-                                        Text { text: "打开报告 →"; color: Theme.accent; font.pixelSize: Theme.fontSm; font.bold: true }
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.openReport(modelData.title.indexOf("数据包") >= 0 || modelData.title.indexOf("Markdown") >= 0 ? 9
-                                                              : modelData.title.indexOf("修复") >= 0 ? 6
-                                                              : modelData.title.indexOf("差分") >= 0 ? 7
-                                                              : modelData.title.indexOf("智能体") >= 0 ? 8 : 0)
+                                        RowLayout {
+                                            spacing: 5
+                                            Icon { name: "checkSmall"; size: 12; color: Theme.success }
+                                            Text { text: "审计助手自动参考"; color: Theme.success; font.pixelSize: Theme.fontSm; font.bold: true }
+                                        }
                                     }
                                 }
                             }
@@ -787,12 +660,69 @@ ApplicationWindow {
                 spacing: 18
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { Layout.fillWidth: true; text: "主题配置"; color: Theme.textPrimary; font.pixelSize: Theme.fontTitle; font.bold: true }
+                    Text { Layout.fillWidth: true; text: "设置"; color: Theme.textPrimary; font.pixelSize: Theme.fontTitle; font.bold: true }
                     Rectangle {
-                        width: 32; height: 32; radius: 10
+                        width: 32; height: 32; radius: Theme.radiusSm
                         color: closeSettingsMouse.containsMouse ? Theme.surfaceMuted : "transparent"
-                        Text { anchors.centerIn: parent; text: "×"; color: Theme.textMuted; font.pixelSize: 20 }
+                        Icon { anchors.centerIn: parent; name: "close"; size: 15; color: Theme.textMuted }
                         MouseArea { id: closeSettingsMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.settingsOpen = false }
+                    }
+                }
+
+                ScrollView {
+                    id: settingsScroll
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    contentWidth: availableWidth
+
+                    ColumnLayout {
+                        width: settingsScroll.availableWidth
+                        spacing: 18
+
+                SectionTitle { title: "大模型审计助手" }
+                FieldInput {
+                    Layout.fillWidth: true
+                    text: compiler.llmEndpoint
+                    placeholderText: "https://api.deepseek.com/chat/completions"
+                    onTextEdited: compiler.llmEndpoint = text
+                }
+                FieldInput {
+                    Layout.fillWidth: true
+                    text: compiler.llmModel
+                    placeholderText: "deepseek-v4-flash"
+                    onTextEdited: compiler.llmModel = text
+                }
+                FieldInput {
+                    Layout.fillWidth: true
+                    echoMode: TextInput.Password
+                    text: compiler.llmApiKey
+                    placeholderText: "DeepSeek / OpenAI-compatible API Key"
+                    onActiveFocusChanged: if (activeFocus && text === "********") text = ""
+                    onTextEdited: compiler.llmApiKey = text
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: brainPermissionRow.implicitHeight + 18
+                    radius: 12
+                    color: compiler.llmApproved ? Theme.successSoft : Theme.warningSoft
+                    border.color: compiler.llmApproved ? Theme.success : Theme.warning
+                    RowLayout {
+                        id: brainPermissionRow
+                        anchors.fill: parent
+                        anchors.margins: 9
+                        spacing: 8
+                        CheckBox {
+                            checked: compiler.llmApproved
+                            onToggled: compiler.llmApproved = checked
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "配置 API Key 后，大模型会调用规则工具并解释项目材料审计结果。"
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontSm
+                            wrapMode: Text.WordWrap
+                        }
                     }
                 }
 
@@ -900,100 +830,79 @@ ApplicationWindow {
                     currentIndex: root.fontChoices.findIndex(function(item) { return item.key === Theme.fontPreset })
                     onActivated: function(index) { Theme.fontPreset = root.fontChoices[index].key }
                 }
-                Item { Layout.fillHeight: true }
-            }
-        }
-    }
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#00000000"
-        visible: root.reportOpen
-        z: 15
-        Rectangle {
-            anchors.fill: parent
-            color: "#000000"
-            opacity: 0.25
-            MouseArea { anchors.fill: parent; onClicked: root.reportOpen = false }
-        }
-        Rectangle {
-            id: drawer
-            width: Math.min(parent.width - 120, 1040)
-            height: parent.height
-            anchors.right: parent.right
-            color: Theme.surface
-            border.color: Theme.border
-
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: 0
-                Rectangle {
+                SectionTitle { title: "权限边界" }
+                GridLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 64
-                    color: Theme.surface
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 20
-                        anchors.rightMargin: 20
-                        spacing: 12
-                        Text { text: "审计报告"; color: Theme.textPrimary; font.pixelSize: Theme.fontXl; font.bold: true }
-                        Item { Layout.fillWidth: true }
-                        Rectangle {
-                            width: 32; height: 32; radius: 10
-                            color: closeReportMouse.containsMouse ? Theme.surfaceMuted : "transparent"
-                            Text { anchors.centerIn: parent; text: "×"; color: Theme.textMuted; font.pixelSize: 20 }
-                            MouseArea { id: closeReportMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.reportOpen = false }
+                    columns: 2
+                    rowSpacing: 10
+                    columnSpacing: 10
+                    Repeater {
+                        model: root.accessModeChoices
+                        delegate: Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 74
+                            radius: 14
+                            color: compiler.accessMode === modelData.key
+                                   ? (modelData.key === "bypass" ? Theme.warningSoft : Theme.accentSoft)
+                                   : Theme.surfaceMuted
+                            border.color: compiler.accessMode === modelData.key
+                                          ? (modelData.key === "bypass" ? Theme.warning : Theme.accent)
+                                          : Theme.border
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 3
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    color: compiler.accessMode === modelData.key
+                                           ? (modelData.key === "bypass" ? Theme.warning : Theme.accent)
+                                           : Theme.textPrimary
+                                    font.pixelSize: Theme.fontMd
+                                    font.bold: true
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.hint
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontXs
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: compiler.accessMode = modelData.key
+                            }
                         }
                     }
-                    Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: Theme.border }
                 }
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    spacing: 0
-                    Rectangle {
-                        Layout.preferredWidth: 200
-                        Layout.fillHeight: true
-                        color: Theme.surfaceMuted
+
+                Repeater {
+                    model: compiler.permissionCards
+                    delegate: Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: permCol.implicitHeight + 18
+                        radius: 12
+                        color: modelData.allowed ? Theme.successSoft : Theme.dangerSoft
+                        border.color: Theme.border
                         ColumnLayout {
+                            id: permCol
                             anchors.fill: parent
                             anchors.margins: 10
                             spacing: 4
-                            Repeater {
-                                model: root.reportItems
-                                delegate: Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 36
-                                    radius: 12
-                                    color: root.reportIndex === index ? Theme.surface : "transparent"
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 10
-                                        anchors.rightMargin: 8
-                                        spacing: 9
-                                        Text { text: modelData.icon; color: root.reportIndex === index ? Theme.accent : Theme.textMuted; font.pixelSize: Theme.fontSm; font.bold: true }
-                                        Text { Layout.fillWidth: true; text: modelData.label; color: root.reportIndex === index ? Theme.textPrimary : Theme.textMuted; font.pixelSize: Theme.fontSm; font.bold: root.reportIndex === index; elide: Text.ElideRight }
-                                    }
-                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.reportIndex = index }
-                                }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text { Layout.fillWidth: true; text: modelData.name; color: Theme.textPrimary; font.pixelSize: Theme.fontMd; font.bold: true }
+                                Text { text: modelData.status; color: modelData.allowed ? Theme.success : Theme.danger; font.pixelSize: Theme.fontSm; font.bold: true }
                             }
-                            Item { Layout.fillHeight: true }
+                            Text { Layout.fillWidth: true; text: modelData.detail; color: Theme.textMuted; font.pixelSize: Theme.fontSm; wrapMode: Text.WordWrap }
                         }
                     }
-                    StackLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        currentIndex: root.reportIndex
-                        TrustDashboardPage { compiler: compiler }
-                        AssetInventoryPage { compiler: compiler }
-                        CPIRPage { compiler: compiler }
-                        ClaimEvidencePage { compiler: compiler }
-                        ConsistencyPage { compiler: compiler }
-                        FindingsPage { compiler: compiler }
-                        FixTaskPage { compiler: compiler }
-                        AuditDiffPage { compiler: compiler }
-                        BrainPage { compiler: compiler }
-                        ReportExportPage { compiler: compiler }
+                }
+
+                Item { Layout.preferredHeight: 16 }
                     }
                 }
             }

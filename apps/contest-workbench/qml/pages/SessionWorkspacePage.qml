@@ -7,14 +7,14 @@ import "../components"
 Item {
     id: root
     required property var compiler
-    signal openReport(int index)
+    property bool dropActive: false
 
     function sendComposerMessage() {
         var text = composer.text.trim()
         if (text.length === 0)
             return
-        compiler.submitMessage(text)
         composer.text = ""
+        compiler.submitMessage(text)
     }
 
     ColumnLayout {
@@ -29,12 +29,12 @@ Item {
             ListView {
                 id: historyList
                 anchors.fill: parent
-                anchors.leftMargin: 72
-                anchors.rightMargin: 72
-                anchors.topMargin: 38
-                anchors.bottomMargin: 190
+                anchors.leftMargin: Math.max(48, (parent.width - 760) / 2)
+                anchors.rightMargin: Math.max(48, (parent.width - 760) / 2)
+                anchors.topMargin: 34
+                anchors.bottomMargin: 188
                 clip: true
-                spacing: 20
+                spacing: 22
                 model: root.compiler.sessionHistory
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: ScrollBar {
@@ -43,38 +43,21 @@ Item {
                 }
                 onCountChanged: Qt.callLater(positionViewAtEnd)
 
-                header: Item {
+                footer: ThinkingIndicator {
                     width: historyList.width
-                    height: root.compiler.agentRunning ? 58 : 0
-                    visible: root.compiler.agentRunning
-                    Row {
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 10
-                        Text {
-                            text: "/"
-                            color: Theme.accent
-                            font.pixelSize: 24
-                            font.bold: true
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                        Text {
-                            text: root.compiler.currentAgentAction.length > 0
-                                  ? root.compiler.currentAgentAction + "... (" + root.compiler.agentProgress + "%)"
-                                  : "思考中..."
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontXl
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
+                    running: root.compiler.agentRunning
+                    action: root.compiler.currentAgentAction
+                    progress: root.compiler.agentProgress
                 }
 
                 delegate: ChatTurn {
+                    required property var modelData
+
                     width: historyList.width
-                    kind: modelData.kind
-                    role: modelData.role
-                    text: modelData.text
-                    context: modelData.context
+                    kind: modelData.kind || "assistant"
+                    role: modelData.role || ""
+                    text: modelData.text || ""
+                    context: modelData.context || ""
                     detail: modelData.detail === undefined ? "" : modelData.detail
                     ok: modelData.ok === undefined ? true : modelData.ok
                 }
@@ -82,8 +65,8 @@ Item {
                 EmptyState {
                     anchors.fill: parent
                     visible: historyList.count === 0
-                    text: "开始一次可信审计对话"
-                    hint: "左侧添加竞赛项目后，可直接输入 /audit，或用 /plan 先让智能体拟定步骤。"
+                    text: "拖入项目开始缺点评审"
+                    hint: "支持竞赛、大创、课程与毕业设计，以及论文、专利、软著等成果材料。"
                 }
             }
 
@@ -92,7 +75,7 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                height: 168
+                height: 150
                 color: Theme.window
 
                 Composer {
@@ -100,14 +83,180 @@ Item {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    anchors.leftMargin: 72
-                    anchors.rightMargin: 72
-                    anchors.bottomMargin: 26
+                    anchors.leftMargin: Math.max(48, (parent.width - 760) / 2)
+                    anchors.rightMargin: Math.max(48, (parent.width - 760) / 2)
+                    anchors.bottomMargin: 20
                     busy: root.compiler.agentRunning
-                    accessMode: root.compiler.accessMode
                     onSubmit: root.sendComposerMessage()
                     onCommand: function(value) { root.compiler.submitMessage(value) }
-                    onModeChange: function(value) { root.compiler.submitMessage("/" + value) }
+                }
+            }
+
+            Connections {
+                target: root.compiler
+                function onAgentStateChanged() { Qt.callLater(historyList.positionViewAtEnd) }
+                function onSessionChanged() { Qt.callLater(historyList.positionViewAtEnd) }
+            }
+        }
+    }
+
+    DropArea {
+        anchors.fill: parent
+        onEntered: root.dropActive = true
+        onExited: root.dropActive = false
+        onDropped: function(drop) {
+            root.dropActive = false
+            if (drop.urls.length > 0)
+                root.compiler.selectProject(drop.urls[0])
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: root.dropActive
+        color: Qt.rgba(0, 0, 0, Theme.isDark ? 0.28 : 0.16)
+        border.color: Theme.accent
+        border.width: 2
+        z: 10
+        Text {
+            anchors.centerIn: parent
+            text: "释放后开始评审"
+            color: Theme.accent
+            font.pixelSize: Theme.fontTitle
+            font.bold: true
+        }
+    }
+
+    component ThinkingIndicator: Item {
+        id: indicator
+        property bool running: false
+        property string action: ""
+        property int progress: 0
+        property int wordIndex: 0
+        property string displayText: ""
+        property int phase: 0
+        readonly property var words: [
+            "思考中",
+            "计算中",
+            "匹配规则",
+            "读取材料",
+            "检查证据",
+            "整理报告"
+        ]
+        readonly property bool cycling: action.length === 0 || action === "思考中"
+        readonly property string activeWord: cycling ? words[wordIndex] : action
+        readonly property string visibleText: cycling ? displayText : activeWord
+
+        width: parent ? parent.width : implicitWidth
+        implicitHeight: 48
+        height: running ? implicitHeight : 0
+        visible: height > 0
+        clip: true
+
+        function resetTyping() {
+            displayText = ""
+            phase = 0
+        }
+
+        onRunningChanged: {
+            resetTyping()
+        }
+        onActionChanged: {
+            if (running)
+                resetTyping()
+        }
+
+        Timer {
+            id: typingTimer
+            interval: indicator.phase === 1 ? 1400 : (indicator.phase === 2 ? 44 : 76)
+            running: indicator.running && indicator.cycling
+            repeat: true
+            onTriggered: {
+                if (indicator.phase === 0) {
+                    if (indicator.displayText.length < indicator.activeWord.length) {
+                        indicator.displayText = indicator.activeWord.slice(0, indicator.displayText.length + 1)
+                    } else {
+                        indicator.phase = 1
+                    }
+                    return
+                }
+                if (indicator.phase === 1) {
+                    indicator.phase = 2
+                    return
+                }
+                if (indicator.displayText.length > 0) {
+                    indicator.displayText = indicator.displayText.slice(0, indicator.displayText.length - 1)
+                    return
+                }
+                indicator.wordIndex = (indicator.wordIndex + 1) % indicator.words.length
+                indicator.phase = 0
+            }
+        }
+
+        Behavior on height { NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic } }
+
+        RowLayout {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 8
+
+            Text {
+                text: "/"
+                color: Theme.accent
+                font.pixelSize: Theme.fontXl
+                font.bold: true
+                Layout.alignment: Qt.AlignVCenter
+
+                SequentialAnimation on opacity {
+                    running: indicator.running
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.42; duration: 520; easing.type: Easing.InOutQuad }
+                    NumberAnimation { to: 1.0; duration: 520; easing.type: Easing.InOutQuad }
+                }
+            }
+
+            RowLayout {
+                spacing: 6
+                Layout.alignment: Qt.AlignVCenter
+
+                Text {
+                    text: indicator.visibleText.length > 0 ? indicator.visibleText : indicator.activeWord
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontMd
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                Row {
+                    spacing: 3
+                    Layout.alignment: Qt.AlignVCenter
+                    Repeater {
+                        model: 3
+                        Rectangle {
+                            width: 3
+                            height: 3
+                            radius: 2
+                            color: Theme.textTertiary
+                            opacity: 0.28
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            SequentialAnimation on opacity {
+                                running: indicator.running
+                                loops: Animation.Infinite
+                                PauseAnimation { duration: index * 120 }
+                                NumberAnimation { to: 1.0; duration: 220; easing.type: Easing.InOutQuad }
+                                NumberAnimation { to: 0.28; duration: 360; easing.type: Easing.InOutQuad }
+                                PauseAnimation { duration: 240 }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    visible: indicator.progress > 0 && indicator.progress < 100
+                    text: "(" + indicator.progress + "%)"
+                    color: Theme.textTertiary
+                    font.pixelSize: Theme.fontXs
+                    Layout.alignment: Qt.AlignVCenter
                 }
             }
         }

@@ -35,6 +35,14 @@ namespace {
 
 std::vector<AgentToolSpec> ToolRegistry::interactiveToolSpecs() const {
     return {
+        spec("run_project_audit",
+             "运行完整的确定性项目审计：建立隔离副本，依次整理材料、抽取文本和声明、"
+             "匹配证据、检查一致性、执行规则、计算评分并生成补证任务；首次项目评审必须调用",
+             ToolPermission::ReadProjectFiles, emptyObjectSchema(),
+             objectSchema({{"summary", property("string", "确定性审计摘要")},
+                           {"score", property("number", "规则引擎计算的可信评分")},
+                           {"finding_count", property("number", "规则风险数量")},
+                           {"fix_task_count", property("number", "补证任务数量")}})),
         spec("summarize_audit_session", "读取当前审计会话摘要、风险、证据缺口和补证任务",
              ToolPermission::ReadProjectFiles, emptyObjectSchema(),
              objectSchema({{"summary", property("string", "面向用户的审计上下文摘要")}})),

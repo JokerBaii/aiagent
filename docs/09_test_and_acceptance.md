@@ -52,6 +52,8 @@ Workbench 必须具备：
 - 二次审计差分；
 - Markdown/JSON 导出；
 - 可选 LLM Brain 迭代工具循环；
+- 授权 LLM 时首次导入由 Brain 调用 `run_project_audit`，并在下一步收到确定性阶段观察和强类型审计结果；
+- Brain 回合携带用户/助手历史，在工作线程运行且失败时不静默切换本地回答；
 - 未授权 LLM 时本地 AgentRuntime 仍可执行受控文件工具；
 - 交互式工具至少支持项目文件枚举、项目文本搜索、文本/Markdown 读取、Markdown 工作区修订和工作区文本产物写入；
 - Composer slash command 路由：`/audit`、`/agent <任务>`、`/task <任务>`、`/help`；
@@ -59,7 +61,7 @@ Workbench 必须具备：
 - AgentRuntime / BrainAgentLoop 输出 `AgentEvent` 和包含 events 的 JSON trace；
 - 授权 LLM 时 Brain 每步基于 `AgentObservation` 决定继续调用工具或最终回答，未授权时保守降级为本地观察摘要；
 - Workbench 会话展示来自 AgentRuntime 事件，而不是 Controller 自行拼装工具轨迹；
-- LLM 未授权时不联网、不调用模型。
+- LLM 缺少 API key 或运行时授权标志时不发起模型请求。
 
 ## 4. 安全验收
 
@@ -69,7 +71,7 @@ Workbench 必须具备：
 - 拒绝符号链接和嵌套压缩包；
 - 不直接修改原始项目；
 - 修复只生成计划和 diff；
-- 默认拒绝联网和 LLM；
+- 默认允许联网和 LLM 权限边界，但缺少 API key 时不得发起模型请求；
 - OpenXML、PDF 和压缩包解析不调用 shell 或外部工具；
 - 报告不生成虚假数据；
 - LLM 工具决策不参与最终评分。

@@ -6,6 +6,7 @@
 #include "cc/agent/AgentRuntime.hpp"
 
 #include "cc/agent/PermissionGate.hpp"
+#include "cc/agent/StagedAuditPipeline.hpp"
 #include "cc/agent/ToolRegistry.hpp"
 #include "cc/inventory/FormatDetector.hpp"
 #include "cc/loader/ArchiveExtractor.hpp"
@@ -331,6 +332,77 @@ finalAnswerFromObservations(const AgentRunRequest& request,
                          .ok = true,
                          .summary = "已读取审计会话摘要",
                          .output = JsonValue::Object{{"summary", summary}}});
+}
+
+[[nodiscard]] Result<AgentToolExecution>
+runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& callItem,
+                         const AgentObservationObserver& observe) {
+    if (request.auditResult != nullptr) {
+        return Result<AgentToolExecution>::success(AgentToolExecution{
+            .observations = {AgentObservation{.callId = callItem.id,
+                                              .toolName = callItem.name,
+                                              .ok = false,
+                                              .summary = "当前会话已有审计结果，无需重复运行；请读取摘要或继续核查文件",
+                                              .output = JsonValue::Object{}}},
+            .auditResult = std::nullopt});
+    }
+    if (request.projectRoot.empty()) {
+        return Result<AgentToolExecution>::success(AgentToolExecution{
+            .observations = {AgentObservation{.callId = callItem.id,
+                                              .toolName = callItem.name,
+                                              .ok = false,
+                                              .summary = "未提供可审计的项目路径",
+                                              .output = JsonValue::Object{}}},
+            .auditResult = std::nullopt});
+    }
+
+    StagedAuditPipeline pipeline;
+    auto begun = pipeline.begin(request.projectRoot, request.auditOptions);
+    if (!begun.ok()) {
+        return Result<AgentToolExecution>::failure(begun.error());
+    }
+
+    std::vector<AgentObservation> observations;
+    observations.reserve(StagedAuditPipeline::stages().size() + 1U);
+    while (pipeline.hasNext()) {
+        auto observed = pipeline.advance();
+        if (!observed.ok()) {
+            return Result<AgentToolExecution>::failure(observed.error());
+        }
+        observed.value().callId = callItem.id + ":" + observed.value().callId;
+        if (observe) {
+            observe(observed.value());
+        }
+        observations.push_back(std::move(observed.value()));
+    }
+
+    auto result = pipeline.finish();
+    if (!result.ok()) {
+        return Result<AgentToolExecution>::failure(result.error());
+    }
+    const auto summary = auditSummary(result.value());
+    AgentObservation completed{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = "已完成确定性规则审计，结果已交回 Brain 继续研判",
+        .output = JsonValue::Object{
+            {"summary", summary},
+            {"session_id", result.value().context.sessionId},
+            {"project_root", pathText(result.value().context.inputRoot)},
+            {"workspace_root", pathText(result.value().context.workspaceRoot)},
+            {"score", result.value().trustScore.totalScore},
+            {"trust_debt", result.value().trustScore.trustDebt},
+            {"finding_count", static_cast<int>(result.value().findings.size())},
+            {"evidence_match_count", static_cast<int>(result.value().evidenceMatches.size())},
+            {"fix_task_count", static_cast<int>(result.value().fixTasks.size())}}};
+    if (observe) {
+        observe(completed);
+    }
+    observations.push_back(std::move(completed));
+    return Result<AgentToolExecution>::success(
+        AgentToolExecution{.observations = std::move(observations),
+                           .auditResult = std::move(result.value())});
 }
 
 [[nodiscard]] Result<AgentObservation> runListProjectFiles(const AgentRunRequest& request,
@@ -818,11 +890,9 @@ std::string toString(AgentDecisionKind kind) {
 }
 
 std::string agentCommandHelpText() {
-    return "可用命令：/audit 运行可信审计；/ask、/plan、/code、/bypass 切换模式；"
-           "/plan <任务> 只生成执行计划；/ask <任务>、/code <任务>、/bypass <任务> "
-           "会先切换模式再提交给智能体；/agent <任务> 或 /task <任务> 执行受控工具循环；"
-           "/permissions ask|plan|code|bypass 兼容切换权限模式；/status 查看会话边界；"
-           "/compact 压缩当前审计上下文；/clear 开始新会话。普通输入会作为智能体任务处理。";
+    return "可用命令：/audit 运行缺点评审；/agent <任务> 或 /task <任务> 提交智能体任务；"
+           "/status 查看会话状态；/compact 压缩当前审计上下文；/clear 开始新会话。"
+           "权限模式和高风险边界在设置中管理；普通输入会作为常规问答或项目评审任务处理。";
 }
 
 JsonValue agentRunTraceJson(const AgentRunResult& result) {
@@ -894,20 +964,37 @@ Result<AgentRunResult> AgentRuntime::runLocal(const AgentRunRequest& request) co
                                                           .observations = std::move(observations),
                                                           .events = std::move(events),
                                                           .finalAnswer = finalAnswer,
-                                                          .trace = std::move(trace)});
+                                                          .trace = std::move(trace),
+                                                          .auditResult = std::nullopt});
 }
 
-Result<AgentObservation> AgentRuntime::runTool(const AgentRunRequest& request,
-                                               const AgentToolCall& callItem) const {
+Result<AgentToolExecution>
+AgentRuntime::runToolExecution(const AgentRunRequest& request,
+                               const AgentToolCall& callItem,
+                               AgentObservationObserver observe) const {
     auto specs = ToolRegistry{}.interactiveToolSpecs();
     const auto* toolSpec = findSpec(callItem.name, specs);
     if (toolSpec == nullptr) {
-        return Result<AgentObservation>::success(
-            AgentObservation{.callId = callItem.id,
-                             .toolName = callItem.name,
-                             .ok = false,
-                             .summary = "未注册或当前不允许 Brain 直接驱动的工具: " + callItem.name,
-                             .output = JsonValue::Object{}});
+        return Result<AgentToolExecution>::success(AgentToolExecution{
+            .observations = {AgentObservation{
+                .callId = callItem.id,
+                .toolName = callItem.name,
+                .ok = false,
+                .summary = "未注册或当前不允许 Brain 直接驱动的工具: " + callItem.name,
+                .output = JsonValue::Object{}}},
+            .auditResult = std::nullopt});
+    }
+
+    if (request.requireAudit && request.auditResult == nullptr &&
+        callItem.name != "run_project_audit") {
+        return Result<AgentToolExecution>::success(AgentToolExecution{
+            .observations = {AgentObservation{
+                .callId = callItem.id,
+                .toolName = callItem.name,
+                .ok = false,
+                .summary = "首次项目审查必须先调用 run_project_audit 建立隔离副本并取得规则结果",
+                .output = JsonValue::Object{{"required_tool", "run_project_audit"}}}},
+            .auditResult = std::nullopt});
     }
 
     PermissionGate gate;
@@ -922,29 +1009,62 @@ Result<AgentObservation> AgentRuntime::runTool(const AgentRunRequest& request,
     }
     if (request.allowNetwork) {
         gate.allow(ToolPermission::NetworkAccess);
+    } else {
+        gate.deny(ToolPermission::NetworkAccess);
     }
     if (request.allowLlm) {
         gate.allow(ToolPermission::LLMAccess);
+    } else {
+        gate.deny(ToolPermission::LLMAccess);
     }
     if (!gate.isAllowed(toolSpec->permission)) {
-        return Result<AgentObservation>::success(AgentObservation{
-            .callId = callItem.id,
-            .toolName = callItem.name,
-            .ok = false,
-            .summary = permissionDeniedText(toolSpec->permission),
-            .output = JsonValue::Object{{"permission", toString(toolSpec->permission)}}});
+        return Result<AgentToolExecution>::success(AgentToolExecution{
+            .observations = {AgentObservation{
+                .callId = callItem.id,
+                .toolName = callItem.name,
+                .ok = false,
+                .summary = permissionDeniedText(toolSpec->permission),
+                .output = JsonValue::Object{{"permission", toString(toolSpec->permission)}}}},
+            .auditResult = std::nullopt});
+    }
+
+    if (callItem.name == "run_project_audit") {
+        return runProjectAuditExecution(request, callItem, observe);
     }
 
     const auto runner = findRunner(callItem.name);
     if (runner == nullptr) {
-        return Result<AgentObservation>::success(
-            AgentObservation{.callId = callItem.id,
-                             .toolName = callItem.name,
-                             .ok = false,
-                             .summary = "工具尚未接入 AgentRuntime: " + callItem.name,
-                             .output = JsonValue::Object{}});
+        return Result<AgentToolExecution>::success(AgentToolExecution{
+            .observations = {AgentObservation{.callId = callItem.id,
+                                              .toolName = callItem.name,
+                                              .ok = false,
+                                              .summary = "工具尚未接入 AgentRuntime: " + callItem.name,
+                                              .output = JsonValue::Object{}}},
+            .auditResult = std::nullopt});
     }
-    return runner(request, callItem);
+    auto observed = runner(request, callItem);
+    if (!observed.ok()) {
+        return Result<AgentToolExecution>::failure(observed.error());
+    }
+    if (observe) {
+        observe(observed.value());
+    }
+    return Result<AgentToolExecution>::success(
+        AgentToolExecution{.observations = {std::move(observed.value())},
+                           .auditResult = std::nullopt});
+}
+
+Result<AgentObservation> AgentRuntime::runTool(const AgentRunRequest& request,
+                                               const AgentToolCall& callItem) const {
+    auto execution = runToolExecution(request, callItem);
+    if (!execution.ok()) {
+        return Result<AgentObservation>::failure(execution.error());
+    }
+    if (execution.value().observations.empty()) {
+        return Result<AgentObservation>::failure("工具执行没有返回观察结果: " + callItem.name);
+    }
+    return Result<AgentObservation>::success(
+        std::move(execution.value().observations.back()));
 }
 
 } // namespace cc

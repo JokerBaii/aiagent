@@ -100,6 +100,8 @@ QtObject {
 
     readonly property color border: backgroundTheme === "garden" && !isDark ? Qt.rgba(0.87, 0.62, 0.55, 0.58) : (isDark ? "#2C2C2E" : "#EBEBF0")
     readonly property color borderStrong: backgroundTheme === "garden" && !isDark ? "#E9B2A3" : (isDark ? "#38383A" : "#E5E5EA")
+    // 更细的分隔线，对齐参考 --color-border-subtle。
+    readonly property color borderSubtle: backgroundTheme === "garden" && !isDark ? Qt.rgba(0.87, 0.62, 0.55, 0.35) : (isDark ? "#242426" : "#EFEFF3")
 
     readonly property color success: "#10B981"
     readonly property color successSoft: isDark ? "#123D32" : "#DDF7EF"
@@ -117,9 +119,11 @@ QtObject {
     }
     readonly property string monoFamily: "Cascadia Mono, JetBrains Mono, Menlo, Consolas, monospace"
 
-    readonly property int radius: 14
-    readonly property int radiusSm: 10
-    readonly property int radiusLg: 22
+    // 圆角刻度对齐参考 Tailwind：rounded-lg=8、rounded-xl=12、rounded-2xl=16、new-chat=20。
+    readonly property int radius: 12          // 卡片 / 会话项 rounded-xl
+    readonly property int radiusSm: 8         // 小控件 rounded-lg
+    readonly property int radiusMd: 16        // 输入框 / 大卡片 rounded-2xl
+    readonly property int radiusLg: 20        // 新建按钮胶囊 rounded-[20px]
     readonly property int gap: 16
     readonly property int fast: 120
     readonly property int normal: 190

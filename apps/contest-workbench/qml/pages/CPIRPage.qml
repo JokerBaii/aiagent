@@ -51,6 +51,7 @@ Item {
                         ["需关注点", root.compiler.cpir.riskItems]
                     ]
                     delegate: Card {
+                        id: cpirCard
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignTop
                         padding: 14
@@ -69,7 +70,7 @@ Item {
                                 }
                                 Item { Layout.fillWidth: true }
                                 Pill {
-                                    visible: parent.parent.parent.missing
+                                    visible: cpirCard.missing
                                     text: "缺失"
                                     bg: Theme.warningSoft
                                     fg: Theme.warning
@@ -77,8 +78,8 @@ Item {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: parent.parent.missing ? "—" : modelData[1]
-                                color: parent.parent.missing ? Theme.textMuted : Theme.textPrimary
+                                text: cpirCard.missing ? "—" : modelData[1]
+                                color: cpirCard.missing ? Theme.textMuted : Theme.textPrimary
                                 font.pixelSize: 14
                                 wrapMode: Text.WordWrap
                             }

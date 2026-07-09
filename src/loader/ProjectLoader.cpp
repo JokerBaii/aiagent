@@ -87,10 +87,8 @@ Result<ProjectContext> ProjectLoader::load(const std::filesystem::path& projectP
     }
 
     std::error_code ec;
-    if (!std::filesystem::exists(projectPath, ec) ||
-        !std::filesystem::is_directory(projectPath, ec)) {
-        return Result<ProjectContext>::failure("项目路径不存在或不是目录: " +
-                                               util::pathString(projectPath));
+    if (!std::filesystem::exists(projectPath, ec)) {
+        return Result<ProjectContext>::failure("项目路径不存在: " + util::pathString(projectPath));
     }
 
     const auto normalized = PathGuard::normalize(projectPath);
@@ -99,6 +97,37 @@ Result<ProjectContext> ProjectLoader::load(const std::filesystem::path& projectP
     }
 
     const auto inputRoot = workspace / "input";
+    if (std::filesystem::is_regular_file(normalized.value(), ec)) {
+        std::filesystem::create_directories(inputRoot, ec);
+        if (ec) {
+            return Result<ProjectContext>::failure("无法创建工作区输入目录: " + ec.message());
+        }
+        const auto target = inputRoot / normalized.value().filename();
+        std::filesystem::copy_file(normalized.value(), target,
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec) {
+            return Result<ProjectContext>::failure("复制材料到工作区失败: " + ec.message());
+        }
+        std::filesystem::create_directories(workspace / "repaired", ec);
+        if (ec) {
+            return Result<ProjectContext>::failure("无法创建修复工作区: " + ec.message());
+        }
+
+        ProjectContext context;
+        context.originalRoot = normalized.value();
+        context.inputRoot = inputRoot;
+        context.workspaceRoot = workspace;
+        context.sessionId = sessionId;
+        context.projectName = normalized.value().stem().string();
+        context.unpackStatus = "SINGLE_FILE_COPIED_TO_WORKSPACE";
+        context.inputFiles.push_back(normalized.value().filename());
+        return Result<ProjectContext>::success(std::move(context));
+    }
+    if (!std::filesystem::is_directory(normalized.value(), ec)) {
+        return Result<ProjectContext>::failure("项目路径不是可审计的文件或目录: " +
+                                               util::pathString(projectPath));
+    }
+
     auto copied = copyDirectoryInput(normalized.value(), inputRoot);
     if (!copied.ok()) {
         return Result<ProjectContext>::failure(copied.error());

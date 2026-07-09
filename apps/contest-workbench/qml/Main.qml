@@ -84,6 +84,8 @@ ApplicationWindow {
     property bool settingsOpen: false
     property bool rightPanelOpen: true
     property string rightPanelTab: "files"
+    property string taskSearch: ""
+    property string fileSearch: ""
 
     function fileName(path) {
         if (!path || path.length === 0) return "FocusZone"
@@ -96,6 +98,26 @@ ApplicationWindow {
         id: folderDialog
         title: "添加项目文件夹"
         onAccepted: compiler.selectProject(selectedFolder)
+    }
+
+    FileDialog {
+        id: materialFileDialog
+        title: "添加项目材料或材料包"
+        nameFilters: [
+            "项目材料 (*.pdf *.docx *.doc *.pptx *.ppt *.xlsx *.xls *.md *.txt *.json *.cpp *.c *.h *.hpp *.py *.java *.js *.ts *.zip *.tar *.tgz *.gz)",
+            "所有文件 (*)"
+        ]
+        onAccepted: compiler.selectProject(selectedFile)
+    }
+
+    Shortcut {
+        sequence: StandardKey.Open
+        onActivated: folderDialog.open()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Shift+O"
+        onActivated: materialFileDialog.open()
     }
 
     RowLayout {
@@ -137,7 +159,6 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                     }
-                    Icon { name: "chevronLeft"; size: 16; color: Theme.sidebarText }
                 }
 
                 Rectangle {
@@ -162,7 +183,10 @@ ApplicationWindow {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: compiler.newSession()
+                        onClicked: {
+                            compiler.newSession()
+                            workspacePage.focusComposer("")
+                        }
                     }
                 }
 
@@ -185,7 +209,11 @@ ApplicationWindow {
                             font.pixelSize: Theme.fontMd
                             font.bold: true
                         }
-                        Text { text: "⌘O"; color: Theme.textMuted; font.pixelSize: Theme.fontXs }
+                        Text {
+                            text: Qt.platform.os === "osx" ? "⌘O" : "Ctrl+O"
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontXs
+                        }
                     }
                     MouseArea {
                         id: addMouse
@@ -230,19 +258,25 @@ ApplicationWindow {
                     radius: Theme.radius
                     color: Theme.surface
                     border.color: Theme.border
-                    RowLayout {
-                        anchors.fill: parent
+                    Icon {
+                        anchors.left: parent.left
                         anchors.leftMargin: 14
-                        anchors.rightMargin: 14
-                        spacing: 9
-                        Icon { name: "search"; size: 14; color: Theme.textMuted }
-                        Text {
-                            Layout.fillWidth: true
-                            text: "搜索任务..."
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontMd
-                            verticalAlignment: Text.AlignVCenter
-                        }
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "search"
+                        size: 14
+                        color: Theme.textMuted
+                    }
+                    TextField {
+                        anchors.fill: parent
+                        leftPadding: 38
+                        rightPadding: 12
+                        placeholderText: "搜索任务..."
+                        placeholderTextColor: Theme.textMuted
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontMd
+                        selectByMouse: true
+                        background: null
+                        onTextChanged: root.taskSearch = text
                     }
                 }
 
@@ -252,7 +286,12 @@ ApplicationWindow {
                     Layout.fillHeight: true
                     clip: true
                     spacing: 3
-                    model: compiler.sessionList
+                    model: compiler.sessionList.filter(function(item) {
+                        var query = root.taskSearch.trim().toLowerCase()
+                        return query.length === 0
+                                || String(item.title).toLowerCase().indexOf(query) >= 0
+                                || String(item.subtitle).toLowerCase().indexOf(query) >= 0
+                    })
                     section.property: "active"
                     delegate: Rectangle {
                         width: sessionList.width
@@ -287,6 +326,10 @@ ApplicationWindow {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.rightPanelTab = "preview"
+                                root.rightPanelOpen = true
+                            }
                         }
                     }
                     EmptyState {
@@ -407,9 +450,11 @@ ApplicationWindow {
             }
 
             SessionWorkspacePage {
+                id: workspacePage
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 compiler: compiler
+                onAttachProjectRequested: materialFileDialog.open()
             }
         }
 
@@ -519,19 +564,25 @@ ApplicationWindow {
                             radius: Theme.radius
                             color: Theme.surface
                             border.color: Theme.border
-                            RowLayout {
-                                anchors.fill: parent
+                            Icon {
+                                anchors.left: parent.left
                                 anchors.leftMargin: 14
-                                anchors.rightMargin: 14
-                                spacing: 9
-                                Icon { name: "search"; size: 14; color: Theme.textMuted }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: "搜索文件..."
-                                    color: Theme.textMuted
-                                    font.pixelSize: Theme.fontMd
-                                    verticalAlignment: Text.AlignVCenter
-                                }
+                                anchors.verticalCenter: parent.verticalCenter
+                                name: "search"
+                                size: 14
+                                color: Theme.textMuted
+                            }
+                            TextField {
+                                anchors.fill: parent
+                                leftPadding: 38
+                                rightPadding: 12
+                                placeholderText: "搜索文件..."
+                                placeholderTextColor: Theme.textMuted
+                                color: Theme.textPrimary
+                                font.pixelSize: Theme.fontMd
+                                selectByMouse: true
+                                background: null
+                                onTextChanged: root.fileSearch = text
                             }
                         }
                         ListView {
@@ -542,7 +593,13 @@ ApplicationWindow {
                             Layout.rightMargin: 14
                             clip: true
                             spacing: 2
-                            model: compiler.assets
+                            model: compiler.assets.filter(function(item) {
+                                var query = root.fileSearch.trim().toLowerCase()
+                                return query.length === 0
+                                        || String(item.path).toLowerCase().indexOf(query) >= 0
+                                        || String(item.role).toLowerCase().indexOf(query) >= 0
+                                        || String(item.format).toLowerCase().indexOf(query) >= 0
+                            })
                             delegate: Rectangle {
                                 width: fileList.width
                                 implicitHeight: 34
@@ -568,7 +625,16 @@ ApplicationWindow {
                                         elide: Text.ElideMiddle
                                     }
                                 }
-                                MouseArea { id: fileMouse; anchors.fill: parent; hoverEnabled: true }
+                                MouseArea {
+                                    id: fileMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        compiler.previewProjectFile(modelData.path)
+                                        root.rightPanelTab = "preview"
+                                    }
+                                }
                             }
                             EmptyState {
                                 anchors.fill: parent
@@ -586,6 +652,85 @@ ApplicationWindow {
                         ColumnLayout {
                             width: artifactScroll.availableWidth
                             spacing: 10
+                            Rectangle {
+                                Layout.leftMargin: 14
+                                Layout.rightMargin: 14
+                                Layout.fillWidth: true
+                                visible: compiler.selectedFilePreview.content !== undefined
+                                         || compiler.selectedFilePreview.error !== undefined
+                                implicitHeight: previewColumn.implicitHeight + 24
+                                radius: Theme.radius
+                                color: Theme.surface
+                                border.color: compiler.selectedFilePreview.error
+                                              ? Theme.danger : Theme.accentGhost
+                                ColumnLayout {
+                                    id: previewColumn
+                                    anchors.fill: parent
+                                    anchors.margins: 12
+                                    spacing: 8
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Icon { name: "file"; size: 14; color: Theme.accent }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: compiler.selectedFilePreview.name || "文件预览"
+                                            color: Theme.textPrimary
+                                            font.pixelSize: Theme.fontMd
+                                            font.bold: true
+                                            elide: Text.ElideMiddle
+                                        }
+                                        Rectangle {
+                                            width: 26
+                                            height: 26
+                                            radius: Theme.radiusSm
+                                            color: closePreviewMouse.containsMouse
+                                                   ? Theme.surfaceHover : "transparent"
+                                            Icon {
+                                                anchors.centerIn: parent
+                                                name: "close"
+                                                size: 12
+                                                color: Theme.textMuted
+                                            }
+                                            MouseArea {
+                                                id: closePreviewMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: compiler.clearSelectedFilePreview()
+                                            }
+                                        }
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: !compiler.selectedFilePreview.error
+                                        text: (compiler.selectedFilePreview.format || "未知格式")
+                                              + " · " + (compiler.selectedFilePreview.status || "待检查")
+                                              + (compiler.selectedFilePreview.risk
+                                                 ? " · 风险 " + compiler.selectedFilePreview.risk : "")
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontXs
+                                        wrapMode: Text.WordWrap
+                                    }
+                                    TextArea {
+                                        Layout.fillWidth: true
+                                        text: compiler.selectedFilePreview.error
+                                              || compiler.selectedFilePreview.content || ""
+                                        color: compiler.selectedFilePreview.error
+                                               ? Theme.danger : Theme.textPrimary
+                                        font.family: Theme.monoFamily
+                                        font.pixelSize: Theme.fontSm
+                                        wrapMode: TextArea.Wrap
+                                        textFormat: Text.PlainText
+                                        selectByMouse: true
+                                        readOnly: true
+                                        leftPadding: 0
+                                        rightPadding: 0
+                                        topPadding: 0
+                                        bottomPadding: 0
+                                        background: null
+                                    }
+                                }
+                            }
                             SectionTitle {
                                 Layout.leftMargin: 14
                                 title: "审计资料"

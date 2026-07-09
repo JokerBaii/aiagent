@@ -195,8 +195,8 @@ constexpr std::size_t kSearchReadLimit = 256000U;
 
 [[nodiscard]] std::string auditSummary(const AuditResult& result) {
     std::ostringstream output;
-    output << "当前可信评分 " << result.trustScore.totalScore << "/100，可信债务 "
-           << result.trustScore.trustDebt << "。";
+    output << "当前材料可信评分 " << result.trustScore.totalScore << "/100，还有 "
+           << result.trustScore.trustDebt << " 分需要通过补材料、补证据或修正矛盾来恢复。";
     if (!result.findings.empty()) {
         output << "首个风险：" << result.findings.front().title << "，原因："
                << result.findings.front().reason << "。";
@@ -204,8 +204,7 @@ constexpr std::size_t kSearchReadLimit = 256000U;
     if (!result.fixTasks.empty()) {
         output << "优先补证：" << result.fixTasks.front().title << "。";
     }
-    output << "最终评分仍由 RuleEngine、EvidenceMatcher 和 TrustScoreCalculator "
-              "决定。";
+    output << "评分来自可复核的材料规则和证据匹配，不由大模型随意改动。";
     return output.str();
 }
 

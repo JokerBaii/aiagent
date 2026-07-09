@@ -11,8 +11,14 @@ Item {
     id: root
     property alias text: input.text
     property bool busy: false
+    property string currentModel: ""
     signal submit()
     signal command(string value)
+    signal attachRequested()
+    signal auditRequested()
+    signal planRequested()
+    signal rewindRequested()
+    signal modelSelected(string value)
 
     width: parent ? parent.width : implicitWidth
     height: implicitHeight
@@ -21,6 +27,7 @@ Item {
     readonly property var commands: [
         { label: "/audit", badge: "评审", hint: "运行项目缺点评审" },
         { label: "/agent", badge: "任务", hint: "提交智能体任务" },
+        { label: "/plan", badge: "计划", hint: "先生成计划，确认后再执行" },
         { label: "/status", badge: "会话", hint: "查看项目和运行状态" },
         { label: "/compact", badge: "会话", hint: "压缩当前上下文" },
         { label: "/clear", badge: "会话", hint: "清空当前会话并重新开始" },
@@ -36,6 +43,18 @@ Item {
                 || command.hint.toLowerCase().indexOf(root.slashQuery) >= 0
                 || command.badge.toLowerCase().indexOf(root.slashQuery) >= 0
     })
+
+    function modelLabel(value) {
+        if (value === "deepseek-v4-flash") return "DeepSeek V4 Flash"
+        if (value === "deepseek-chat") return "DeepSeek Chat"
+        if (value === "deepseek-reasoner") return "DeepSeek Reasoner"
+        return value.length > 0 ? value : "未配置模型"
+    }
+
+    function focusInput() {
+        input.forceActiveFocus()
+        input.cursorPosition = input.text.length
+    }
 
     // 斜杠命令面板：向上弹出，圆角卡片 + 阴影。
     Rectangle {
@@ -247,12 +266,31 @@ Item {
         height: 32
         spacing: 8
 
-        ToolbarChip { iconName: "attach"; tooltip: "附加文件" }
+        ToolbarChip {
+            iconName: "attach"
+            tooltip: "附加文件或材料包"
+            onClicked: root.attachRequested()
+        }
 
-        ToolbarChip { iconName: "plan"; label: "项目评审"; }
+        ToolbarChip {
+            iconName: "plan"
+            label: "项目评审"
+            tooltip: "立即运行项目材料审计"
+            onClicked: root.auditRequested()
+        }
 
-        ToolbarChip { iconName: "think"; label: "思考"; }
-        ToolbarChip { iconName: "rewind"; label: "回退"; }
+        ToolbarChip {
+            iconName: "think"
+            label: "计划"
+            tooltip: "输入任务并先生成执行计划"
+            onClicked: root.planRequested()
+        }
+        ToolbarChip {
+            iconName: "rewind"
+            label: "回退"
+            tooltip: "撤销最近一轮对话"
+            onClicked: root.rewindRequested()
+        }
 
         Item { Layout.fillWidth: true }
 
@@ -267,10 +305,12 @@ Item {
                 spacing: 6
                 Icon { name: "dot"; size: 8; color: Theme.success }
                 Text {
-                    text: "DeepSeek V4 Flash"
+                    text: root.modelLabel(root.currentModel)
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSm
                     font.bold: true
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: 150
                 }
                 Icon { name: "chevronDown"; size: 8; color: Theme.textMuted }
             }
@@ -279,15 +319,43 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
+                onClicked: modelMenu.open()
+            }
+            ToolTip.visible: modelMouse.containsMouse
+            ToolTip.text: "选择大模型"
+            Menu {
+                id: modelMenu
+                y: -implicitHeight
+                x: parent.width - implicitWidth
+                MenuItem {
+                    text: "DeepSeek V4 Flash"
+                    checkable: true
+                    checked: root.currentModel === "deepseek-v4-flash"
+                    onTriggered: root.modelSelected("deepseek-v4-flash")
+                }
+                MenuItem {
+                    text: "DeepSeek Chat"
+                    checkable: true
+                    checked: root.currentModel === "deepseek-chat"
+                    onTriggered: root.modelSelected("deepseek-chat")
+                }
+                MenuItem {
+                    text: "DeepSeek Reasoner"
+                    checkable: true
+                    checked: root.currentModel === "deepseek-reasoner"
+                    onTriggered: root.modelSelected("deepseek-reasoner")
+                }
             }
         }
     }
 
     // 工具行上的通用小图标按钮。
     component ToolbarChip: Rectangle {
+        id: chip
         property string iconName: ""
         property string label: ""
         property string tooltip: ""
+        signal clicked()
         Layout.alignment: Qt.AlignVCenter
         implicitWidth: chipRow.implicitWidth + (label.length > 0 ? 16 : 12)
         implicitHeight: 28
@@ -310,6 +378,9 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
+            onClicked: chip.clicked()
         }
+        ToolTip.visible: chipMouse.containsMouse && chip.tooltip.length > 0
+        ToolTip.text: chip.tooltip
     }
 }

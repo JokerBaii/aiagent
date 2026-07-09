@@ -59,6 +59,8 @@ class CompileController : public QObject {
     Q_PROPERTY(QVariantList sessionList READ sessionList NOTIFY sessionChanged)
     Q_PROPERTY(QVariantMap advisory READ advisory NOTIFY advisoryChanged)
     Q_PROPERTY(bool advisoryRunning READ advisoryRunning NOTIFY advisoryChanged)
+    Q_PROPERTY(QVariantMap selectedFilePreview READ selectedFilePreview
+                   NOTIFY selectedFilePreviewChanged)
 
   public:
     explicit CompileController(QObject* parent = nullptr);
@@ -107,6 +109,7 @@ class CompileController : public QObject {
     [[nodiscard]] QVariantList sessionList() const;
     [[nodiscard]] QVariantMap advisory() const;
     [[nodiscard]] bool advisoryRunning() const;
+    [[nodiscard]] QVariantMap selectedFilePreview() const;
 
     Q_INVOKABLE void runAudit();
     Q_INVOKABLE void runDiff();
@@ -120,6 +123,10 @@ class CompileController : public QObject {
     Q_INVOKABLE void newSession();
     /** @brief 运行混合研判：LLM 先判断、确定性规则校验（需授权 LLM 且已有审计结果）。 */
     Q_INVOKABLE void runAdvisory();
+    Q_INVOKABLE void rewindLastTurn();
+    Q_INVOKABLE void approvePendingPlan();
+    Q_INVOKABLE void previewProjectFile(const QString& relativePath);
+    Q_INVOKABLE void clearSelectedFilePreview();
 
   signals:
     void projectPathChanged();
@@ -135,6 +142,7 @@ class CompileController : public QObject {
     void agentStateChanged();
     void accessModeChanged();
     void advisoryChanged();
+    void selectedFilePreviewChanged();
 
   private:
     void advanceAuditRun();
@@ -176,6 +184,8 @@ class CompileController : public QObject {
     int activeAuditStep_{-1};
     int completedAuditSteps_{0};
     QString currentAgentAction_;
+    QString pendingPlanGoal_;
+    QVariantMap selectedFilePreview_;
     QTimer auditTimer_;
     std::unique_ptr<cc::StagedAuditPipeline> auditRun_;
     QString agentResult_;

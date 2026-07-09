@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -171,7 +172,8 @@ namespace {
 
 [[nodiscard]] QString defectReportText(const cc::AuditResult& result) {
     QStringList lines;
-    lines << QStringLiteral("缺点评审完成：确定性评分 %1/100，可信债务 %2。")
+    lines << QStringLiteral("缺点评审完成：材料可信评分 %1/100，还有 %2 分需要通过补材料、"
+                            "补证据或修正矛盾来恢复。")
                  .arg(result.trustScore.totalScore)
                  .arg(result.trustScore.trustDebt);
     lines << QStringLiteral("我只列影响交付可信度的问题，不写无关优点。");
@@ -182,7 +184,7 @@ namespace {
     }
 
     if (!result.findings.empty()) {
-        lines << "\n规则命中的缺点：";
+        lines << "\n审计发现的问题：";
         const auto limit = std::min<std::size_t>(result.findings.size(), 8U);
         for (std::size_t index = 0U; index < limit; ++index) {
             const auto& finding = result.findings.at(index);
@@ -216,9 +218,13 @@ namespace {
         const auto limit = std::min<std::size_t>(result.fixTasks.size(), 6U);
         for (std::size_t index = 0U; index < limit; ++index) {
             const auto& task = result.fixTasks.at(index);
+            const auto priority = task.priority == "P0"
+                                      ? QStringLiteral("立即处理")
+                                  : task.priority == "P1" ? QStringLiteral("尽快处理")
+                                                          : stringText(task.priority);
             lines << QStringLiteral("%1. [%2] %3：%4")
                          .arg(static_cast<int>(index + 1U))
-                         .arg(stringText(task.priority))
+                         .arg(priority)
                          .arg(stringText(task.title))
                          .arg(stringText(task.reason));
         }
@@ -635,6 +641,8 @@ void CompileController::selectProject(const QString& urlOrPath) {
     advisory_.reset();
     agentResult_.clear();
     agentTrace_.clear();
+    pendingPlanGoal_.clear();
+    selectedFilePreview_.clear();
     activeAuditStep_ = -1;
     completedAuditSteps_ = 0;
     currentAgentAction_.clear();
@@ -656,6 +664,7 @@ void CompileController::selectProject(const QString& urlOrPath) {
     emit advisoryChanged();
     emit agentResultChanged();
     emit agentTraceChanged();
+    emit selectedFilePreviewChanged();
     emit workspaceChanged();
     emit sessionChanged();
     if (brainReady) {
@@ -670,25 +679,36 @@ void CompileController::selectProject(const QString& urlOrPath) {
 
 void CompileController::newSession() {
     if (agentRunning_) {
+        conversation_.push_back({"系统", "当前审计仍在运行，完成后才能开始新任务。",
+                                 "会话", "system", QString{}, false});
+        emit sessionChanged();
         return;
     }
     auditRun_.reset();
     conversation_.clear();
     result_.reset();
     auditDiff_.reset();
+    advisory_.reset();
     agentResult_.clear();
     agentTrace_.clear();
     projectPath_.clear();
     activeAuditStep_ = -1;
     completedAuditSteps_ = 0;
     currentAgentAction_.clear();
-    status_ = "已开始新会话，选择竞赛项目后即可审计";
+    pendingPlanGoal_.clear();
+    selectedFilePreview_.clear();
+    conversation_.push_back(
+        {"系统", "已开始新任务。请添加项目文件夹、材料包或单份成果文件。",
+         "会话", "system", QString{}, true});
+    status_ = "已开始新任务，等待添加项目材料";
     emit projectPathChanged();
     emit statusChanged();
     emit resultChanged();
     emit auditDiffChanged();
+    emit advisoryChanged();
     emit agentResultChanged();
     emit agentTraceChanged();
+    emit selectedFilePreviewChanged();
     emit agentStateChanged();
     emit workspaceChanged();
     emit sessionChanged();
@@ -749,6 +769,10 @@ QVariantMap CompileController::advisory() const {
     }
     map["items"] = items;
     return map;
+}
+
+QVariantMap CompileController::selectedFilePreview() const {
+    return selectedFilePreview_;
 }
 
 void CompileController::runAdvisory() {
@@ -978,9 +1002,10 @@ void CompileController::runAudit() {
         return;
     }
     if (normalizedInputPath(projectPath_).trimmed().isEmpty()) {
-        status_ = "请先选择项目材料包";
+        status_ = "请先添加项目材料";
         conversation_.push_back(
-            {"智能体", "先把项目目录或压缩包拖进来，我再开始审计。", "等待材料"});
+            {"智能体", "先添加项目文件夹、材料包或单份成果文件，我再开始审计。",
+             "等待材料"});
         emit statusChanged();
         emit sessionChanged();
         return;
@@ -995,6 +1020,7 @@ void CompileController::runAudit() {
     advisory_.reset();
     agentResult_.clear();
     agentTrace_.clear();
+    selectedFilePreview_.clear();
     auditRun_ = std::make_unique<cc::StagedAuditPipeline>();
     auto begun = auditRun_->begin(normalizedPath.toStdString(), options);
     if (!begun.ok()) {
@@ -1026,6 +1052,7 @@ void CompileController::runAudit() {
     emit advisoryChanged();
     emit agentResultChanged();
     emit agentTraceChanged();
+    emit selectedFilePreviewChanged();
     emit agentStateChanged();
     emit workspaceChanged();
     emit sessionChanged();
@@ -1226,6 +1253,7 @@ void CompileController::previewAgentPlan(const QString& message, const QString& 
     if (appendUserMessage) {
         conversation_.push_back({"用户", goal, context});
     }
+    pendingPlanGoal_ = goal;
 
     QStringList steps;
     steps << QStringLiteral("目标：%1").arg(goal);
@@ -1244,6 +1272,139 @@ void CompileController::previewAgentPlan(const QString& message, const QString& 
     emit statusChanged();
     emit workspaceChanged();
     emit sessionChanged();
+}
+
+void CompileController::approvePendingPlan() {
+    if (agentRunning_) {
+        conversation_.push_back({"系统", "当前任务仍在运行，请稍后再执行计划。",
+                                 "计划", "system", QString{}, false});
+        emit sessionChanged();
+        return;
+    }
+    if (pendingPlanGoal_.isEmpty()) {
+        conversation_.push_back({"系统", "当前没有等待执行的计划。",
+                                 "计划", "system", QString{}, false});
+        emit sessionChanged();
+        return;
+    }
+
+    const auto goal = pendingPlanGoal_;
+    pendingPlanGoal_.clear();
+    setAccessMode("ask");
+    conversation_.push_back(
+        {"系统", "计划已批准，审计助手开始执行。", "计划", "system", QString{}, true});
+    emit sessionChanged();
+    startDeferredAgentConversation(goal, "执行已批准计划", false);
+}
+
+void CompileController::rewindLastTurn() {
+    if (agentRunning_) {
+        conversation_.push_back({"系统", "当前任务仍在运行，完成后才能回退。",
+                                 "会话", "system", QString{}, false});
+        emit sessionChanged();
+        return;
+    }
+
+    const auto userTurn = std::find_if(
+        conversation_.rbegin(), conversation_.rend(),
+        [](const workbench::SessionMessage& message) {
+            return message.kind == "user" || message.role == "用户";
+        });
+    if (userTurn == conversation_.rend()) {
+        conversation_.push_back({"系统", "没有可回退的对话。",
+                                 "会话", "system", QString{}, false});
+        emit sessionChanged();
+        return;
+    }
+
+    const auto eraseStart = std::prev(userTurn.base());
+    if (eraseStart->context == "项目导入") {
+        conversation_.push_back(
+            {"系统", "项目导入记录不能通过回退删除；请点击“新任务”重新开始。",
+             "会话", "system", QString{}, false});
+        emit sessionChanged();
+        return;
+    }
+
+    conversation_.erase(eraseStart, conversation_.end());
+    pendingPlanGoal_.clear();
+    agentResult_.clear();
+    agentTrace_.clear();
+    conversation_.push_back(
+        {"系统", "已回退最近一轮对话，可以重新输入。", "会话", "system", QString{}, true});
+    status_ = "已回退最近一轮对话";
+    emit statusChanged();
+    emit agentResultChanged();
+    emit agentTraceChanged();
+    emit workspaceChanged();
+    emit sessionChanged();
+}
+
+void CompileController::previewProjectFile(const QString& relativePath) {
+    if (!result_.has_value()) {
+        selectedFilePreview_.clear();
+        selectedFilePreview_["error"] = "请先完成项目审计，再预览文件。";
+        emit selectedFilePreviewChanged();
+        return;
+    }
+
+    const auto requested = std::filesystem::path(relativePath.toStdString()).lexically_normal();
+    const auto asset = std::find_if(
+        result_->inventory.assets.begin(), result_->inventory.assets.end(),
+        [&requested](const cc::ProjectAsset& candidate) {
+            return candidate.relativePath.lexically_normal() == requested;
+        });
+    if (asset == result_->inventory.assets.end()) {
+        selectedFilePreview_.clear();
+        selectedFilePreview_["error"] = "文件不在当前审计资产清单中。";
+        emit selectedFilePreviewChanged();
+        return;
+    }
+
+    QString content;
+    QString extractionStatus = asset->auditable ? "可审计" : "仅显示文件信息";
+    const auto document = std::find_if(
+        result_->corpus.begin(), result_->corpus.end(),
+        [&asset](const cc::TextDocument& candidate) {
+            return candidate.sourceFile.lexically_normal() ==
+                   asset->relativePath.lexically_normal();
+        });
+    if (document != result_->corpus.end()) {
+        content = QString::fromStdString(document->text);
+        extractionStatus = QString::fromStdString(document->status);
+    } else if (asset->auditable) {
+        content = QString::fromStdString(cc::util::readFileLimited(asset->absolutePath, 256000U));
+    }
+    if (content.trimmed().isEmpty()) {
+        content = asset->auditable
+                      ? "该文件没有提取出可显示文本，可能是扫描件或二进制格式。"
+                      : "该文件不适合直接文本预览；审计仍会保留格式、角色和风险信息。";
+    }
+
+    QStringList risks;
+    for (const auto& risk : asset->riskFlags) {
+        risks.push_back(QString::fromStdString(risk));
+    }
+    selectedFilePreview_.clear();
+    selectedFilePreview_["path"] = relativePath;
+    selectedFilePreview_["name"] = QString::fromStdString(asset->fileName);
+    selectedFilePreview_["format"] = QString::fromStdString(asset->format);
+    selectedFilePreview_["role"] = QString::fromStdString(cc::toString(asset->role));
+    selectedFilePreview_["size"] = QVariant::fromValue<qulonglong>(asset->sizeBytes);
+    selectedFilePreview_["risk"] = risks.join("、");
+    selectedFilePreview_["status"] = extractionStatus;
+    selectedFilePreview_["content"] = content.left(120000);
+    status_ = QStringLiteral("正在预览 %1").arg(relativePath);
+    emit statusChanged();
+    emit selectedFilePreviewChanged();
+}
+
+void CompileController::clearSelectedFilePreview() {
+    if (selectedFilePreview_.isEmpty()) {
+        return;
+    }
+    selectedFilePreview_.clear();
+    emit selectedFilePreviewChanged();
 }
 
 void CompileController::runAgentConversation(const QString& message, const QString& context,

@@ -13,6 +13,8 @@ Item {
     required property string context
     property string detail: ""
     property bool ok: true
+    signal approveRequested()
+    signal reviseRequested()
 
     height: implicitHeight
     implicitHeight: Math.max(root.showAvatar ? avatar.height : 0, contentHeight)
@@ -245,39 +247,54 @@ Item {
                         lineHeight: 1.45
                     }
                     RowLayout {
+                        visible: root.context === "计划模式"
                         Layout.fillWidth: true
                         spacing: 10
                         Rectangle {
                             implicitWidth: approveRow.implicitWidth + 24
                             implicitHeight: 38
                             radius: Theme.radiusSm
-                            color: Theme.accent
+                            color: approveMouse.containsMouse ? Theme.accentHover : Theme.accent
                             RowLayout {
                                 id: approveRow
                                 anchors.centerIn: parent
                                 spacing: 6
                                 Icon { name: "check"; size: 13; color: Theme.isDark && Theme.colorTheme === "black" ? "#101010" : "#FFFFFF" }
                                 Text {
-                                    text: "批准并执行"
+                                    text: "执行计划"
                                     color: Theme.isDark && Theme.colorTheme === "black" ? "#101010" : "#FFFFFF"
                                     font.pixelSize: Theme.fontMd
                                     font.bold: true
                                 }
+                            }
+                            MouseArea {
+                                id: approveMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.approveRequested()
                             }
                         }
                         Rectangle {
                             implicitWidth: reviseText.implicitWidth + 28
                             implicitHeight: 38
                             radius: Theme.radiusSm
-                            color: Theme.surfaceMuted
+                            color: reviseMouse.containsMouse ? Theme.surfaceHover : Theme.surfaceMuted
                             border.color: Theme.border
                             Text {
                                 id: reviseText
                                 anchors.centerIn: parent
-                                text: "告诉智能体如何修改"
+                                text: "修改计划"
                                 color: Theme.textMuted
                                 font.pixelSize: Theme.fontMd
                                 font.bold: true
+                            }
+                            MouseArea {
+                                id: reviseMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.reviseRequested()
                             }
                         }
                         Item { Layout.fillWidth: true }

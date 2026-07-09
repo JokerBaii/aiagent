@@ -8,6 +8,7 @@ Item {
     id: root
     required property var compiler
     property bool dropActive: false
+    signal attachProjectRequested()
 
     function sendComposerMessage() {
         var text = composer.text.trim()
@@ -15,6 +16,11 @@ Item {
             return
         composer.text = ""
         compiler.submitMessage(text)
+    }
+
+    function focusComposer(prefix) {
+        composer.text = prefix || ""
+        composer.focusInput()
     }
 
     ColumnLayout {
@@ -60,6 +66,8 @@ Item {
                     context: modelData.context || ""
                     detail: modelData.detail === undefined ? "" : modelData.detail
                     ok: modelData.ok === undefined ? true : modelData.ok
+                    onApproveRequested: root.compiler.approvePendingPlan()
+                    onReviseRequested: root.focusComposer("请修改刚才的计划：")
                 }
 
                 EmptyState {
@@ -87,8 +95,14 @@ Item {
                     anchors.rightMargin: Math.max(48, (parent.width - 760) / 2)
                     anchors.bottomMargin: 20
                     busy: root.compiler.agentRunning
+                    currentModel: root.compiler.llmModel
                     onSubmit: root.sendComposerMessage()
                     onCommand: function(value) { root.compiler.submitMessage(value) }
+                    onAttachRequested: root.attachProjectRequested()
+                    onAuditRequested: root.compiler.submitMessage("/audit")
+                    onPlanRequested: root.focusComposer("/plan ")
+                    onRewindRequested: root.compiler.rewindLastTurn()
+                    onModelSelected: function(value) { root.compiler.llmModel = value }
                 }
             }
 

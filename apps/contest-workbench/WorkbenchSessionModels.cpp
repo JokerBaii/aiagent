@@ -167,6 +167,9 @@ namespace {
 }
 
 [[nodiscard]] QString importStatusText(const std::string& status) {
+    if (status == "SINGLE_FILE_COPIED_TO_WORKSPACE") {
+        return "单份材料已建立安全副本";
+    }
     if (status == "DIRECTORY_COPIED_TO_WORKSPACE") {
         return "已建立安全工作副本";
     }

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,7 @@ struct LlmConfig {
     int maxTokens{4096};
     bool allowNetwork{false};
     bool allowLlm{false};
+    std::function<bool()> isCancelled;
 };
 
 /**

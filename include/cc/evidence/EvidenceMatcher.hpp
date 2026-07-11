@@ -25,6 +25,9 @@ class EvidenceMatcher {
      */
     [[nodiscard]] std::vector<EvidenceMatch> match(const std::vector<ProjectClaim>& claims,
                                                    const ProjectInventory& inventory) const;
+    [[nodiscard]] std::vector<EvidenceMatch> match(const std::vector<ProjectClaim>& claims,
+                                                   const ProjectInventory& inventory,
+                                                   const std::vector<TextDocument>& corpus) const;
 };
 
 /**

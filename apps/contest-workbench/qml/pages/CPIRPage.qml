@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -52,20 +54,22 @@ Item {
                     ]
                     delegate: Card {
                         id: cpirCard
+                        required property var modelData
+
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignTop
                         padding: 14
                         hoverable: true
-                        property bool missing: !modelData[1] || modelData[1] === ""
+                        property bool missing: !cpirCard.modelData[1] || cpirCard.modelData[1] === ""
                         ColumnLayout {
                             anchors.fill: parent
                             spacing: 6
                             RowLayout {
                                 Layout.fillWidth: true
                                 Text {
-                                    text: modelData[0]
+                                    text: cpirCard.modelData[0]
                                     color: Theme.textSecondary
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSm
                                     font.bold: true
                                 }
                                 Item { Layout.fillWidth: true }
@@ -78,9 +82,9 @@ Item {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: cpirCard.missing ? "—" : modelData[1]
+                                text: cpirCard.missing ? "—" : cpirCard.modelData[1]
                                 color: cpirCard.missing ? Theme.textMuted : Theme.textPrimary
-                                font.pixelSize: 14
+                                font.pixelSize: Theme.fontLg
                                 wrapMode: Text.WordWrap
                             }
                         }

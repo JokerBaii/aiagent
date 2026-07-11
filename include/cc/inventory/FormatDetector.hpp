@@ -25,6 +25,15 @@ class FormatDetector {
      */
     [[nodiscard]] ProjectAsset detect(const std::filesystem::path& root,
                                       const std::filesystem::path& file) const;
+
+    /**
+     * @brief 只根据相对路径和声明大小构建资产元数据。
+     *
+     * 该入口不会打开文件，适用于压缩包内未解压条目和因导入限制而延迟读取的文件。
+     * 返回的资产始终不可审计，后续按需取得真实内容后才允许重新检测。
+     */
+    [[nodiscard]] ProjectAsset detectMetadata(const std::filesystem::path& relativePath,
+                                              std::uintmax_t sizeBytes) const;
 };
 
 /**

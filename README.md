@@ -77,9 +77,9 @@ Anthropic 配置优先；未提供 Anthropic key 时使用 OpenAI-compatible 配
 
 ## 输入安全
 
-支持项目目录、`.zip` 以及 libarchive 可解析的 `.tar/.tgz/.tar.gz/.gz/.7z`。压缩包导入会先检查路径穿越、符号链接和嵌套压缩包，再解包到 `.workspaces/<session_id>/input/`。
+支持项目目录、任意单文件，以及 `.zip/.tar/.tgz/.tar.gz/.gz/.bz2/.xz/.zst/.7z` 等可安全解析的材料包；可识别但暂不支持展开的归档仍会作为元数据资产接入。导入采用逐文件能力降级：超大、深路径、链接、加密、嵌套、未知或预算外文件保留路径、大小、格式和原因，其余文件继续进入 `.workspaces/<session_id>/input/`。只有路径穿越、重复目标、文件/目录冲突、压缩炸弹和损坏归档等安全或完整性问题会阻断整个输入。
 
-zip 读取由 C++/ZLIB 的 `ZipArchiveReader` 完成，不调用 shell 或外部 `unzip`。非 zip 压缩包由 `LibArchiveReader` 调用 libarchive 解析，不执行压缩包内任何内容。PDF 文本抽取由 `PdfContentStreamParser` 保守解析已有内容流，不调用 `pdftotext`；扫描件或复杂编码会显式标记为 NEED_REVIEW。目录导入也会先复制到隔离工作区，审计只读取隔离工作区，不直接扫描或修改原始项目。
+zip 读取由 C++/ZLIB 的 `ZipArchiveReader` 完成，不调用 shell 或外部 `unzip`。非 zip 压缩包由 `LibArchiveReader` 调用 libarchive 解析，不执行压缩包内任何内容。文件格式由扩展名与有界内容签名共同识别，覆盖源码、文档、图片、音视频、模型、3D、归档、常见二进制和未知扩展；未载入内容的资产永远不会被误当成可审计证据。PDF 文本抽取由 `PdfContentStreamParser` 保守解析已有内容流，不调用 `pdftotext`；扫描件或复杂编码会显式标记为 NEED_REVIEW。目录导入先建立隔离副本，智能体只可对用户已选择的延迟文本执行有界只读采样，绝不修改原始项目。
 
 ## 验收
 

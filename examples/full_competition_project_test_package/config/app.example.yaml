@@ -1,0 +1,11 @@
+project_name: 智农云链
+environment: local-demo
+server:
+  host: 127.0.0.1
+  port: 8088
+features:
+  evidence_export: true
+  audit_debug_log: true
+notes:
+  - 本配置仅用于竞赛项目调试包
+  - 不包含真实密钥或真实个人隐私数据

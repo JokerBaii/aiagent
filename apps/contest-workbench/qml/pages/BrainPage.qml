@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -29,7 +31,7 @@ Item {
                     anchors.fill: parent
                     spacing: 12
 
-                    Text { text: "Endpoint"; color: Theme.textSecondary; font.pixelSize: 12; font.bold: true }
+                    Text { text: "Endpoint"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
                     FieldInput {
                         Layout.fillWidth: true
                         text: root.compiler.llmEndpoint
@@ -37,7 +39,7 @@ Item {
                         onTextEdited: root.compiler.llmEndpoint = text
                     }
 
-                    Text { text: "Model"; color: Theme.textSecondary; font.pixelSize: 12; font.bold: true }
+                    Text { text: "Model"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
                     FieldInput {
                         Layout.fillWidth: true
                         text: root.compiler.llmModel
@@ -45,7 +47,7 @@ Item {
                         onTextEdited: root.compiler.llmModel = text
                     }
 
-                    Text { text: "API Key"; color: Theme.textSecondary; font.pixelSize: 12; font.bold: true }
+                    Text { text: "API Key"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
                     FieldInput {
                         Layout.fillWidth: true
                         echoMode: TextInput.Password
@@ -66,6 +68,7 @@ Item {
                             anchors.margins: 10
                             spacing: 8
                             CheckBox {
+                                Accessible.name: "允许本次联网并调用大模型"
                                 checked: root.compiler.llmApproved
                                 onToggled: root.compiler.llmApproved = checked
                             }
@@ -73,13 +76,13 @@ Item {
                                 Layout.fillWidth: true
                                 text: "允许本次联网并调用大模型运行工具循环；工具执行仍受权限、路径和审计记录约束。"
                                 color: Theme.textPrimary
-                                font.pixelSize: 12
+                                font.pixelSize: Theme.fontSm
                                 wrapMode: Text.WordWrap
                             }
                         }
                     }
 
-                    Text { text: "Task"; color: Theme.textSecondary; font.pixelSize: 12; font.bold: true }
+                    Text { text: "Task"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 116
@@ -96,7 +99,7 @@ Item {
                                 text: "请自动翻阅当前项目，检查 Markdown 文档并生成工作区修订稿。"
                                 wrapMode: TextArea.Wrap
                                 color: Theme.textPrimary
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontMd
                                 background: Rectangle { color: "transparent" }
                             }
                         }
@@ -113,14 +116,14 @@ Item {
                     Text {
                         text: "混合研判"
                         color: Theme.textSecondary
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSm
                         font.bold: true
                     }
                     Text {
                         Layout.fillWidth: true
                         text: "LLM 先基于审计结果给出风险判断和评分建议，确定性规则和证据逐条校验；冲突项降级并标注，最终评分仍以规则引擎为准。"
                         color: Theme.textMuted
-                        font.pixelSize: 11
+                        font.pixelSize: Theme.fontXs
                         wrapMode: Text.WordWrap
                     }
                     PrimaryButton {
@@ -139,7 +142,6 @@ Item {
             Layout.fillHeight: true
             spacing: 12
 
-            // 混合研判结果
             SectionTitle {
                 title: "混合研判结论"
                 subtitle: root.compiler.advisory.available ? root.compiler.advisory.summary : "运行后显示 LLM 研判与规则校验对齐结果"
@@ -180,11 +182,14 @@ Item {
                     Repeater {
                         model: root.compiler.advisory.items
                         delegate: Rectangle {
+                            id: advisoryDelegate
+                            required property var modelData
+
                             Layout.fillWidth: true
                             implicitHeight: advCol.implicitHeight + 18
                             radius: Theme.radiusSm
-                            color: modelData.verdict === "conflicting" ? Theme.dangerSoft
-                                 : modelData.verdict === "confirmed" ? Theme.successSoft
+                            color: advisoryDelegate.modelData.verdict === "conflicting" ? Theme.dangerSoft
+                                 : advisoryDelegate.modelData.verdict === "confirmed" ? Theme.successSoft
                                  : Theme.surfaceMuted
                             ColumnLayout {
                                 id: advCol
@@ -194,28 +199,28 @@ Item {
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Text {
-                                        text: modelData.title
+                                        text: advisoryDelegate.modelData.title
                                         color: Theme.textPrimary
-                                        font.pixelSize: 13
+                                        font.pixelSize: Theme.fontMd
                                         font.bold: true
                                     }
                                     Item { Layout.fillWidth: true }
                                     Text {
-                                        text: modelData.verdict === "confirmed" ? "已印证"
-                                            : modelData.verdict === "conflicting" ? "与规则冲突"
+                                        text: advisoryDelegate.modelData.verdict === "confirmed" ? "已印证"
+                                            : advisoryDelegate.modelData.verdict === "conflicting" ? "与规则冲突"
                                             : "待核实"
-                                        color: modelData.verdict === "confirmed" ? Theme.success
-                                             : modelData.verdict === "conflicting" ? Theme.danger
+                                        color: advisoryDelegate.modelData.verdict === "confirmed" ? Theme.success
+                                             : advisoryDelegate.modelData.verdict === "conflicting" ? Theme.danger
                                              : Theme.textMuted
-                                        font.pixelSize: 11
+                                        font.pixelSize: Theme.fontXs
                                         font.bold: true
                                     }
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: modelData.reconciliation
+                                    text: advisoryDelegate.modelData.reconciliation
                                     color: Theme.textSecondary
-                                    font.pixelSize: 12
+                                    font.pixelSize: Theme.fontSm
                                     wrapMode: Text.WordWrap
                                 }
                             }
@@ -237,7 +242,7 @@ Item {
                         wrapMode: TextArea.Wrap
                         text: root.compiler.agentResult
                         color: Theme.textPrimary
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontMd
                         placeholderText: "运行后显示计划摘要、工具观察和下一步。"
                         background: Rectangle { color: "transparent" }
                     }
@@ -257,7 +262,7 @@ Item {
                         wrapMode: TextArea.Wrap
                         text: root.compiler.agentTrace
                         color: Theme.textSecondary
-                        font.pixelSize: 12
+                        font.pixelSize: Theme.fontSm
                         font.family: "monospace"
                         placeholderText: "工具调用 JSON 轨迹"
                         background: Rectangle { color: "transparent" }

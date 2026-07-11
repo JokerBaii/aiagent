@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -13,7 +15,6 @@ Item {
         anchors.margins: 24
         spacing: 20
 
-        // 角色分布
         ColumnLayout {
             Layout.preferredWidth: 300
             Layout.fillHeight: true
@@ -36,6 +37,9 @@ Item {
                         NumberAnimation { properties: "y"; from: 8; duration: Theme.normal; easing.type: Easing.OutCubic }
                     }
                     delegate: Rectangle {
+                        id: roleDelegate
+                        required property var modelData
+
                         width: roleList.width
                         height: 44
                         radius: Theme.radiusSm
@@ -47,13 +51,13 @@ Item {
                             anchors.rightMargin: 12
                             Text {
                                 Layout.fillWidth: true
-                                text: modelData.role
+                                text: roleDelegate.modelData.role
                                 color: Theme.textPrimary
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontMd
                                 elide: Text.ElideRight
                             }
                             Pill {
-                                text: modelData.count
+                                text: roleDelegate.modelData.count
                                 bg: Theme.accentSoft
                                 fg: Theme.accentActive
                             }
@@ -68,7 +72,6 @@ Item {
             }
         }
 
-        // 资产列表
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -91,6 +94,9 @@ Item {
                         NumberAnimation { properties: "y"; from: 8; duration: Theme.normal; easing.type: Easing.OutCubic }
                     }
                     delegate: Rectangle {
+                        id: assetDelegate
+                        required property var modelData
+
                         width: assetList.width
                         implicitHeight: assetCol.implicitHeight + 20
                         radius: Theme.radiusSm
@@ -106,19 +112,19 @@ Item {
                             spacing: 6
                             Text {
                                 Layout.fillWidth: true
-                                text: modelData.path
+                                text: assetDelegate.modelData.path
                                 color: Theme.textPrimary
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontMd
                                 font.bold: true
                                 wrapMode: Text.WrapAnywhere
                             }
                             RowLayout {
                                 spacing: 8
-                                Pill { text: modelData.role; bg: Theme.surface; fg: Theme.textSecondary }
-                                Pill { text: modelData.format; bg: Theme.surface; fg: Theme.textSecondary }
+                                Pill { text: assetDelegate.modelData.role; bg: Theme.surface; fg: Theme.textSecondary }
+                                Pill { text: assetDelegate.modelData.format; bg: Theme.surface; fg: Theme.textSecondary }
                                 Pill {
-                                    visible: modelData.risk && modelData.risk.length > 0
-                                    text: modelData.risk
+                                    visible: assetDelegate.modelData.risk && assetDelegate.modelData.risk.length > 0
+                                    text: assetDelegate.modelData.risk
                                     bg: Theme.warningSoft
                                     fg: Theme.warning
                                 }

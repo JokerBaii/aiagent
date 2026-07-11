@@ -11,8 +11,8 @@ Button {
     contentItem: Text {
         id: label
         text: control.text
-        color: "#FFFFFF"
-        font.pixelSize: 14
+        color: Theme.accentText
+        font.pixelSize: Theme.fontLg
         font.bold: true
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter

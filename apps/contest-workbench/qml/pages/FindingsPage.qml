@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -42,6 +44,9 @@ Item {
                 }
 
                 delegate: Rectangle {
+                    id: findingDelegate
+                    required property var modelData
+
                     width: list.width
                     implicitHeight: col.implicitHeight + 24
                     radius: Theme.radiusSm
@@ -61,33 +66,33 @@ Item {
                             Layout.fillWidth: true
                             spacing: 8
                             Pill {
-                                text: modelData.severity
-                                bg: root.sevColors(modelData.severity).bg
-                                fg: root.sevColors(modelData.severity).fg
+                                text: findingDelegate.modelData.severity
+                                bg: root.sevColors(findingDelegate.modelData.severity).bg
+                                fg: root.sevColors(findingDelegate.modelData.severity).fg
                             }
                             Item { Layout.fillWidth: true }
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: modelData.title
+                            text: findingDelegate.modelData.title
                             color: Theme.textPrimary
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.fontLg
                             font.bold: true
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: modelData.reason
+                            text: findingDelegate.modelData.reason
                             color: Theme.textSecondary
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
-                            visible: modelData.fix && modelData.fix.length > 0
-                            text: "建议：" + modelData.fix
+                            visible: findingDelegate.modelData.fix && findingDelegate.modelData.fix.length > 0
+                            text: "建议：" + findingDelegate.modelData.fix
                             color: Theme.accentActive
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
                         }
                     }

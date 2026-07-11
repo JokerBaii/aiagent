@@ -7,6 +7,8 @@
 #include "cc/util/FileUtil.hpp"
 #include "cc/util/JsonUtil.hpp"
 
+#include <algorithm>
+
 namespace cc {
 namespace {
 
@@ -30,9 +32,34 @@ namespace {
     return covered * 100.0 / static_cast<double>(matches.size());
 }
 
+[[nodiscard]] int findingCount(const AuditResult& result, Severity severity) {
+    return static_cast<int>(std::count_if(
+        result.findings.begin(), result.findings.end(),
+        [severity](const AuditFinding& finding) { return finding.severity == severity; }));
+}
+
+[[nodiscard]] int taskCount(const AuditResult& result, const std::string& priority) {
+    return static_cast<int>(std::count_if(
+        result.fixTasks.begin(), result.fixTasks.end(),
+        [&](const FixTask& task) { return task.priority == priority; }));
+}
+
+[[nodiscard]] int reviewDocumentCount(const std::vector<TextDocument>& corpus) {
+    return static_cast<int>(std::count_if(corpus.begin(), corpus.end(), [](const TextDocument& doc) {
+        return doc.status.starts_with("NEED_REVIEW") || doc.status == "EMPTY_OR_UNREADABLE";
+    }));
+}
+
 } // namespace
 
 JsonValue contextToJson(const ProjectContext& context) {
+    JsonValue::Array deferred;
+    for (const auto& file : context.deferredFiles) {
+        deferred.emplace_back(JsonValue::Object{
+            {"path", util::pathString(file.relativePath)},
+            {"size_bytes", static_cast<double>(file.sizeBytes)},
+            {"reason", file.reason}});
+    }
     return JsonValue::Object{{"original_root", util::pathString(context.originalRoot)},
                              {"input_root", util::pathString(context.inputRoot)},
                              {"workspace_root", util::pathString(context.workspaceRoot)},
@@ -41,6 +68,7 @@ JsonValue contextToJson(const ProjectContext& context) {
                              {"unpack_status", context.unpackStatus},
                              {"archive_input", context.archiveInput},
                              {"input_files", util::pathArrayToJson(context.inputFiles)},
+                             {"deferred_files", JsonValue{deferred}},
                              {"warnings", util::stringArrayToJson(context.warnings)}};
 }
 
@@ -61,6 +89,7 @@ JsonValue inventoryToJson(const ProjectInventory& inventory) {
                               {"generated", asset.generated},
                               {"third_party", asset.vendored},
                               {"sensitive", asset.sensitive},
+                              {"workspace_modified", asset.workspaceModified},
                               {"risk_flags", util::stringArrayToJson(asset.riskFlags)}});
     }
     JsonValue::Object roleCounts;
@@ -215,14 +244,15 @@ JsonValue auditDiffToJson(const AuditDiff& diff) {
                              {"summary", diff.summary}};
 }
 
-JsonValue JsonReporter::toJson(const AuditResult& result) const {
-    int blockerCount = 0;
-    int warningCount = 0;
-    for (const auto& finding : result.findings) {
-        blockerCount += finding.severity == Severity::Blocker ? 1 : 0;
-        warningCount += finding.severity == Severity::Warning ? 1 : 0;
-    }
+JsonValue JsonReporter::toJson(const AuditResult& result, const AuditDiff* diff) const {
+    const auto ruleBlockers = findingCount(result, Severity::Blocker);
+    const auto ruleWarnings = findingCount(result, Severity::Warning);
+    const auto p0Tasks = taskCount(result, "P0");
+    const auto p1Tasks = taskCount(result, "P1");
+    const auto blockerCount = std::max(ruleBlockers, p0Tasks);
+    const auto warningCount = std::max(ruleWarnings, p1Tasks);
     return JsonValue::Object{
+        {"report_schema_version", 2},
         {"summary",
          JsonValue::Object{
              {"project_name", result.cpir.projectName},
@@ -232,6 +262,11 @@ JsonValue JsonReporter::toJson(const AuditResult& result) const {
              {"trust_debt", result.trustScore.trustDebt},
              {"blocker_count", blockerCount},
              {"warning_count", warningCount},
+             {"rule_blocker_count", ruleBlockers},
+             {"rule_warning_count", ruleWarnings},
+             {"p0_task_count", p0Tasks},
+             {"p1_task_count", p1Tasks},
+             {"review_document_count", reviewDocumentCount(result.corpus)},
              {"evidence_coverage", evidenceCoverage(result.evidenceMatches)},
              {"material_completeness", dimensionScore(result.trustScore, "材料完整性")},
              {"consistency_score", dimensionScore(result.trustScore, "项目逻辑自洽性")},
@@ -247,14 +282,15 @@ JsonValue JsonReporter::toJson(const AuditResult& result) const {
         {"trust_score", trustScoreToJson(result.trustScore)},
         {"fix_tasks", fixTasksToJson(result.fixTasks)},
         {"tool_outputs", util::stringArrayToJson(result.toolOutputs)},
-        {"audit_diff", JsonValue{nullptr}},
+        {"audit_diff", diff == nullptr ? JsonValue{nullptr} : auditDiffToJson(*diff)},
         {"repair_plan", JsonValue::Object{{"markdown", result.repairPlan.markdown},
                                           {"diff", result.repairPlan.diffText}}}};
 }
 
 Result<void> JsonReporter::write(const AuditResult& result,
-                                 const std::filesystem::path& output) const {
-    return util::writeTextFile(output, writeJson(toJson(result), 2) + "\n");
+                                 const std::filesystem::path& output,
+                                 const AuditDiff* diff) const {
+    return util::writeTextFile(output, writeJson(toJson(result, diff), 2) + "\n");
 }
 
 } // namespace cc

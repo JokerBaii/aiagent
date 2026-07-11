@@ -1,12 +1,10 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import ".."
 
-// 底部输入区，一比一对齐 TOKENICODE 的 InputBar：
-// 上方 rounded-2xl 输入行（多行 + 行内发送按钮 + focus 发光边框），
-// 下方工具行（附件、项目、模式选择器、思考档位、模型选择器），
-// 以及输入 "/" 时向上弹出的斜杠命令面板。
 Item {
     id: root
     property alias text: input.text
@@ -19,6 +17,9 @@ Item {
     signal planRequested()
     signal rewindRequested()
     signal modelSelected(string value)
+
+    property int commandIndex: 0
+    property bool slashPopupDismissed: false
 
     width: parent ? parent.width : implicitWidth
     height: implicitHeight
@@ -44,6 +45,24 @@ Item {
                 || command.badge.toLowerCase().indexOf(root.slashQuery) >= 0
     })
 
+    onSlashQueryChanged: {
+        commandIndex = 0
+        slashPopupDismissed = false
+    }
+
+    function activateCommand(commandItem) {
+        if (!commandItem)
+            return
+        if (commandItem.label === "/agent" || commandItem.label === "/plan") {
+            input.text = commandItem.label + " "
+            input.forceActiveFocus()
+            input.cursorPosition = input.text.length
+            return
+        }
+        root.command(commandItem.label)
+        input.text = ""
+    }
+
     function modelLabel(value) {
         if (value === "deepseek-v4-flash") return "DeepSeek V4 Flash"
         if (value === "deepseek-chat") return "DeepSeek Chat"
@@ -56,10 +75,11 @@ Item {
         input.cursorPosition = input.text.length
     }
 
-    // 斜杠命令面板：向上弹出，圆角卡片 + 阴影。
     Rectangle {
         id: slashPopup
-        visible: input.text.trim().indexOf("/") === 0 && root.filteredCommands.length > 0
+        visible: !root.slashPopupDismissed
+                 && input.text.trim().indexOf("/") === 0
+                 && root.filteredCommands.length > 0
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: shell.top
@@ -69,6 +89,13 @@ Item {
         color: Theme.surface
         border.color: Theme.border
         clip: true
+        opacity: visible ? 1 : 0
+        scale: visible ? 1 : 0.98
+        Accessible.role: Accessible.List
+        Accessible.name: "内置命令"
+
+        Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+        Behavior on scale { NumberAnimation { duration: Theme.fast; easing.type: Easing.OutCubic } }
 
         Rectangle {
             anchors.fill: parent
@@ -100,18 +127,24 @@ Item {
                 Layout.fillHeight: true
                 clip: true
                 model: root.filteredCommands
+                currentIndex: root.commandIndex
                 delegate: Rectangle {
+                    id: commandDelegate
+                    required property int index
+                    required property var modelData
+
                     width: commandList.width
                     height: 44
-                    color: commandMouse.containsMouse ? Theme.surfaceMuted : "transparent"
+                    color: commandDelegate.index === root.commandIndex || commandMouse.containsMouse
+                           ? Theme.surfaceMuted : "transparent"
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 12
                         anchors.rightMargin: 12
                         spacing: 12
                         Rectangle {
-                            width: 26
-                            height: 26
+                            Layout.preferredWidth: 26
+                            Layout.preferredHeight: 26
                             radius: Theme.radiusSm
                             color: Theme.accentSoft
                             Text {
@@ -119,7 +152,7 @@ Item {
                                 text: "/"
                                 color: Theme.accent
                                 font.family: Theme.monoFamily
-                                font.pixelSize: 13
+                                font.pixelSize: Theme.fontMd
                                 font.bold: true
                             }
                         }
@@ -129,51 +162,42 @@ Item {
                             RowLayout {
                                 spacing: 8
                                 Text {
-                                    text: modelData.label
+                                    text: commandDelegate.modelData.label
                                     color: Theme.textPrimary
                                     font.family: Theme.monoFamily
                                     font.pixelSize: Theme.fontMd
                                     font.bold: true
                                 }
                                 Pill {
-                                    text: modelData.badge
-                                    bg: modelData.badge === "计划" || modelData.badge === "危险"
+                                    text: commandDelegate.modelData.badge
+                                    bg: commandDelegate.modelData.badge === "计划" || commandDelegate.modelData.badge === "危险"
                                         ? Theme.warningSoft : Theme.surfaceMuted
-                                    fg: modelData.badge === "计划" || modelData.badge === "危险"
+                                    fg: commandDelegate.modelData.badge === "计划" || commandDelegate.modelData.badge === "危险"
                                         ? Theme.warning : Theme.textMuted
                                 }
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: modelData.hint
+                                text: commandDelegate.modelData.hint
                                 color: Theme.textMuted
                                 font.pixelSize: Theme.fontXs
                                 elide: Text.ElideRight
                             }
                         }
                     }
-                    MouseArea {
+                    ActionArea {
                         id: commandMouse
                         anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            if (modelData.label === "/agent") {
-                                input.text = modelData.label + " "
-                                input.forceActiveFocus()
-                                input.cursorPosition = input.text.length
-                            } else {
-                                root.command(modelData.label)
-                                input.text = ""
-                            }
-                        }
+                        accessibleName: commandDelegate.modelData.label + " "
+                                        + commandDelegate.modelData.hint
+                        onEntered: root.commandIndex = commandDelegate.index
+                        onClicked: root.activateCommand(commandDelegate.modelData)
                     }
                 }
             }
         }
     }
 
-    // 输入行：rounded-2xl，focus 时强调色边框 + 柔光。
     Rectangle {
         id: shell
         anchors.left: parent.left
@@ -203,6 +227,7 @@ Item {
                 clip: true
                 TextArea {
                     id: input
+                    Accessible.name: "向审计助手发送消息"
                     wrapMode: TextArea.Wrap
                     color: Theme.textPrimary
                     placeholderTextColor: Theme.textTertiary
@@ -212,23 +237,51 @@ Item {
                     selectByMouse: true
                     verticalAlignment: TextArea.AlignVCenter
                     background: Rectangle { color: "transparent" }
-                    Keys.onReturnPressed: function(event) {
+                    Keys.onPressed: function(event) {
+                        if (slashPopup.visible && event.key === Qt.Key_Down) {
+                            root.commandIndex = Math.min(root.filteredCommands.length - 1,
+                                                         root.commandIndex + 1)
+                            commandList.positionViewAtIndex(root.commandIndex, ListView.Contain)
+                            event.accepted = true
+                            return
+                        }
+                        if (slashPopup.visible && event.key === Qt.Key_Up) {
+                            root.commandIndex = Math.max(0, root.commandIndex - 1)
+                            commandList.positionViewAtIndex(root.commandIndex, ListView.Contain)
+                            event.accepted = true
+                            return
+                        }
+                        if (event.key === Qt.Key_Escape && slashPopup.visible) {
+                            root.slashPopupDismissed = true
+                            event.accepted = true
+                            return
+                        }
+                        if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+                            return
+                        if (input.inputMethodComposing) {
+                            event.accepted = false
+                            return
+                        }
+                        if (slashPopup.visible && root.commandIndex < root.filteredCommands.length) {
+                            root.activateCommand(root.filteredCommands[root.commandIndex])
+                            event.accepted = true
+                            return
+                        }
                         if (event.modifiers & Qt.ShiftModifier) {
                             event.accepted = false
-                        } else {
-                            event.accepted = true
-                            root.submit()
+                            return
                         }
+                        event.accepted = true
+                        root.submit()
                     }
                 }
             }
 
-            // 发送按钮：运行中仍可追加消息，由后端队列接住。
             Rectangle {
                 Layout.alignment: Qt.AlignBottom
                 Layout.bottomMargin: 4
-                width: 32
-                height: 32
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
                 radius: 10
                 color: input.text.trim().length === 0 ? Theme.surfaceMuted
                      : sendMouse.containsMouse ? Theme.accentHover
@@ -241,21 +294,19 @@ Item {
                     size: 16
                     strokeWidth: 2
                     color: input.text.trim().length === 0 ? Theme.textTertiary
-                         : (Theme.isDark && Theme.colorTheme === "black" ? "#101010" : "#FFFFFF")
+                         : Theme.accentText
                 }
-                MouseArea {
+                ActionArea {
                     id: sendMouse
                     anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
                     enabled: input.text.trim().length > 0
+                    accessibleName: root.busy ? "将消息加入发送队列" : "发送消息"
                     onClicked: root.submit()
                 }
             }
         }
     }
 
-    // 工具行：附件、项目、模式选择器、思考、右侧模型。
     RowLayout {
         id: toolbar
         anchors.left: parent.left
@@ -314,11 +365,10 @@ Item {
                 }
                 Icon { name: "chevronDown"; size: 8; color: Theme.textMuted }
             }
-            MouseArea {
+            ActionArea {
                 id: modelMouse
                 anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
+                accessibleName: "选择大模型：" + root.modelLabel(root.currentModel)
                 onClicked: modelMenu.open()
             }
             ToolTip.visible: modelMouse.containsMouse
@@ -349,7 +399,6 @@ Item {
         }
     }
 
-    // 工具行上的通用小图标按钮。
     component ToolbarChip: Rectangle {
         id: chip
         property string iconName: ""
@@ -357,7 +406,7 @@ Item {
         property string tooltip: ""
         signal clicked()
         Layout.alignment: Qt.AlignVCenter
-        implicitWidth: chipRow.implicitWidth + (label.length > 0 ? 16 : 12)
+        implicitWidth: chipRow.implicitWidth + (chip.label.length > 0 ? 16 : 12)
         implicitHeight: 28
         radius: Theme.radiusSm
         color: chipMouse.containsMouse ? Theme.surfaceMuted : "transparent"
@@ -365,19 +414,18 @@ Item {
             id: chipRow
             anchors.centerIn: parent
             spacing: 5
-            Icon { name: iconName; size: 14; color: Theme.textTertiary }
+            Icon { name: chip.iconName; size: 14; color: Theme.textTertiary }
             Text {
-                visible: label.length > 0
-                text: label
+                visible: chip.label.length > 0
+                text: chip.label
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontXs
             }
         }
-        MouseArea {
+        ActionArea {
             id: chipMouse
             anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
+            accessibleName: chip.tooltip.length > 0 ? chip.tooltip : chip.label
             onClicked: chip.clicked()
         }
         ToolTip.visible: chipMouse.containsMouse && chip.tooltip.length > 0

@@ -7,11 +7,14 @@
 
 #include "cc/core/ProjectModels.hpp"
 #include "cc/core/Result.hpp"
+#include "cc/loader/ImportLimits.hpp"
 
 namespace cc {
 
 class ProjectLoader {
   public:
+    explicit ProjectLoader(ImportLimits limits = {});
+
     /**
      * @brief 导入项目目录或 zip 并创建隔离工作区。
      *
@@ -19,6 +22,9 @@ class ProjectLoader {
      * @return 成功时返回 ProjectContext；失败时返回路径不存在、格式不支持或复制错误。
      */
     [[nodiscard]] Result<ProjectContext> load(const std::filesystem::path& projectPath) const;
+
+  private:
+    ImportLimits limits_;
 };
 
 } // namespace cc

@@ -1,10 +1,9 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import ".."
 
-// 会话流中的单条消息，按 kind 内联渲染：
-// user 右侧气泡、assistant 左侧头像+全宽正文、tool 缩进单行、plan 强调卡片、
-// system 居中胶囊、artifact 产物卡片。C++ 侧 WorkbenchSessionModels 已提供各字段。
 Item {
     id: root
     required property string kind
@@ -12,13 +11,16 @@ Item {
     required property string text
     required property string context
     property string detail: ""
+    property string target: ""
     property bool ok: true
     signal approveRequested()
     signal reviseRequested()
+    signal artifactRequested(string pageKey)
 
     height: implicitHeight
     implicitHeight: Math.max(root.showAvatar ? avatar.height : 0, contentHeight)
-    readonly property real contentHeight: content.item ? content.item.implicitHeight : 0
+    readonly property Item loadedContent: content.item as Item
+    readonly property real contentHeight: loadedContent ? loadedContent.implicitHeight : 0
 
     readonly property bool isUser: kind === "user"
     readonly property bool isTool: kind === "tool"
@@ -27,10 +29,8 @@ Item {
     readonly property bool isArtifact: kind === "artifact"
     readonly property bool showAvatar: !root.isUser && !root.isSystem && !root.isTool
                                       && !root.isPlan && !root.isArtifact
-    // 头像宽度 32 + 间距 12 = 44，tool/system 行缩进到正文左缘，与参考 ml-11 一致。
     readonly property int contentIndent: 44
 
-    // 仅 assistant 显示 </> 头像；tool/system/plan/artifact 走缩进而非头像。
     AiAvatar {
         id: avatar
         x: 0
@@ -53,7 +53,6 @@ Item {
                        : assistantText
     }
 
-    // user：右对齐气泡，rounded-2xl 且右下角收窄，shadow-md。
     Component {
         id: userBubble
         Item {
@@ -87,7 +86,6 @@ Item {
         }
     }
 
-    // assistant：全宽正文，text-base leading-relaxed，可带次要说明行。
     Component {
         id: assistantText
         Column {
@@ -112,7 +110,6 @@ Item {
         }
     }
 
-    // tool：缩进单行，展开箭头 + 工具图标 + 文案 + 结果指示，对齐参考 ToolUseMsg。
     Component {
         id: toolLine
         Item {
@@ -156,42 +153,48 @@ Item {
         }
     }
 
-    // system：居中胶囊反馈（模式切换 / 命令结果），对齐参考 CommandFeedbackMsg。
     Component {
         id: systemLine
         Item {
             width: content.width
-            implicitHeight: 34
+            implicitHeight: systemCard.implicitHeight
             Rectangle {
-                anchors.centerIn: parent
-                width: Math.min(content.width, sysRow.implicitWidth + 28)
-                height: 30
-                radius: 15
+                id: systemCard
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(parent.width, 680)
+                implicitHeight: sysRow.implicitHeight + 16
+                radius: Theme.radius
                 color: root.ok ? Theme.surfaceMuted : Theme.dangerSoft
                 border.color: root.ok ? Theme.border : Theme.danger
                 border.width: 1
                 RowLayout {
                     id: sysRow
-                    anchors.centerIn: parent
-                    spacing: 7
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 8
+                    spacing: 8
                     Icon {
                         name: root.ok ? "checkSmall" : "close"
                         size: 12
                         color: root.ok ? Theme.textMuted : Theme.danger
+                        Layout.alignment: Qt.AlignTop
+                        Layout.topMargin: 3
                     }
                     Text {
+                        Layout.fillWidth: true
                         text: root.text
                         color: root.ok ? Theme.textMuted : Theme.danger
                         font.pixelSize: Theme.fontSm
-                        elide: Text.ElideRight
-                        Layout.maximumWidth: content.width - 60
+                        wrapMode: Text.Wrap
+                        lineHeight: 1.35
+                        textFormat: Text.PlainText
                     }
                 }
             }
         }
     }
 
-    // plan：强调左边框 + 渐隐底色的计划卡片，含批准/修改动作，对齐 PlanReviewCard。
     Component {
         id: planCard
         Item {
@@ -267,11 +270,10 @@ Item {
                                     font.bold: true
                                 }
                             }
-                            MouseArea {
+                            ActionArea {
                                 id: approveMouse
                                 anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
+                                accessibleName: "执行当前计划"
                                 onClicked: root.approveRequested()
                             }
                         }
@@ -289,11 +291,10 @@ Item {
                                 font.pixelSize: Theme.fontMd
                                 font.bold: true
                             }
-                            MouseArea {
+                            ActionArea {
                                 id: reviseMouse
                                 anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
+                                accessibleName: "修改当前计划"
                                 onClicked: root.reviseRequested()
                             }
                         }
@@ -304,7 +305,6 @@ Item {
         }
     }
 
-    // artifact：产物卡片，缩进对齐正文。
     Component {
         id: artifactCard
         Item {
@@ -316,8 +316,12 @@ Item {
                 width: Math.min(parent.width - root.contentIndent, 720)
                 implicitHeight: artCol.implicitHeight + 20
                 radius: Theme.radius
-                color: Theme.surface
-                border.color: Theme.border
+                color: artifactMouse.containsMouse && root.target.length > 0
+                       ? Theme.surfaceHover : Theme.surface
+                border.color: artifactMouse.containsMouse && root.target.length > 0
+                              ? Theme.accentGhost : Theme.border
+                Behavior on color { ColorAnimation { duration: Theme.fast } }
+                Behavior on border.color { ColorAnimation { duration: Theme.fast } }
                 ColumnLayout {
                     id: artCol
                     anchors.fill: parent
@@ -341,6 +345,13 @@ Item {
                         font.pixelSize: Theme.fontMd
                         wrapMode: Text.WordWrap
                     }
+                }
+                ActionArea {
+                    id: artifactMouse
+                    anchors.fill: parent
+                    enabled: root.target.length > 0
+                    accessibleName: root.target.length > 0 ? "打开" + root.text : "审计产物"
+                    onClicked: root.artifactRequested(root.target)
                 }
             }
         }

@@ -4,6 +4,7 @@
     <file>qml/Theme.qml</file>
     <file>qml/qmldir</file>
     <file>qml/pages/SessionWorkspacePage.qml</file>
+    <file>qml/pages/ArtifactDetailPage.qml</file>
     <file>qml/pages/TrustDashboardPage.qml</file>
     <file>qml/pages/AssetInventoryPage.qml</file>
     <file>qml/pages/CPIRPage.qml</file>
@@ -25,5 +26,6 @@
     <file>qml/components/Composer.qml</file>
     <file>qml/components/Icon.qml</file>
     <file>qml/components/AiAvatar.qml</file>
+    <file>qml/components/ActionArea.qml</file>
   </qresource>
 </RCC>

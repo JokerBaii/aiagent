@@ -1,0 +1,4 @@
+method,baseline,precision,recall,f1,说明
+keyword_only,true,0.68,0.62,0.65,baseline 仅按关键词匹配声明和证据
+role_graph,false,0.84,0.79,0.81,实验：规则化证据链提升声明证据匹配稳定性
+manual_review,false,0.91,0.73,0.81,人工复核用于检查规则漏报和误报

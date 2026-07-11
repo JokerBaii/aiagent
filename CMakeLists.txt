@@ -147,6 +147,7 @@ target_link_libraries(contest_tests PRIVATE contest_agent contest_llm)
 target_compile_definitions(contest_tests PRIVATE
     CONTEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
+contest_apply_common_options(contest_tests)
 add_test(NAME contest_tests COMMAND contest_tests)
 
 add_executable(contest_dependency_tests
@@ -160,39 +161,34 @@ target_link_libraries(contest_dependency_tests PRIVATE
 contest_apply_common_options(contest_dependency_tests)
 add_test(NAME contest_dependency_tests COMMAND contest_dependency_tests)
 
-find_package(Qt6 QUIET COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2)
-if(Qt6_FOUND)
-    qt_standard_project_setup()
-    qt_add_resources(CONTEST_WORKBENCH_RESOURCES
-        apps/contest-workbench/resources.qrc
-    )
-    add_executable(contest-workbench
-        apps/contest-workbench/main.cpp
-        apps/contest-workbench/CompileController.cpp
-        apps/contest-workbench/CompileController.hpp
-        apps/contest-workbench/AuditResultModels.cpp
-        apps/contest-workbench/AuditResultModels.hpp
-        apps/contest-workbench/WorkbenchSessionModels.cpp
-        apps/contest-workbench/WorkbenchSessionModels.hpp
-        ${CONTEST_WORKBENCH_RESOURCES}
-    )
-    target_link_libraries(contest-workbench PRIVATE
-        contest_agent
-        contest_llm
-        Qt6::Core
-        Qt6::Gui
-        Qt6::Qml
-        Qt6::Quick
-        Qt6::QuickControls2
-        Qt6::QuickDialogs2
-    )
-else()
-    message(WARNING "Qt6 was not found; contest-workbench will not be built.")
-endif()
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2)
+qt_standard_project_setup()
+qt_add_resources(CONTEST_WORKBENCH_RESOURCES
+    apps/contest-workbench/resources.qrc
+)
+add_executable(contest-workbench
+    apps/contest-workbench/main.cpp
+    apps/contest-workbench/CompileController.cpp
+    apps/contest-workbench/CompileController.hpp
+    apps/contest-workbench/AuditResultModels.cpp
+    apps/contest-workbench/AuditResultModels.hpp
+    apps/contest-workbench/WorkbenchSessionModels.cpp
+    apps/contest-workbench/WorkbenchSessionModels.hpp
+    ${CONTEST_WORKBENCH_RESOURCES}
+)
+target_link_libraries(contest-workbench PRIVATE
+    contest_agent
+    contest_llm
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickControls2
+    Qt6::QuickDialogs2
+)
+contest_apply_common_options(contest-workbench)
 
-if(TARGET contest-workbench)
-    install(TARGETS contest-workbench RUNTIME DESTINATION bin)
-endif()
+install(TARGETS contest-workbench RUNTIME DESTINATION bin)
 install(DIRECTORY rules examples DESTINATION share/contest-compiler)
 install(DIRECTORY tools DESTINATION share/contest-compiler
     FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE

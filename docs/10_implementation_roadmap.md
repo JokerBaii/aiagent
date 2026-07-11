@@ -25,7 +25,7 @@
 
 交付 ProjectLoader、ArchiveExtractor、ZipArchiveReader、LibArchiveReader、PathGuard。
 
-验收：目录、zip、tar/tgz 可导入；路径穿越、符号链接、嵌套压缩包被拒绝。
+验收：目录、单文件、zip、tar/tgz 可导入；超限、链接、加密、嵌套和未知条目保留元数据且不影响其他材料；路径穿越、目标冲突、压缩炸弹和损坏归档被拒绝并回滚。
 
 ## 4. Milestone 4：资产和文本
 

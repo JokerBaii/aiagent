@@ -8,24 +8,22 @@
 #include "cc/util/StringUtil.hpp"
 
 #include <algorithm>
+#include <set>
 #include <sstream>
 
 namespace cc {
 namespace {
 
 [[nodiscard]] bool matchesFinding(const AdvisoryRiskItem& item, const AuditFinding& finding) {
-    if (!item.ruleIdHint.empty() &&
-        util::lowerAscii(item.ruleIdHint) == util::lowerAscii(finding.ruleId)) {
-        return true;
+    if (!item.ruleIdHint.empty()) {
+        return util::lowerAscii(item.ruleIdHint) == util::lowerAscii(finding.ruleId);
     }
-    // 无 ruleId 命中时，用标题/原因文本与规则标题做保守包含匹配，避免过度联想。
+    if (!item.claimIdHint.empty()) {
+        return false;
+    }
     const auto title = util::lowerAscii(item.title);
     const auto findingTitle = util::lowerAscii(finding.title);
-    if (!title.empty() && !findingTitle.empty() &&
-        (util::contains(findingTitle, title) || util::contains(title, findingTitle))) {
-        return true;
-    }
-    return false;
+    return !title.empty() && title == findingTitle;
 }
 
 [[nodiscard]] bool matchesEvidenceGap(const AdvisoryRiskItem& item,
@@ -38,8 +36,44 @@ namespace {
         return util::lowerAscii(match.claimId) == hint &&
                (match.status == EvidenceStatus::Unsupported ||
                 match.status == EvidenceStatus::Partial ||
-                match.status == EvidenceStatus::Conflicted);
+                match.status == EvidenceStatus::Conflicted ||
+                match.status == EvidenceStatus::NeedReview);
     });
+}
+
+[[nodiscard]] bool containsAny(const std::string& text,
+                               const std::vector<std::string_view>& phrases) {
+    return std::any_of(phrases.begin(), phrases.end(), [&](std::string_view phrase) {
+        return util::contains(text, phrase);
+    });
+}
+
+[[nodiscard]] bool claimsPass(const AdvisoryRiskItem& item) {
+    const auto text = util::lowerAscii(item.title + " " + item.reason);
+    const std::vector<std::string_view> negative{
+        "不通过", "不能通过", "未通过", "禁止通过", "并非无风险", "不是无风险",
+        "存在风险", "存在问题", "发现问题", "不符合", "尚未满足", "缺少", "不足"};
+    if (containsAny(text, negative)) {
+        return false;
+    }
+    const std::vector<std::string_view> positive{
+        "可以通过", "建议通过", "符合要求", "无风险", "没有问题", "不存在问题",
+        "已满足"};
+    return containsAny(text, positive);
+}
+
+[[nodiscard]] bool claimsWholeProjectPass(const AdvisoryRiskItem& item) {
+    if (!claimsPass(item)) {
+        return false;
+    }
+    const auto text = util::lowerAscii(item.title + " " + item.reason);
+    const std::vector<std::string_view> scope{"整体", "整个项目", "项目总体", "最终结论",
+                                               "审计结论", "提交", "参赛"};
+    return containsAny(text, scope);
+}
+
+[[nodiscard]] std::string advisoryKey(const AdvisoryRiskItem& item) {
+    return util::lowerAscii(item.ruleIdHint + "\n" + item.claimIdHint + "\n" + item.title);
 }
 
 [[nodiscard]] bool hasBlocker(const std::vector<AuditFinding>& findings) {
@@ -66,12 +100,18 @@ ReconciledAdvisory AdvisoryReconciler::reconcile(const AuditAdvisory& advisory,
                                                  const AuditResult& result) const {
     ReconciledAdvisory out;
     out.finalScore = result.trustScore.totalScore;
-    out.suggestedScore = advisory.suggestedScore;
-    out.scoreGap = advisory.suggestedScore - result.trustScore.totalScore;
+    out.suggestedScore = std::clamp(advisory.suggestedScore, 0, 100);
+    out.scoreGap = out.suggestedScore - result.trustScore.totalScore;
 
     const bool projectHasBlocker = hasBlocker(result.findings);
 
-    for (const auto& item : advisory.risks) {
+    std::set<std::string> seen;
+    const auto riskLimit = std::min<std::size_t>(advisory.risks.size(), 100U);
+    for (std::size_t index = 0U; index < riskLimit; ++index) {
+        const auto& item = advisory.risks[index];
+        if (!seen.insert(advisoryKey(item)).second) {
+            continue;
+        }
         ReconciledRiskItem reconciled;
         reconciled.advisory = item;
 
@@ -80,24 +120,34 @@ ReconciledAdvisory AdvisoryReconciler::reconcile(const AuditAdvisory& advisory,
             [&](const AuditFinding& finding) { return matchesFinding(item, finding); });
 
         if (findingIter != result.findings.end()) {
-            reconciled.verdict = AdvisoryVerdict::Confirmed;
-            reconciled.reconciliation =
-                "已印证：对应规则 " + findingIter->ruleId + "（" + findingIter->title + "）。";
+            if (findingIter->severity != item.severity || claimsPass(item)) {
+                reconciled.verdict = AdvisoryVerdict::Conflicting;
+                reconciled.reconciliation =
+                    "与规则冲突：对应规则 " + findingIter->ruleId +
+                    "，但风险严重度或通过结论与确定性结果不一致。";
+            } else {
+                reconciled.verdict = AdvisoryVerdict::Confirmed;
+                reconciled.reconciliation = "已印证：对应规则 " + findingIter->ruleId + "（" +
+                                            findingIter->title + "）。";
+            }
         } else if (matchesEvidenceGap(item, result.evidenceMatches)) {
-            reconciled.verdict = AdvisoryVerdict::Confirmed;
-            reconciled.reconciliation = "已印证：对应声明 " + item.claimIdHint + " 的证据缺口。";
+            if (claimsPass(item)) {
+                reconciled.verdict = AdvisoryVerdict::Conflicting;
+                reconciled.reconciliation =
+                    "与证据冲突：声明 " + item.claimIdHint + " 仍有证据缺口。";
+            } else {
+                reconciled.verdict = AdvisoryVerdict::Confirmed;
+                reconciled.reconciliation =
+                    "已印证：对应声明 " + item.claimIdHint + " 的证据缺口。";
+            }
         } else {
             reconciled.verdict = AdvisoryVerdict::Unverified;
             reconciled.reconciliation =
                 "待核实：未找到对应规则风险或证据缺口，仅作参考，不影响评分。";
         }
 
-        // 冲突降级：LLM 判为无风险/通过，但确定性结果存在 Blocker。
-        const auto reason = util::lowerAscii(item.reason);
-        const bool claimsPass = util::contains(reason, "通过") ||
-                                util::contains(reason, "无风险") ||
-                                util::contains(reason, "没有问题");
-        if (claimsPass && projectHasBlocker) {
+        if (reconciled.verdict == AdvisoryVerdict::Unverified && projectHasBlocker &&
+            claimsWholeProjectPass(item)) {
             reconciled.verdict = AdvisoryVerdict::Conflicting;
             reconciled.reconciliation =
                 "与规则冲突：确定性审计存在必须处理项，已否决该乐观研判并降级。";

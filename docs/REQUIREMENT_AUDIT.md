@@ -13,8 +13,8 @@
 
 | 来源 | 要求 | 当前实现 | 验证入口 |
 |---|---|---|---|
-| FR-01 | 目录和 zip/tar 等压缩包导入，隔离工作区，不改原项目 | `ProjectLoader`、`ArchiveExtractor`、`ZipArchiveReader`、`LibArchiveReader`、`PathGuard`，目录和压缩包都落到 `.workspaces/<session>/input` | `tests/loader/LoaderTests.cpp` |
-| FR-02 | PASI 资产语义识别 | `FormatDetector`、`RoleClassifier`、`SensitiveFileDetector`、`GeneratedVendoredDetector`、`InventoryEngine` | `tests/inventory/InventoryTests.cpp` |
+| FR-01 | 目录、单文件和 zip/tar 等压缩包导入，隔离工作区，不改原项目 | `ProjectLoader`、`ArchiveExtractor`、`ZipArchiveReader`、`LibArchiveReader`、`PathGuard`；逐条受限内容进入 `deferredFiles`，安全冲突事务回滚 | `tests/loader/LoaderTests.cpp` |
+| FR-02 | PASI 资产语义识别 | `FormatDetector` 统一扩展名/内容签名/纯元数据识别，`RoleClassifier`、`SensitiveFileDetector`、`GeneratedVendoredDetector`、`InventoryEngine` 保留延迟和未知资产 | `tests/inventory/InventoryTests.cpp` |
 | FR-03 | 竞赛类型识别含置信度和理由 | `CompetitionTypeDetector`、`CompetitionTypeResult` | `tests/cpir/CpirTests.cpp` |
 | FR-04 | CPIR，不足字段显式标记 | `CPIRBuilder` | `tests/cpir/CpirTests.cpp` |
 | FR-05 | md/txt/json/yaml/OpenXML/pdf 文本抽取 | `PlainTextExtractor`、`StructuredTextExtractor`、`OpenXmlTextExtractor`、`PdfTextExtractor`、`PdfContentStreamParser`、`TextExtractionService` | `tests/text/TextTests.cpp` |

@@ -23,6 +23,11 @@ namespace cc {
 class LlmBrain {
   public:
     /**
+     * @brief 纯本地构造并校验 provider 请求体，便于在联网前复核安全边界。
+     */
+    [[nodiscard]] Result<JsonValue> preparePayload(const LlmConfig& config,
+                                                   const std::vector<LlmMessage>& messages) const;
+    /**
      * @brief 发送通用消息并返回模型响应。
      */
     [[nodiscard]] Result<LlmResponse> complete(const LlmConfig& config,

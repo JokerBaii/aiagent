@@ -9,9 +9,6 @@ namespace cc {
 
 PermissionGate::PermissionGate() {
     allowed_.insert(ToolPermission::ReadProjectFiles);
-    allowed_.insert(ToolPermission::WriteWorkspace);
-    allowed_.insert(ToolPermission::NetworkAccess);
-    allowed_.insert(ToolPermission::LLMAccess);
     allowed_.insert(ToolPermission::ExportReport);
 }
 

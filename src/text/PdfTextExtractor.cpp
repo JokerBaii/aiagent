@@ -19,8 +19,14 @@ Result<TextDocument> PdfTextExtractor::extract(const ProjectAsset& asset) const 
     // 并用保守解析器处理已有内容流，扫描件或复杂编码统一交给人工复核。
     const auto pdfBytes = util::readFileLimited(asset.absolutePath, kMaxPdfBytes);
     document.text = PdfContentStreamParser{}.extractText(pdfBytes);
-    document.status =
-        document.text.empty() ? "NEED_REVIEW_PDF_TEXT_EXTRACTION_LIMITED" : "EXTRACTED_PDF";
+    std::error_code error;
+    const auto size = std::filesystem::file_size(asset.absolutePath, error);
+    if (!error && size > kMaxPdfBytes) {
+        document.status = "NEED_REVIEW_PDF_TRUNCATED";
+    } else {
+        document.status = document.text.empty() ? "NEED_REVIEW_PDF_TEXT_EXTRACTION_LIMITED"
+                                                : "EXTRACTED_PDF";
+    }
     return Result<TextDocument>::success(std::move(document));
 }
 

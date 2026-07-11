@@ -5,7 +5,11 @@
 
 #include "cc/util/FileUtil.hpp"
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <fstream>
+#include <limits>
 
 namespace cc::util {
 
@@ -33,11 +37,37 @@ Result<void> writeTextFile(const std::filesystem::path& path, const std::string&
             return Result<void>::failure("无法创建输出目录: " + ec.message());
         }
     }
-    std::ofstream output(path, std::ios::binary);
+    if (content.size() > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max())) {
+        return Result<void>::failure("输出内容超过平台写入上限: " + pathString(path));
+    }
+
+    static std::atomic<std::uint64_t> sequence{0U};
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    auto temporary = path;
+    temporary += ".tmp." + std::to_string(nonce) + "." +
+                 std::to_string(sequence.fetch_add(1U, std::memory_order_relaxed));
+
+    std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
     if (!output) {
         return Result<void>::failure("无法写入文件: " + pathString(path));
     }
-    output << content;
+    output.write(content.data(), static_cast<std::streamsize>(content.size()));
+    output.flush();
+    if (!output) {
+        output.close();
+        std::filesystem::remove(temporary, ec);
+        return Result<void>::failure("文件写入或刷盘失败: " + pathString(path));
+    }
+    output.close();
+    if (!output) {
+        std::filesystem::remove(temporary, ec);
+        return Result<void>::failure("文件关闭失败: " + pathString(path));
+    }
+    std::filesystem::rename(temporary, path, ec);
+    if (ec) {
+        std::filesystem::remove(temporary, ec);
+        return Result<void>::failure("无法原子替换输出文件: " + pathString(path));
+    }
     return Result<void>::success();
 }
 

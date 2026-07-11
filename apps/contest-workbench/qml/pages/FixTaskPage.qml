@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -44,6 +46,9 @@ Item {
                 }
 
                 delegate: Rectangle {
+                    id: taskDelegate
+                    required property var modelData
+
                     width: list.width
                     implicitHeight: col.implicitHeight + 24
                     radius: Theme.radiusSm
@@ -63,34 +68,34 @@ Item {
                             Layout.fillWidth: true
                             spacing: 8
                             Pill {
-                                text: modelData.priority
-                                bg: root.prioColors(modelData.priority).bg
-                                fg: root.prioColors(modelData.priority).fg
+                                text: taskDelegate.modelData.priority
+                                bg: root.prioColors(taskDelegate.modelData.priority).bg
+                                fg: root.prioColors(taskDelegate.modelData.priority).fg
                             }
                             Item { Layout.fillWidth: true }
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: modelData.title
+                            text: taskDelegate.modelData.title
                             color: Theme.textPrimary
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.fontLg
                             font.bold: true
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
-                            visible: modelData.required && modelData.required.length > 0
-                            text: "需要：" + modelData.required
+                            visible: taskDelegate.modelData.required && taskDelegate.modelData.required.length > 0
+                            text: "需要：" + taskDelegate.modelData.required
                             color: Theme.textSecondary
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
-                            visible: modelData.rules && modelData.rules.length > 0
-                            text: "关联检查：" + modelData.rules
+                            visible: taskDelegate.modelData.rules && taskDelegate.modelData.rules.length > 0
+                            text: "关联检查：" + taskDelegate.modelData.rules
                             color: Theme.textMuted
-                            font.pixelSize: 12
+                            font.pixelSize: Theme.fontSm
                             wrapMode: Text.WordWrap
                         }
                     }

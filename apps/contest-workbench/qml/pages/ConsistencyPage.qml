@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -42,6 +44,9 @@ Item {
                 }
 
                 delegate: Rectangle {
+                    id: consistencyDelegate
+                    required property var modelData
+
                     width: list.width
                     implicitHeight: col.implicitHeight + 24
                     radius: Theme.radiusSm
@@ -61,25 +66,25 @@ Item {
                             Layout.fillWidth: true
                             spacing: 8
                             Pill {
-                                text: modelData.severity
-                                bg: root.sevColors(modelData.severity).bg
-                                fg: root.sevColors(modelData.severity).fg
+                                text: consistencyDelegate.modelData.severity
+                                bg: root.sevColors(consistencyDelegate.modelData.severity).bg
+                                fg: root.sevColors(consistencyDelegate.modelData.severity).fg
                             }
                             Item { Layout.fillWidth: true }
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: modelData.description
+                            text: consistencyDelegate.modelData.description
                             color: Theme.textPrimary
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.fontLg
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
-                            visible: modelData.fix && modelData.fix.length > 0
-                            text: "建议：" + modelData.fix
+                            visible: consistencyDelegate.modelData.fix && consistencyDelegate.modelData.fix.length > 0
+                            text: "建议：" + consistencyDelegate.modelData.fix
                             color: Theme.textSecondary
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
                         }
                     }

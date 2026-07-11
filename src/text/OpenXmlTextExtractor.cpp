@@ -80,25 +80,51 @@ void collectTextNodes(const pugi::xml_node& node, std::ostringstream& text) {
 
 Result<TextDocument> OpenXmlTextExtractor::extract(const ProjectAsset& asset) const {
     constexpr std::size_t kMaxOpenXmlBytes = 1024U * 1024U;
+    constexpr std::size_t kMaxDocumentTextBytes = 2U * 1024U * 1024U;
+    constexpr std::size_t kMaxEntries = 256U;
     TextDocument document;
     document.sourceFile = asset.relativePath;
     document.title = asset.fileName;
 
     ZipArchiveReader reader;
     std::ostringstream text;
-    for (const auto& entry : targetEntries(asset, reader)) {
-        // OpenXML 是 zip 容器中的 XML 文档；这里通过内部 ZipArchiveReader 读取，
-        // 避免文本抽取绕过 ExecuteCommand 权限边界调用外部解压命令。
+    bool reviewRequired = false;
+    std::size_t accumulatedBytes = 0U;
+    const auto entries = targetEntries(asset, reader);
+    if (entries.size() > kMaxEntries) {
+        reviewRequired = true;
+    }
+    std::size_t processed = 0U;
+    for (const auto& entry : entries) {
+        if (processed >= kMaxEntries || accumulatedBytes >= kMaxDocumentTextBytes) {
+            reviewRequired = true;
+            break;
+        }
         const auto xml = reader.readTextEntry(
             {.archivePath = asset.absolutePath, .entryPath = entry, .maxBytes = kMaxOpenXmlBytes});
         if (xml.ok() && !xml.value().empty()) {
-            text << extractXmlText(xml.value()) << '\n';
+            const auto extracted = extractXmlText(xml.value());
+            if (!extracted.empty()) {
+                const auto remaining = kMaxDocumentTextBytes - accumulatedBytes;
+                if (extracted.size() > remaining) {
+                    text << extracted.substr(0U, remaining);
+                    accumulatedBytes += remaining;
+                    reviewRequired = true;
+                    break;
+                }
+                text << extracted << '\n';
+                accumulatedBytes += extracted.size() + 1U;
+            }
+        } else {
+            reviewRequired = true;
         }
+        ++processed;
     }
 
     document.text = text.str();
-    document.status =
-        document.text.empty() ? "NEED_REVIEW_OPENXML_TEXT_EXTRACTION_LIMITED" : "EXTRACTED_OPENXML";
+    document.status = document.text.empty() || reviewRequired
+                          ? "NEED_REVIEW_OPENXML_TEXT_EXTRACTION_LIMITED"
+                          : "EXTRACTED_OPENXML";
     return Result<TextDocument>::success(std::move(document));
 }
 

@@ -23,7 +23,7 @@ AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
     if (asset.vendored) {
         return AssetRole::Vendored;
     }
-    if (ArchiveExtractor::isArchivePath(asset.relativePath)) {
+    if (ArchiveExtractor::isArchivePath(asset.relativePath) || asset.mime == "application/archive") {
         return AssetRole::Archive;
     }
     if (name == "cmakelists.txt" || name == "makefile" || name == "dockerfile" ||
@@ -41,7 +41,10 @@ AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
     if (!asset.language.empty() || isCodeExtension(asset.extension)) {
         return AssetRole::SourceCode;
     }
-    if (util::contains(original, "申报") || util::contains(path, "declaration")) {
+    if (name == "readme.md" || name == "readme.txt" || name == "project.md" ||
+        name == "overview.md" || util::contains(original, "项目介绍") ||
+        util::contains(original, "项目说明") || util::contains(original, "申报") ||
+        util::contains(path, "declaration") || util::contains(path, "proposal")) {
         return AssetRole::ProjectDeclaration;
     }
     if (util::contains(original, "商业计划") || util::contains(path, "business_plan")) {
@@ -88,7 +91,7 @@ AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
         asset.mime.rfind("audio/", 0) == 0U) {
         return AssetRole::ResourceAsset;
     }
-    if (asset.mime == "application/x-model-artifact") {
+    if (asset.mime == "application/x-model-artifact" || asset.mime.starts_with("model/")) {
         return AssetRole::ModelArtifact;
     }
     if (asset.mime == "application/octet-stream") {

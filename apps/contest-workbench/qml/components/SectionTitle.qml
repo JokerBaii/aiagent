@@ -10,13 +10,13 @@ Column {
     Text {
         text: root.title
         color: Theme.textPrimary
-        font.pixelSize: 16
+        font.pixelSize: Theme.fontXl
         font.bold: true
     }
     Text {
         visible: root.subtitle.length > 0
         text: root.subtitle
         color: Theme.textSecondary
-        font.pixelSize: 13
+        font.pixelSize: Theme.fontMd
     }
 }

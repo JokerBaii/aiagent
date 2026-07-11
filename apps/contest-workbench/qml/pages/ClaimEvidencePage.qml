@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -44,6 +46,9 @@ Item {
                 }
 
                 delegate: Rectangle {
+                    id: claimDelegate
+                    required property var modelData
+
                     width: list.width
                     implicitHeight: col.implicitHeight + 24
                     radius: Theme.radiusSm
@@ -62,35 +67,35 @@ Item {
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
-                            Pill { text: modelData.type; bg: Theme.surface; fg: Theme.textSecondary }
+                            Pill { text: claimDelegate.modelData.type; bg: Theme.surface; fg: Theme.textSecondary }
                             Pill {
-                                text: modelData.status
-                                bg: root.statusColors(modelData.status).bg
-                                fg: root.statusColors(modelData.status).fg
+                                text: claimDelegate.modelData.status
+                                bg: root.statusColors(claimDelegate.modelData.status).bg
+                                fg: root.statusColors(claimDelegate.modelData.status).fg
                             }
                             Item { Layout.fillWidth: true }
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: modelData.text
+                            text: claimDelegate.modelData.text
                             color: Theme.textPrimary
-                            font.pixelSize: 14
+                            font.pixelSize: Theme.fontLg
                             font.bold: true
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: "证据：" + (modelData.evidence || "—")
+                            text: "证据：" + (claimDelegate.modelData.evidence || "—")
                             color: Theme.textSecondary
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
-                            visible: modelData.missing && modelData.missing.length > 0
-                            text: "缺失：" + modelData.missing
+                            visible: claimDelegate.modelData.missing && claimDelegate.modelData.missing.length > 0
+                            text: "缺失：" + claimDelegate.modelData.missing
                             color: Theme.danger
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
                         }
                     }

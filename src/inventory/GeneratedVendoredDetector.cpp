@@ -1,26 +1,45 @@
-/**
- * @file GeneratedVendoredDetector.cpp
- * @brief 生成物和第三方依赖识别实现。
- */
-
 #include "cc/inventory/GeneratedVendoredDetector.hpp"
+
 #include "cc/util/StringUtil.hpp"
 
+#include <array>
+
 namespace cc {
+namespace {
+
+template <std::size_t Size>
+[[nodiscard]] bool hasComponent(const std::filesystem::path& path,
+                                const std::array<const char*, Size>& names) {
+    for (const auto& component : path.lexically_normal()) {
+        const auto value = util::lowerAscii(component.string());
+        for (const auto* name : names) {
+            if (value == name) {
+                return true;
+            }
+        }
+        if (value.rfind("cmake-build-", 0U) == 0U) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 bool GeneratedVendoredDetector::isGenerated(const std::filesystem::path& path) const {
-    const auto text = util::lowerAscii(path.generic_string());
-    return util::contains(text, "/build/") || util::contains(text, "/dist/") ||
-           util::contains(text, "/out/") || util::contains(text, "/target/") ||
-           util::contains(text, "/.next/") || util::contains(text, "/coverage/") ||
-           util::contains(text, "/__pycache__/") || util::contains(text, "/generated/");
+    constexpr std::array<const char*, 10> names = {
+        "build", "dist", "out", "target", ".next", "coverage", "__pycache__",
+        "generated", ".cache", ".pytest_cache",
+    };
+    return hasComponent(path, names);
 }
 
 bool GeneratedVendoredDetector::isVendored(const std::filesystem::path& path) const {
-    const auto text = util::lowerAscii(path.generic_string());
-    return util::contains(text, "/node_modules/") || util::contains(text, "/vendor/") ||
-           util::contains(text, "/third_party/") || util::contains(text, "/external/") ||
-           util::contains(text, "/.venv/") || util::contains(text, "/venv/");
+    constexpr std::array<const char*, 9> names = {
+        "node_modules", "vendor", "third_party", "external", ".venv",
+        "venv",         ".tox",   "site-packages", "bower_components",
+    };
+    return hasComponent(path, names);
 }
 
 } // namespace cc

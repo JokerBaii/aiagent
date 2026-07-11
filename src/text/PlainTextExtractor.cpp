@@ -14,7 +14,13 @@ Result<TextDocument> PlainTextExtractor::extract(const ProjectAsset& asset) cons
     document.sourceFile = asset.relativePath;
     document.title = asset.fileName;
     document.text = util::readFileLimited(asset.absolutePath, kMaxTextBytes);
-    document.status = document.text.empty() ? "EMPTY_OR_UNREADABLE" : "EXTRACTED";
+    std::error_code error;
+    const auto size = std::filesystem::file_size(asset.absolutePath, error);
+    if (!error && size > kMaxTextBytes) {
+        document.status = "NEED_REVIEW_TEXT_TRUNCATED";
+    } else {
+        document.status = document.text.empty() ? "EMPTY_OR_UNREADABLE" : "EXTRACTED_TEXT";
+    }
     return Result<TextDocument>::success(std::move(document));
 }
 

@@ -6,10 +6,13 @@
 #include "CompileController.hpp"
 
 #include <QDebug>
+#include <QDir>
+#include <QFile>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlError>
 #include <QQuickStyle>
+#include <QStandardPaths>
 #include <QtQml>
 
 #include <cstdio>
@@ -20,6 +23,13 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationDomain(QStringLiteral("contest-trust.local"));
     QCoreApplication::setApplicationName(QStringLiteral("大学生项目材料审计平台"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
+
+    if (qEnvironmentVariableIsEmpty("CONTEST_WORKSPACE_ROOT")) {
+        const auto workspaceRoot =
+            QDir{QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)}
+                .filePath(QStringLiteral("workspaces"));
+        qputenv("CONTEST_WORKSPACE_ROOT", QFile::encodeName(workspaceRoot));
+    }
 
     qmlRegisterType<CompileController>("ContestTrust", 1, 0, "CompileController");
 

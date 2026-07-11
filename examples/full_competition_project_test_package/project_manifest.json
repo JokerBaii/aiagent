@@ -1,0 +1,23 @@
+{
+  "project_name": "智农云链",
+  "package_type": "competition_debug_fixture",
+  "track_hint": "business_innovation",
+  "materials": [
+    "00_项目申报书.md",
+    "01_商业计划书.md",
+    "02_市场调研报告.md",
+    "03_竞品分析.md",
+    "04_财务预测.csv",
+    "data/05_用户问卷访谈记录.csv",
+    "06_路演PPT.txt",
+    "07_部署说明.md",
+    "evidence/08_成果证明_合作协议摘要.md",
+    "evidence/09_软著受理证明.md",
+    "evidence/10_社会实践活动记录.md",
+    "docs/11_论文草稿.md",
+    "data/12_实验结果.csv",
+    "evidence/13_市场数据来源.md",
+    "src/main.cpp",
+    "CMakeLists.txt"
+  ]
+}

@@ -90,6 +90,18 @@ Result<AgentCommand> AgentCommandRouter::route(const std::string& input) const {
         }
         return Result<AgentCommand>::success(task(args, "/" + command));
     }
+    if (command == "optimize" || command == "repair") {
+        auto goal = commandArgs(text);
+        if (goal.empty()) {
+            goal = "根据确定性审计的 P0/P1 缺点修改项目。先读取相关文件，只在 repaired "
+                   "project 中做有依据的精确编辑或新建说明；读回变更、列出 diff，并对 repaired "
+                   "project 执行二次审计。不得伪造用户、营收、合作、专利、实验或市场数据。";
+        }
+        return Result<AgentCommand>::success(
+            AgentCommand{.kind = AgentCommandKind::RunModePrefixedTask,
+                         .prompt = std::move(goal),
+                         .context = "/code"});
+    }
     if (command == "help") {
         return Result<AgentCommand>::success(
             AgentCommand{.kind = AgentCommandKind::ShowHelp, .prompt = text, .context = "命令"});

@@ -1,5 +1,6 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import ".."
 import "../components"
@@ -24,15 +25,17 @@ Item {
                 anchors.fill: parent
                 spacing: 14
                 Rectangle {
-                    width: 40; height: 40; radius: 10
+                    Layout.preferredWidth: 40
+                    Layout.preferredHeight: 40
+                    radius: 10
                     color: Theme.accentSoft
                     Text { anchors.centerIn: parent; text: "⤓"; color: Theme.accentActive; font.pixelSize: 18 }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
-                    Text { text: "Markdown 报告"; color: Theme.textPrimary; font.pixelSize: 15; font.bold: true }
-                    Text { text: "含材料、项目画像、证据、风险、评分与补证计划"; color: Theme.textSecondary; font.pixelSize: 12 }
+                    Text { text: "Markdown 报告"; color: Theme.textPrimary; font.pixelSize: Theme.fontXl; font.bold: true }
+                    Text { text: "含材料、项目画像、证据、风险、评分与补证计划"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm }
                 }
                 FieldInput {
                     id: markdownPath
@@ -52,15 +55,17 @@ Item {
                 anchors.fill: parent
                 spacing: 14
                 Rectangle {
-                    width: 40; height: 40; radius: 10
+                    Layout.preferredWidth: 40
+                    Layout.preferredHeight: 40
+                    radius: 10
                     color: Theme.surfaceMuted
-                    Text { anchors.centerIn: parent; text: "{ }"; color: Theme.textSecondary; font.pixelSize: 15; font.bold: true }
+                    Text { anchors.centerIn: parent; text: "{ }"; color: Theme.textSecondary; font.pixelSize: Theme.fontXl; font.bold: true }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
-                    Text { text: "审计数据包"; color: Theme.textPrimary; font.pixelSize: 15; font.bold: true }
-                    Text { text: "结构化审计结果，供二次审计差分与集成使用"; color: Theme.textSecondary; font.pixelSize: 12 }
+                    Text { text: "审计数据包"; color: Theme.textPrimary; font.pixelSize: Theme.fontXl; font.bold: true }
+                    Text { text: "结构化审计结果，供二次审计差分与集成使用"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm }
                 }
                 FieldInput {
                     id: jsonPath

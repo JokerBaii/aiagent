@@ -16,6 +16,10 @@
 namespace cc {
 namespace {
 
+[[nodiscard]] bool requestCancelled(const AgentRunRequest& request) {
+    return request.isCancelled && request.isCancelled();
+}
+
 [[nodiscard]] JsonValue callJson(const AgentToolCall& call) {
     return JsonValue::Object{
         {"id", call.id}, {"name", call.name}, {"reason", call.reason}, {"input", call.input}};
@@ -93,6 +97,9 @@ BrainAgentLoop::runWithDecisionProvider(const AgentRunRequest& request,
     auto activeRequest = request;
 
     for (std::size_t step = 1U; step <= stepLimit; ++step) {
+        if (requestCancelled(activeRequest)) {
+            return Result<AgentRunResult>::failure("智能体任务已取消");
+        }
         auto decision = decide(activeRequest, result, tools);
         if (!decision.ok()) {
             return Result<AgentRunResult>::failure(decision.error());
@@ -131,6 +138,22 @@ BrainAgentLoop::runWithDecisionProvider(const AgentRunRequest& request,
             observe(result.events.back());
         }
 
+        if (call.name == "re_audit_repaired_project" && result.auditDiff.has_value()) {
+            AgentObservation duplicate{
+                .callId = call.id,
+                .toolName = call.name,
+                .ok = false,
+                .summary = "本轮已完成一次原始基线到最终修复副本的二次审计；请先收束结果",
+                .output = JsonValue::Object{{"reason", "re_audit_already_completed"}}};
+            result.observations.push_back(duplicate);
+            result.events.push_back(toolEvent(duplicate));
+            if (observe) {
+                observe(result.events.back());
+            }
+            result.trace = agentRunTraceJson(result);
+            continue;
+        }
+
         std::size_t streamedObservations = 0U;
         auto execution = runtime.runToolExecution(
             activeRequest, call,
@@ -140,6 +163,9 @@ BrainAgentLoop::runWithDecisionProvider(const AgentRunRequest& request,
                     observe(toolEvent(observation));
                 }
             });
+        if (requestCancelled(activeRequest)) {
+            return Result<AgentRunResult>::failure("智能体任务已取消");
+        }
         if (!execution.ok()) {
             return Result<AgentRunResult>::failure(execution.error());
         }
@@ -155,9 +181,17 @@ BrainAgentLoop::runWithDecisionProvider(const AgentRunRequest& request,
         if (execution.value().auditResult.has_value()) {
             result.auditResult = std::move(execution.value().auditResult);
             activeRequest.auditResult = &(*result.auditResult);
+            if (activeRequest.baselineAuditResult == nullptr) {
+                activeRequest.baselineAuditResult = activeRequest.auditResult;
+            }
             activeRequest.projectRoot = result.auditResult->context.inputRoot;
-            activeRequest.workspaceRoot = result.auditResult->context.workspaceRoot / "agent";
+            activeRequest.workspaceRoot = execution.value().auditDiff.has_value()
+                                              ? activeRequest.workspaceRoot
+                                              : result.auditResult->context.workspaceRoot / "agent";
             activeRequest.requireAudit = false;
+        }
+        if (execution.value().auditDiff.has_value()) {
+            result.auditDiff = std::move(execution.value().auditDiff);
         }
         result.trace = agentRunTraceJson(result);
     }

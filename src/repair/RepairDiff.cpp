@@ -1,8 +1,3 @@
-/**
- * @file RepairDiff.cpp
- * @brief diff-first 修复产物生成实现。
- */
-
 #include "cc/repair/RepairDiff.hpp"
 #include "cc/util/StringUtil.hpp"
 
@@ -24,14 +19,15 @@ std::string RepairDiff::generate(const std::vector<FixTask>& tasks, const CPIR& 
     }
 
     const auto text = content.str();
+    const auto lines = util::splitLines(text);
     std::ostringstream diff;
     diff << "diff --git a/repaired/PROJECT_TRUST_FIX_TASKS.md "
             "b/repaired/PROJECT_TRUST_FIX_TASKS.md\n";
     diff << "new file mode 100644\n";
-    diff << "index 0000000..1111111\n";
     diff << "--- /dev/null\n";
     diff << "+++ b/repaired/PROJECT_TRUST_FIX_TASKS.md\n";
-    for (const auto& line : util::splitLines(text)) {
+    diff << "@@ -0,0 +1," << lines.size() << " @@\n";
+    for (const auto& line : lines) {
         diff << "+" << line << "\n";
     }
     return diff.str();

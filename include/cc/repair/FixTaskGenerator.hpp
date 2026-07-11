@@ -20,7 +20,8 @@ class FixTaskGenerator {
      * @brief 根据风险项和证据状态生成补证任务。
      */
     [[nodiscard]] std::vector<FixTask> generate(const std::vector<AuditFinding>& findings,
-                                                const std::vector<EvidenceMatch>& matches) const;
+                                                const std::vector<EvidenceMatch>& matches,
+                                                const std::vector<ProjectClaim>& claims = {}) const;
 };
 
 } // namespace cc

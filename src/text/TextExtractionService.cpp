@@ -25,14 +25,19 @@ TextExtractionService::extract(const ProjectInventory& inventory) const {
         if (isStructuredTextExtension(asset.extension)) {
             document = StructuredTextExtractor{}.extract(asset);
         } else if (isLikelyTextExtension(asset.extension) || isCodeExtension(asset.extension) ||
-                   asset.extension.empty()) {
+                   asset.extension.empty() || asset.mime.rfind("text/", 0U) == 0U) {
             document = PlainTextExtractor{}.extract(asset);
         } else if (isOfficeExtension(asset.extension)) {
             document = OpenXmlTextExtractor{}.extract(asset);
-        } else if (asset.extension == ".pdf") {
+        } else if (asset.extension == ".pdf" || asset.mime == "application/pdf") {
             document = PdfTextExtractor{}.extract(asset);
         }
         if (!document.ok()) {
+            TextDocument review;
+            review.sourceFile = asset.relativePath;
+            review.title = asset.fileName;
+            review.status = "NEED_REVIEW_EXTRACTION_FAILED";
+            corpus.push_back(std::move(review));
             continue;
         }
         corpus.push_back(std::move(document.value()));

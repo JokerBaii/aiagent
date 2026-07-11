@@ -10,74 +10,93 @@
 #include "cc/util/FileUtil.hpp"
 #include "cc/util/StringUtil.hpp"
 
+#include <algorithm>
+#include <array>
+#include <fstream>
+#include <span>
+#include <string_view>
+
 namespace cc {
 namespace {
 
-[[nodiscard]] bool isZipPath(const std::filesystem::path& path) {
-    return util::lowerAscii(path.extension().string()) == ".zip";
+constexpr std::size_t kArchiveProbeBytes = 512U;
+
+[[nodiscard]] bool startsWith(std::span<const unsigned char> header,
+                              std::initializer_list<unsigned char> prefix) {
+    return header.size() >= prefix.size() &&
+           std::equal(prefix.begin(), prefix.end(), header.begin());
 }
 
-[[nodiscard]] Result<void> validateZipEntries(const std::filesystem::path& archivePath) {
-    ZipArchiveReader reader;
-    auto entries = reader.list(archivePath);
-    if (!entries.ok()) {
-        return Result<void>::failure(entries.error());
-    }
-    for (const auto& entry : entries.value()) {
-        const auto entryName = util::pathString(entry.relativePath);
-        if (!PathGuard::isSafeArchiveEntry(entry.relativePath)) {
-            return Result<void>::failure("压缩包条目越过工作区边界: " + entryName);
-        }
-        if (entry.symlink) {
-            return Result<void>::failure("压缩包包含符号链接，需要人工确认: " + entryName);
-        }
-        if (ArchiveExtractor::isArchivePath(entry.relativePath)) {
-            return Result<void>::failure("发现嵌套压缩包，需要人工确认后再解包: " + entryName);
-        }
-    }
-    return Result<void>::success();
+[[nodiscard]] bool startsWithAt(std::span<const unsigned char> header, std::size_t offset,
+                                std::initializer_list<unsigned char> prefix) {
+    return offset <= header.size() && prefix.size() <= header.size() - offset &&
+           std::equal(prefix.begin(), prefix.end(),
+                      header.begin() + static_cast<std::ptrdiff_t>(offset));
 }
 
-[[nodiscard]] Result<void> validateLibArchiveEntries(const std::filesystem::path& archivePath) {
-    LibArchiveReader reader;
-    auto entries = reader.list(archivePath);
-    if (!entries.ok()) {
-        return Result<void>::failure(entries.error());
+[[nodiscard]] ArchiveFormat extensionFormat(const std::filesystem::path& path) {
+    const auto extension = util::lowerAscii(path.extension().string());
+    const auto filename = util::lowerAscii(path.filename().string());
+    if (extension == ".zip" || extension == ".apk" || extension == ".jar" ||
+        extension == ".war" || extension == ".ear" || extension == ".whl") {
+        return ArchiveFormat::Zip;
     }
-    for (const auto& entry : entries.value()) {
-        const auto entryName = util::pathString(entry.relativePath);
-        if (!PathGuard::isSafeArchiveEntry(entry.relativePath)) {
-            return Result<void>::failure("压缩包条目越过工作区边界: " + entryName);
-        }
-        if (entry.symlink) {
-            return Result<void>::failure("压缩包包含符号链接，需要人工确认: " + entryName);
-        }
-        if (ArchiveExtractor::isArchivePath(entry.relativePath)) {
-            return Result<void>::failure("发现嵌套压缩包，需要人工确认后再解包: " + entryName);
-        }
+    if (extension == ".gz" || extension == ".tgz" || filename.ends_with(".tar.gz")) {
+        return ArchiveFormat::Gzip;
     }
-    return Result<void>::success();
+    if (extension == ".7z") {
+        return ArchiveFormat::SevenZip;
+    }
+    if (extension == ".xz" || filename.ends_with(".tar.xz")) {
+        return ArchiveFormat::Xz;
+    }
+    if (extension == ".bz2" || filename.ends_with(".tar.bz2")) {
+        return ArchiveFormat::Bzip2;
+    }
+    if (extension == ".zst" || filename.ends_with(".tar.zst")) {
+        return ArchiveFormat::Zstd;
+    }
+    if (extension == ".rar") {
+        return ArchiveFormat::Rar;
+    }
+    if (extension == ".tar") {
+        return ArchiveFormat::Tar;
+    }
+    if (extension == ".cpio") {
+        return ArchiveFormat::Cpio;
+    }
+    if (extension == ".ar" || extension == ".deb") {
+        return ArchiveFormat::Ar;
+    }
+    if (extension == ".cab") {
+        return ArchiveFormat::Cab;
+    }
+    if (extension == ".lz4") {
+        return ArchiveFormat::Lz4;
+    }
+    if (extension == ".iso" || extension == ".rpm") {
+        return ArchiveFormat::Unknown;
+    }
+    return ArchiveFormat::Unknown;
 }
 
-[[nodiscard]] Result<std::vector<std::filesystem::path>>
-extractFiles(const std::filesystem::path& archivePath, const std::filesystem::path& inputRoot) {
-    if (isZipPath(archivePath)) {
-        auto validated = validateZipEntries(archivePath);
-        if (!validated.ok()) {
-            return Result<std::vector<std::filesystem::path>>::failure(validated.error());
-        }
-        // zip 继续走内部 reader，保持既有中心目录校验和 zip-slip 双重防线。
+[[nodiscard]] bool hasArchiveExtension(const std::filesystem::path& path) {
+    if (extensionFormat(path) != ArchiveFormat::Unknown) {
+        return true;
+    }
+    const auto extension = util::lowerAscii(path.extension().string());
+    return extension == ".iso" || extension == ".rpm";
+}
+
+[[nodiscard]] Result<ArchiveExtractionOutcome>
+extractFiles(const std::filesystem::path& archivePath, const std::filesystem::path& inputRoot,
+             const ImportLimits& limits, const ArchiveProbe& probe) {
+    if (probe.reader == ArchiveReaderKind::NativeZip) {
         return ZipArchiveReader{}.extractAll(
-            {.archivePath = archivePath, .destinationRoot = inputRoot});
+            {.archivePath = archivePath, .destinationRoot = inputRoot, .limits = limits});
     }
-
-    auto validated = validateLibArchiveEntries(archivePath);
-    if (!validated.ok()) {
-        return Result<std::vector<std::filesystem::path>>::failure(validated.error());
-    }
-    // tar/tgz/gz/7z 等格式由 libarchive 解析，但写入仍限制在 workspace/input。
     return LibArchiveReader{}.extractAll(
-        {.archivePath = archivePath, .destinationRoot = inputRoot});
+        {.archivePath = archivePath, .destinationRoot = inputRoot, .limits = limits});
 }
 
 } // namespace
@@ -85,7 +104,13 @@ extractFiles(const std::filesystem::path& archivePath, const std::filesystem::pa
 Result<ProjectContext> ArchiveExtractor::extract(const ArchiveImportRequest& request) const {
     const auto& archivePath = request.archivePath;
     const auto& workspaceRoot = request.workspaceRoot;
-    if (!isSupportedArchivePath(archivePath)) {
+    const auto detected = probe(archivePath);
+    if (!detected.ok()) {
+        return Result<ProjectContext>::failure(detected.error());
+    }
+    if (!detected.value().archive ||
+        detected.value().reader == ArchiveReaderKind::MetadataOnly ||
+        detected.value().reader == ArchiveReaderKind::None) {
         return Result<ProjectContext>::failure("当前版本不支持该压缩格式: " +
                                                util::pathString(archivePath));
     }
@@ -104,9 +129,7 @@ Result<ProjectContext> ArchiveExtractor::extract(const ArchiveImportRequest& req
     if (ec) {
         return Result<ProjectContext>::failure("无法创建解包目录: " + ec.message());
     }
-    // 解包前已逐条校验路径、符号链接和嵌套压缩包；reader 不调用 shell，
-    // 只把普通文件写入隔离工作区 input，避免压缩包导入绕过 ExecuteCommand 权限边界。
-    auto extracted = extractFiles(archivePath, inputRoot);
+    auto extracted = extractFiles(archivePath, inputRoot, request.limits, detected.value());
     if (!extracted.ok()) {
         return Result<ProjectContext>::failure(extracted.error());
     }
@@ -117,25 +140,138 @@ Result<ProjectContext> ArchiveExtractor::extract(const ArchiveImportRequest& req
     context.workspaceRoot = workspaceRoot;
     context.sessionId = workspaceRoot.filename().string();
     context.projectName = archivePath.stem().string();
-    context.unpackStatus = isZipPath(archivePath) ? "ZIP_EXTRACTED" : "ARCHIVE_EXTRACTED";
+    context.unpackStatus = detected.value().format == ArchiveFormat::Zip ? "ZIP_EXTRACTED"
+                                                                         : "ARCHIVE_EXTRACTED";
     context.archiveInput = true;
-    context.inputFiles = std::move(extracted.value());
+    context.inputFiles = std::move(extracted.value().files);
+    context.deferredFiles = std::move(extracted.value().deferredFiles);
+    context.warnings = std::move(extracted.value().warnings);
     return Result<ProjectContext>::success(context);
 }
 
+ArchiveProbe ArchiveExtractor::probeHeader(std::span<const unsigned char> header) {
+    ArchiveFormat format = ArchiveFormat::Unknown;
+    if (startsWith(header, {'P', 'K', 0x03U, 0x04U}) ||
+        startsWith(header, {'P', 'K', 0x05U, 0x06U}) ||
+        startsWith(header, {'P', 'K', 0x07U, 0x08U})) {
+        format = ArchiveFormat::Zip;
+    } else if (startsWith(header, {0x1fU, 0x8bU})) {
+        format = ArchiveFormat::Gzip;
+    } else if (startsWith(header, {'7', 'z', 0xbcU, 0xafU, 0x27U, 0x1cU})) {
+        format = ArchiveFormat::SevenZip;
+    } else if (startsWith(header, {0xfdU, '7', 'z', 'X', 'Z', 0x00U})) {
+        format = ArchiveFormat::Xz;
+    } else if (header.size() >= 4U && startsWith(header, {'B', 'Z', 'h'}) &&
+               header[3] >= '1' && header[3] <= '9') {
+        format = ArchiveFormat::Bzip2;
+    } else if (startsWith(header, {0x28U, 0xb5U, 0x2fU, 0xfdU})) {
+        format = ArchiveFormat::Zstd;
+    } else if (startsWith(header, {'R', 'a', 'r', '!', 0x1aU, 0x07U, 0x00U}) ||
+               startsWith(header, {'R', 'a', 'r', '!', 0x1aU, 0x07U, 0x01U, 0x00U})) {
+        format = ArchiveFormat::Rar;
+    } else if (startsWithAt(header, 257U, {'u', 's', 't', 'a', 'r', 0x00U}) ||
+               startsWithAt(header, 257U, {'u', 's', 't', 'a', 'r', ' '})) {
+        format = ArchiveFormat::Tar;
+    } else if (startsWith(header, {'0', '7', '0', '7', '0', '1'}) ||
+               startsWith(header, {'0', '7', '0', '7', '0', '2'}) ||
+               startsWith(header, {'0', '7', '0', '7', '0', '7'}) ||
+               startsWith(header, {0x71U, 0xc7U}) || startsWith(header, {0xc7U, 0x71U})) {
+        format = ArchiveFormat::Cpio;
+    } else if (startsWith(header, {'!', '<', 'a', 'r', 'c', 'h', '>', '\n'})) {
+        format = ArchiveFormat::Ar;
+    } else if (startsWith(header, {'M', 'S', 'C', 'F'})) {
+        format = ArchiveFormat::Cab;
+    } else if (startsWith(header, {0x04U, 0x22U, 0x4dU, 0x18U})) {
+        format = ArchiveFormat::Lz4;
+    }
+
+    if (format == ArchiveFormat::Unknown) {
+        return {};
+    }
+    return {.archive = true,
+            .signatureMatched = true,
+            .format = format,
+            .reader = format == ArchiveFormat::Zip ? ArchiveReaderKind::NativeZip
+                                                   : ArchiveReaderKind::LibArchive};
+}
+
+Result<ArchiveProbe> ArchiveExtractor::probe(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        return Result<ArchiveProbe>::failure("无法读取文件头以识别归档格式: " +
+                                             util::pathString(path));
+    }
+    std::array<unsigned char, kArchiveProbeBytes> bytes{};
+    input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    if (input.bad()) {
+        return Result<ArchiveProbe>::failure("读取文件头时发生错误: " + util::pathString(path));
+    }
+    const auto count = static_cast<std::size_t>(std::max<std::streamsize>(input.gcount(), 0));
+    auto detected = probeHeader(std::span<const unsigned char>{bytes.data(), count});
+    if (detected.archive) {
+        return Result<ArchiveProbe>::success(detected);
+    }
+    if (!hasArchiveExtension(path)) {
+        return Result<ArchiveProbe>::success({});
+    }
+
+    const auto format = extensionFormat(path);
+    const auto supported = isSupportedArchivePath(path);
+    return Result<ArchiveProbe>::success(
+        {.archive = true,
+         .signatureMatched = false,
+         .format = format,
+         .reader = supported ? ArchiveReaderKind::LibArchive
+                             : ArchiveReaderKind::MetadataOnly});
+}
+
+std::string ArchiveExtractor::formatName(ArchiveFormat format) {
+    switch (format) {
+    case ArchiveFormat::Zip:
+        return "zip";
+    case ArchiveFormat::Gzip:
+        return "gzip";
+    case ArchiveFormat::SevenZip:
+        return "7z";
+    case ArchiveFormat::Xz:
+        return "xz";
+    case ArchiveFormat::Bzip2:
+        return "bzip2";
+    case ArchiveFormat::Zstd:
+        return "zstd";
+    case ArchiveFormat::Rar:
+        return "rar";
+    case ArchiveFormat::Tar:
+        return "tar";
+    case ArchiveFormat::Cpio:
+        return "cpio";
+    case ArchiveFormat::Ar:
+        return "ar";
+    case ArchiveFormat::Cab:
+        return "cab";
+    case ArchiveFormat::Lz4:
+        return "lz4";
+    case ArchiveFormat::Unknown:
+        return "archive";
+    }
+    return "archive";
+}
+
 bool ArchiveExtractor::isArchivePath(const std::filesystem::path& path) {
-    const auto extension = util::lowerAscii(path.extension().string());
-    const auto filename = util::lowerAscii(path.filename().string());
-    return extension == ".zip" || extension == ".tar" || extension == ".gz" ||
-           extension == ".tgz" || extension == ".7z" || extension == ".rar" ||
-           filename.ends_with(".tar.gz");
+    return hasArchiveExtension(path);
 }
 
 bool ArchiveExtractor::isSupportedArchivePath(const std::filesystem::path& path) {
     const auto extension = util::lowerAscii(path.extension().string());
     const auto filename = util::lowerAscii(path.filename().string());
     return extension == ".zip" || extension == ".tar" || extension == ".gz" ||
-           extension == ".tgz" || extension == ".7z" || filename.ends_with(".tar.gz");
+           extension == ".tgz" || extension == ".7z" || extension == ".bz2" ||
+           extension == ".xz" || extension == ".zst" || extension == ".cpio" ||
+           extension == ".ar" || extension == ".deb" || extension == ".apk" ||
+           extension == ".jar" || extension == ".war" || extension == ".ear" ||
+           extension == ".whl" || filename.ends_with(".tar.gz") ||
+           filename.ends_with(".tar.bz2") || filename.ends_with(".tar.xz") ||
+           filename.ends_with(".tar.zst");
 }
 
 } // namespace cc

@@ -15,6 +15,12 @@
 
 namespace cc {
 
+struct DeferredInputFile {
+    std::filesystem::path relativePath;
+    std::uintmax_t sizeBytes{0};
+    std::string reason;
+};
+
 /**
  * @brief 项目导入后的安全上下文。
  *
@@ -30,6 +36,7 @@ struct ProjectContext {
     std::string unpackStatus;
     bool archiveInput{false};
     std::vector<std::filesystem::path> inputFiles;
+    std::vector<DeferredInputFile> deferredFiles;
     std::vector<std::string> warnings;
 };
 
@@ -54,6 +61,7 @@ struct ProjectAsset {
     bool generated{false};
     bool vendored{false};
     bool sensitive{false};
+    bool workspaceModified{false};
     std::vector<std::string> riskFlags;
 };
 

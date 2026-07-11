@@ -1,13 +1,30 @@
-/**
- * @file RuleEngine.cpp
- * @brief 确定性规则执行实现。
- */
-
 #include "cc/rules/RuleEngine.hpp"
 #include "cc/rules/RuleConditionEvaluator.hpp"
 #include "cc/util/StringUtil.hpp"
 
 namespace cc {
+namespace {
+
+[[nodiscard]] bool appliesToTrack(std::string_view ruleTrack, CompetitionType type) {
+    if (ruleTrack == "common") {
+        return true;
+    }
+    if (ruleTrack == trackKey(type)) {
+        return true;
+    }
+    if ((type == CompetitionType::AiApplication ||
+         type == CompetitionType::EngineeringProduct) &&
+        ruleTrack == "software_project") {
+        return true;
+    }
+    if (type == CompetitionType::PublicWelfare && ruleTrack == "social_practice") {
+        return true;
+    }
+    return type == CompetitionType::ComprehensiveInnovation &&
+           (ruleTrack == "business_innovation" || ruleTrack == "software_project");
+}
+
+} // namespace
 
 std::vector<AuditFinding> RuleEngine::evaluate(const std::vector<AuditRule>& rules,
                                                const ProjectInventory& inventory, const CPIR& cpir,
@@ -17,7 +34,7 @@ std::vector<AuditFinding> RuleEngine::evaluate(const std::vector<AuditRule>& rul
     std::vector<AuditFinding> findings;
     const RuleConditionEvaluator evaluator;
     for (const auto& rule : rules) {
-        if (rule.track != "common" && rule.track != trackKey(cpir.competitionType)) {
+        if (!appliesToTrack(rule.track, cpir.competitionType)) {
             continue;
         }
 

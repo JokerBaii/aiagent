@@ -47,7 +47,7 @@ class AgentCommandRouter {
     /**
      * @brief 解析用户输入。
      *
-     * 主入口支持 `/audit`、`/agent <task>`、`/status`、`/compact`、`/clear` 和
+     * 主入口支持 `/audit`、`/agent <task>`、`/optimize`、`/status`、`/compact`、`/clear` 和
      * `/help`；`/ask`、`/plan`、`/code`、`/bypass`、`/permissions <mode>` 保留为
      * 设置页/高级入口兼容能力。其他非空文本作为普通智能体任务处理。
      */

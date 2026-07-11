@@ -23,6 +23,8 @@ class ClaimExtractor {
      * @return 声明列表；没有命中规则时返回空列表。
      */
     [[nodiscard]] std::vector<ProjectClaim> extract(const std::vector<TextDocument>& corpus) const;
+    [[nodiscard]] std::vector<ProjectClaim> extract(const std::vector<TextDocument>& corpus,
+                                                    const ProjectInventory& inventory) const;
 };
 
 } // namespace cc

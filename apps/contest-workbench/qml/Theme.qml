@@ -4,11 +4,10 @@ import QtQuick
 QtObject {
     id: theme
 
-    // TOKENICODE-style runtime theme settings.
-    property string appearance: "light"       // light / dark
-    property string colorTheme: "black"       // black / blue / orange / green
-    property string backgroundTheme: "garden" // garden / sakura / lake / dusk / ink / vscode / minimal
-    property string fontPreset: "microsoft"   // microsoft / system / sourceHan / lxgw / mono
+    property string appearance: "light"
+    property string colorTheme: "black"
+    property string backgroundTheme: "garden"
+    property string fontPreset: "microsoft"
     property int uiFontSize: 18
 
     readonly property bool isDark: appearance === "dark" || backgroundTheme === "vscode"
@@ -20,14 +19,13 @@ QtObject {
         return isDark ? "#D0D0D0" : "#333333"
     }
 
-    // Background skins from the reference app, adapted to solid QML surfaces.
     readonly property color window: {
         if (backgroundTheme === "vscode") return "#1E1E1E"
-        if (backgroundTheme === "garden") return "#FFF8EA"
-        if (backgroundTheme === "sakura") return "#FFF4F7"
-        if (backgroundTheme === "lake") return "#F3FBF8"
-        if (backgroundTheme === "dusk") return "#F7F1FB"
-        if (backgroundTheme === "ink") return "#F8F5EC"
+        if (backgroundTheme === "garden" && !isDark) return "#FFF8EA"
+        if (backgroundTheme === "sakura" && !isDark) return "#FFF4F7"
+        if (backgroundTheme === "lake" && !isDark) return "#F3FBF8"
+        if (backgroundTheme === "dusk" && !isDark) return "#F7F1FB"
+        if (backgroundTheme === "ink" && !isDark) return "#F8F5EC"
         return isDark ? "#0A0A0A" : "#FFFFFF"
     }
     readonly property color surface: {
@@ -84,6 +82,7 @@ QtObject {
     readonly property color accentActive: colorTheme === "black"
                                           ? (isDark ? "#FFFFFF" : "#111111")
                                           : Qt.darker(baseAccent, 1.18)
+    readonly property color accentText: isDark && colorTheme === "black" ? "#101010" : "#FFFFFF"
     readonly property color accentSoft: Qt.rgba(baseAccent.r, baseAccent.g, baseAccent.b, isDark ? 0.16 : 0.10)
     readonly property color accentGhost: Qt.rgba(baseAccent.r, baseAccent.g, baseAccent.b, isDark ? 0.24 : 0.16)
 
@@ -100,7 +99,6 @@ QtObject {
 
     readonly property color border: backgroundTheme === "garden" && !isDark ? Qt.rgba(0.87, 0.62, 0.55, 0.58) : (isDark ? "#2C2C2E" : "#EBEBF0")
     readonly property color borderStrong: backgroundTheme === "garden" && !isDark ? "#E9B2A3" : (isDark ? "#38383A" : "#E5E5EA")
-    // 更细的分隔线，对齐参考 --color-border-subtle。
     readonly property color borderSubtle: backgroundTheme === "garden" && !isDark ? Qt.rgba(0.87, 0.62, 0.55, 0.35) : (isDark ? "#242426" : "#EFEFF3")
 
     readonly property color success: "#10B981"
@@ -111,19 +109,26 @@ QtObject {
     readonly property color dangerSoft: isDark ? "#4A1F24" : "#FFE4E8"
 
     readonly property string fontFamily: {
-        if (fontPreset === "mono") return "Cascadia Mono, JetBrains Mono, Menlo, Consolas, monospace"
-        if (fontPreset === "sourceHan") return "Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei UI"
-        if (fontPreset === "lxgw") return "LXGW WenKai, Microsoft YaHei UI"
-        if (fontPreset === "system") return "Segoe UI, PingFang SC, Helvetica Neue, Arial"
-        return "Microsoft YaHei UI, Microsoft YaHei, Segoe UI, Arial"
+        if (fontPreset === "mono")
+            return Qt.platform.os === "linux" ? "Cascadia Mono NF" : "Cascadia Mono"
+        if (fontPreset === "sourceHan") return "Noto Sans CJK SC"
+        if (fontPreset === "lxgw") return "LXGW WenKai"
+        if (fontPreset === "system") {
+            if (Qt.platform.os === "windows") return "Segoe UI"
+            if (Qt.platform.os === "osx") return "Helvetica Neue"
+            return "Noto Sans"
+        }
+        if (Qt.platform.os === "windows") return "Microsoft YaHei UI"
+        if (Qt.platform.os === "osx") return "PingFang SC"
+        return "Noto Sans CJK SC"
     }
-    readonly property string monoFamily: "Cascadia Mono, JetBrains Mono, Menlo, Consolas, monospace"
+    readonly property string monoFamily: Qt.platform.os === "linux"
+                                         ? "Cascadia Mono NF" : "Cascadia Mono"
 
-    // 圆角刻度对齐参考 Tailwind：rounded-lg=8、rounded-xl=12、rounded-2xl=16、new-chat=20。
-    readonly property int radius: 12          // 卡片 / 会话项 rounded-xl
-    readonly property int radiusSm: 8         // 小控件 rounded-lg
-    readonly property int radiusMd: 16        // 输入框 / 大卡片 rounded-2xl
-    readonly property int radiusLg: 20        // 新建按钮胶囊 rounded-[20px]
+    readonly property int radius: 12
+    readonly property int radiusSm: 8
+    readonly property int radiusMd: 16
+    readonly property int radiusLg: 20
     readonly property int gap: 16
     readonly property int fast: 120
     readonly property int normal: 190

@@ -5,6 +5,8 @@
 
 #include "AuditResultModels.hpp"
 
+#include "cc/evidence/EvidenceMatcher.hpp"
+
 #include <QStringList>
 
 #include <algorithm>
@@ -165,6 +167,61 @@ namespace {
     if (flag == "NESTED_ARCHIVE_NEEDS_REVIEW") {
         return "嵌套压缩包待复核";
     }
+    if (flag == "CONTENT_DEFERRED") {
+        return "内容未自动载入";
+    }
+    if (flag == "LARGE_BINARY_DEFERRED") {
+        return "文件超过自动读取预算";
+    }
+    if (flag == "COPY_BUDGET_DEFERRED") {
+        return "工作副本容量受限，暂保留元数据";
+    }
+    if (flag == "PATH_DEPTH_LIMIT") {
+        return "路径层级过深，暂保留元数据";
+    }
+    if (flag == "SYMLINK_DEFERRED") {
+        return "符号链接未跟随，等待确认";
+    }
+    if (flag == "FIFO_DEFERRED" || flag == "SOCKET_DEFERRED" ||
+        flag == "BLOCK_DEVICE_DEFERRED" || flag == "CHARACTER_DEVICE_DEFERRED" ||
+        flag == "NON_REGULAR_FILE_DEFERRED" || flag == "NON_REGULAR_ENTRY_DEFERRED") {
+        return "非普通文件已识别，未打开内容";
+    }
+    if (flag == "NESTED_ARCHIVE_DEFERRED") {
+        return "嵌套归档已识别，暂未继续展开";
+    }
+    if (flag == "ENCRYPTED_ENTRY_DEFERRED") {
+        return "加密条目已识别，需要解密后读取";
+    }
+    if (flag == "ENCRYPTION_STATUS_UNKNOWN_DEFERRED") {
+        return "无法确认条目加密状态，未读取内容";
+    }
+    if (flag == "UNSUPPORTED_COMPRESSION_DEFERRED" ||
+        flag == "UNSUPPORTED_ARCHIVE_FORMAT") {
+        return "格式已识别，当前解析器暂不支持内容读取";
+    }
+    if (flag == "ARCHIVE_TOO_LARGE_FOR_INDEXING") {
+        return "归档超过自动展开预算，暂保留元数据";
+    }
+    if (flag == "RUNTIME_SINGLE_FILE_LIMIT_DEFERRED" ||
+        flag == "RUNTIME_SIZE_LIMIT_DEFERRED") {
+        return "条目实际大小超限，暂保留元数据";
+    }
+    if (flag == "RUNTIME_COPY_BUDGET_DEFERRED") {
+        return "展开时达到工作副本预算，暂保留元数据";
+    }
+    if (flag == "FILE_METADATA_UNREADABLE" || flag == "COPY_FAILED") {
+        return "文件暂不可读取，元数据已保留";
+    }
+    if (flag == "CONTENT_UNREADABLE") {
+        return "文件内容暂不可读取";
+    }
+    if (flag == "CONTENT_FORMAT_DETECTED") {
+        return "已根据文件内容识别格式";
+    }
+    if (flag == "WORKSPACE_DRAFT_UNVERIFIED") {
+        return "修复草稿，等待人工确认";
+    }
     return stringText(flag);
 }
 
@@ -177,6 +234,10 @@ namespace {
 }
 
 } // namespace
+
+QString riskFlags(const std::vector<std::string>& values) {
+    return joinedRiskFlags(values);
+}
 
 int blockerCount(const cc::AuditResult& result) {
     return static_cast<int>(std::count_if(
@@ -207,7 +268,7 @@ QVariantList assets(const cc::AuditResult& result) {
         item["format"] = stringText(asset.format);
         item["size"] = QVariant::fromValue<qulonglong>(asset.sizeBytes);
         item["auditable"] = asset.auditable;
-        item["risk"] = joinedRiskFlags(asset.riskFlags);
+        item["risk"] = riskFlags(asset.riskFlags);
         items.push_back(item);
     }
     return items;
@@ -261,6 +322,10 @@ QVariantList claimEvidence(const cc::AuditResult& result) {
         item["typeCode"] = stringText(cc::toString(claim.claimType));
         item["text"] = stringText(claim.claimText);
         item["source"] = pathText(claim.sourceFile);
+        item["status"] = evidenceStatusText(cc::EvidenceStatus::NeedReview);
+        item["reason"] = QStringLiteral("该声明尚未生成证据匹配结果。");
+        item["evidence"] = QString{};
+        item["missing"] = joinedStrings(cc::missingEvidenceForClaim(claim.claimType));
         if (match != result.evidenceMatches.end()) {
             item["status"] = evidenceStatusText(match->status);
             item["reason"] = stringText(match->reason);

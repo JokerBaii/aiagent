@@ -15,14 +15,14 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             text: root.text
             color: Theme.textSecondary
-            font.pixelSize: 15
+            font.pixelSize: Theme.fontXl
             font.bold: true
         }
         Text {
             width: parent.width
             text: root.hint
             color: Theme.textMuted
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontMd
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
         }

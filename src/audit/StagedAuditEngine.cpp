@@ -12,6 +12,7 @@
 #include "cc/cpir/CompetitionTypeDetector.hpp"
 #include "cc/evidence/EvidenceMatcher.hpp"
 #include "cc/inventory/InventoryEngine.hpp"
+#include "cc/inventory/MaterialTrustPolicy.hpp"
 #include "cc/repair/FixTaskGenerator.hpp"
 #include "cc/repair/RepairPlanner.hpp"
 #include "cc/rules/RuleEngine.hpp"
@@ -19,7 +20,9 @@
 #include "cc/rules/RulePackValidator.hpp"
 #include "cc/text/TextExtractionService.hpp"
 
+#include <algorithm>
 #include <sstream>
+#include <set>
 
 namespace cc {
 namespace {
@@ -27,6 +30,66 @@ namespace {
 [[nodiscard]] AuditStageOutcome ok(const AuditStageInfo& info, std::string detail) {
     return AuditStageOutcome{
         .name = info.name, .title = info.title, .detail = std::move(detail), .ok = true};
+}
+
+void appendTextIntegrityFindings(AuditResult& result) {
+    std::size_t index = 0U;
+    for (const auto& document : result.corpus) {
+        if (!needsTextReview(document)) {
+            continue;
+        }
+        const auto* asset = findAsset(result.inventory, document.sourceFile);
+        const bool requiredMaterial =
+            asset != nullptr &&
+            (asset->role == AssetRole::ProjectDeclaration ||
+             asset->role == AssetRole::BusinessPlan ||
+             asset->role == AssetRole::ResearchPaper ||
+             asset->role == AssetRole::SocialPracticeProof);
+        result.findings.push_back(
+            {.ruleId = "TEXT_EXTRACTION_REVIEW_" + std::to_string(++index),
+             .severity = requiredMaterial ? Severity::Blocker : Severity::Warning,
+             .title = "材料文本无法可靠读取",
+             .reason = document.sourceFile.generic_string() + " 的抽取状态为 " +
+                       document.status + "，其内容不能作为高置信事实或证据。",
+             .evidence = {document.sourceFile},
+             .missingEvidence = {"可可靠读取且经人工确认的材料内容"},
+             .fixSuggestion = "提供可复制文本的原始文档，或对扫描件完成 OCR 后人工复核。"});
+    }
+}
+
+void markUnverifiedWorkspaceFiles(ProjectInventory& inventory,
+                                  const std::vector<std::filesystem::path>& files) {
+    if (files.empty()) {
+        return;
+    }
+    std::set<std::string> unverified;
+    for (const auto& file : files) {
+        unverified.insert(file.lexically_normal().generic_string());
+    }
+    std::size_t marked = 0U;
+    for (auto& asset : inventory.assets) {
+        if (!unverified.contains(asset.relativePath.lexically_normal().generic_string())) {
+            continue;
+        }
+        asset.workspaceModified = true;
+        asset.generated = true;
+        asset.role = AssetRole::Generated;
+        asset.importance = 1;
+        if (std::find(asset.riskFlags.begin(), asset.riskFlags.end(),
+                      "WORKSPACE_DRAFT_UNVERIFIED") == asset.riskFlags.end()) {
+            asset.riskFlags.emplace_back("WORKSPACE_DRAFT_UNVERIFIED");
+        }
+        ++marked;
+    }
+    inventory.roleCounts.clear();
+    for (const auto& asset : inventory.assets) {
+        ++inventory.roleCounts[asset.role];
+    }
+    if (marked > 0U) {
+        inventory.warnings.push_back(std::to_string(marked) +
+                                     " 个 repaired-project 变更被标记为待人工确认草稿，"
+                                     "不会作为独立证据或必需材料计分");
+    }
 }
 
 } // namespace
@@ -75,6 +138,7 @@ Result<AuditStageOutcome> StagedAuditEngine::advance() {
             return Result<AuditStageOutcome>::failure(inventory.error());
         }
         result_.inventory = std::move(inventory.value());
+        markUnverifiedWorkspaceFiles(result_.inventory, options_.unverifiedFiles);
         std::ostringstream detail;
         detail << "资产 " << result_.inventory.assets.size() << " 个，输入文件 "
                << context_.inputFiles.size() << " 个";
@@ -107,13 +171,14 @@ Result<AuditStageOutcome> StagedAuditEngine::advance() {
         return Result<AuditStageOutcome>::success(ok(info, detail.str()));
     }
     case 4: {
-        result_.claims = ClaimExtractor{}.extract(result_.corpus);
+        result_.claims = ClaimExtractor{}.extract(result_.corpus, result_.inventory);
         ++stageIndex_;
         return Result<AuditStageOutcome>::success(
             ok(info, "声明 " + std::to_string(result_.claims.size()) + " 条"));
     }
     case 5: {
-        result_.evidenceMatches = EvidenceMatcher{}.match(result_.claims, result_.inventory);
+        result_.evidenceMatches =
+            EvidenceMatcher{}.match(result_.claims, result_.inventory, result_.corpus);
         ++stageIndex_;
         return Result<AuditStageOutcome>::success(
             ok(info, "证据匹配 " + std::to_string(result_.evidenceMatches.size()) + " 条"));
@@ -138,6 +203,7 @@ Result<AuditStageOutcome> StagedAuditEngine::advance() {
         result_.findings =
             RuleEngine{}.evaluate(rules.value(), result_.inventory, result_.cpir, result_.claims,
                                   result_.evidenceMatches, result_.consistencyIssues);
+        appendTextIntegrityFindings(result_);
         ++stageIndex_;
         return Result<AuditStageOutcome>::success(
             ok(info, "规则风险 " + std::to_string(result_.findings.size()) + " 个"));
@@ -153,7 +219,8 @@ Result<AuditStageOutcome> StagedAuditEngine::advance() {
         return Result<AuditStageOutcome>::success(ok(info, detail.str()));
     }
     case 9: {
-        result_.fixTasks = FixTaskGenerator{}.generate(result_.findings, result_.evidenceMatches);
+        result_.fixTasks =
+            FixTaskGenerator{}.generate(result_.findings, result_.evidenceMatches, result_.claims);
         ++stageIndex_;
         return Result<AuditStageOutcome>::success(
             ok(info, "补证任务 " + std::to_string(result_.fixTasks.size()) + " 个"));

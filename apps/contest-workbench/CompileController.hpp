@@ -7,16 +7,15 @@
 
 #include "WorkbenchSessionModels.hpp"
 #include "cc/agent/AgentModels.hpp"
-#include "cc/agent/StagedAuditPipeline.hpp"
 #include "cc/core/Result.hpp"
 #include "cc/llm/AuditAdvisory.hpp"
 
 #include <QObject>
 #include <QString>
-#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -25,6 +24,7 @@ class CompileController : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString projectPath READ projectPath WRITE setProjectPath NOTIFY projectPathChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
+    Q_PROPERTY(bool hasAuditResult READ hasAuditResult NOTIFY resultChanged)
     Q_PROPERTY(int trustScore READ trustScore NOTIFY resultChanged)
     Q_PROPERTY(int blockerCount READ blockerCount NOTIFY resultChanged)
     Q_PROPERTY(int warningCount READ warningCount NOTIFY resultChanged)
@@ -49,6 +49,7 @@ class CompileController : public QObject {
     Q_PROPERTY(QString oldAuditPath READ oldAuditPath WRITE setOldAuditPath NOTIFY diffInputChanged)
     Q_PROPERTY(QString newAuditPath READ newAuditPath WRITE setNewAuditPath NOTIFY diffInputChanged)
     Q_PROPERTY(QVariantMap auditDiff READ auditDiff NOTIFY auditDiffChanged)
+    Q_PROPERTY(QVariantMap repairWorkspace READ repairWorkspace NOTIFY resultChanged)
     Q_PROPERTY(QString llmApiKey READ llmApiKey WRITE setLlmApiKey NOTIFY llmConfigChanged)
     Q_PROPERTY(QString llmEndpoint READ llmEndpoint WRITE setLlmEndpoint NOTIFY llmConfigChanged)
     Q_PROPERTY(QString llmModel READ llmModel WRITE setLlmModel NOTIFY llmConfigChanged)
@@ -68,6 +69,7 @@ class CompileController : public QObject {
     [[nodiscard]] QString projectPath() const;
     void setProjectPath(const QString& value);
     [[nodiscard]] QString status() const;
+    [[nodiscard]] bool hasAuditResult() const;
     [[nodiscard]] int trustScore() const;
     [[nodiscard]] int blockerCount() const;
     [[nodiscard]] int warningCount() const;
@@ -94,6 +96,7 @@ class CompileController : public QObject {
     [[nodiscard]] QString newAuditPath() const;
     void setNewAuditPath(const QString& value);
     [[nodiscard]] QVariantMap auditDiff() const;
+    [[nodiscard]] QVariantMap repairWorkspace() const;
     [[nodiscard]] QString llmApiKey() const;
     void setLlmApiKey(const QString& value);
     [[nodiscard]] QString llmEndpoint() const;
@@ -121,12 +124,14 @@ class CompileController : public QObject {
     Q_INVOKABLE void selectProject(const QString& urlOrPath);
     /** @brief 开始一个新的会话，清空当前对话与结果。 */
     Q_INVOKABLE void newSession();
+    Q_INVOKABLE void activateSession(const QString& sessionId);
     /** @brief 运行混合研判：LLM 先判断、确定性规则校验（需授权 LLM 且已有审计结果）。 */
     Q_INVOKABLE void runAdvisory();
     Q_INVOKABLE void rewindLastTurn();
     Q_INVOKABLE void approvePendingPlan();
     Q_INVOKABLE void previewProjectFile(const QString& relativePath);
     Q_INVOKABLE void clearSelectedFilePreview();
+    Q_INVOKABLE void cancelCurrentJob();
 
   signals:
     void projectPathChanged();
@@ -145,16 +150,17 @@ class CompileController : public QObject {
     void selectedFilePreviewChanged();
 
   private:
-    void advanceAuditRun();
-    void finishAuditRun();
-    void runInlineAdvisory();
-    void runGeneralAssistant(const QString& message, const QString& context);
-    void runOptimization();
+    void applyAuditStage(std::size_t stageIndex, const cc::AgentObservation& observation);
+    void completeAuditRun(cc::Result<cc::AuditResult> result);
+    void exportReport(const QString& outputPath, bool jsonFormat);
     void previewAgentPlan(const QString& message, const QString& context);
     void startDeferredAgentConversation(const QString& message, const QString& context,
                                         bool appendUserMessage);
     void finishDeferredAgentConversation();
     void flushQueuedComposerMessage();
+    void archiveCurrentSession();
+    void resetActiveSession(bool addGreeting);
+    void emitFullSessionState();
     void runGeneralAssistant(const QString& message, const QString& context,
                              bool appendUserMessage);
     void previewAgentPlan(const QString& message, const QString& context, bool appendUserMessage);
@@ -178,7 +184,7 @@ class CompileController : public QObject {
     QString llmApiKeyHeader_{"Authorization"};
     QString llmApiKeyPrefix_{"Bearer "};
     QString accessMode_{"ask"};
-    bool llmApproved_{true};
+    bool llmApproved_{false};
     bool agentRunning_{false};
     bool brainWorkerRunning_{false};
     int activeAuditStep_{-1};
@@ -186,19 +192,43 @@ class CompileController : public QObject {
     QString currentAgentAction_;
     QString pendingPlanGoal_;
     QVariantMap selectedFilePreview_;
-    QTimer auditTimer_;
-    std::unique_ptr<cc::StagedAuditPipeline> auditRun_;
     QString agentResult_;
     QString agentTrace_;
     QString status_{"等待导入项目"};
-    std::optional<cc::AuditResult> result_;
+    std::shared_ptr<cc::AuditResult> result_;
+    std::shared_ptr<cc::AuditResult> baselineResult_;
     std::optional<cc::AuditDiff> auditDiff_;
     std::optional<cc::ReconciledAdvisory> advisory_;
     bool advisoryRunning_{false};
     struct PendingComposerMessage {
         QString message;
         QString context;
+        QString accessMode;
+        bool appendUserMessage{true};
     };
     std::vector<PendingComposerMessage> pendingComposerMessages_;
     std::vector<workbench::SessionMessage> conversation_;
+
+    struct SavedSession {
+        QString id;
+        QString projectPath;
+        QString oldAuditPath;
+        QString newAuditPath;
+        QString status;
+        QString accessMode;
+        QString agentResult;
+        QString agentTrace;
+        QString pendingPlanGoal;
+        QString compactedContext;
+        QVariantMap selectedFilePreview;
+        std::shared_ptr<cc::AuditResult> result;
+        std::shared_ptr<cc::AuditResult> baselineResult;
+        std::optional<cc::AuditDiff> auditDiff;
+        std::optional<cc::ReconciledAdvisory> advisory;
+        std::vector<workbench::SessionMessage> conversation;
+    };
+    QString activeSessionId_;
+    QString compactedContext_;
+    std::vector<SavedSession> savedSessions_;
+    std::shared_ptr<std::atomic_bool> activeCancellation_;
 };

@@ -28,13 +28,13 @@ Rectangle {
         Text {
             text: root.value
             color: root.accent
-            font.pixelSize: 30
+            font.pixelSize: Math.max(24, Theme.uiFontSize + 12)
             font.bold: true
         }
         Text {
             text: root.label
             color: Theme.textSecondary
-            font.pixelSize: 13
+            font.pixelSize: Theme.fontMd
         }
     }
 

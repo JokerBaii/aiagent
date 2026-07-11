@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -18,8 +20,59 @@ Item {
         spacing: 16
 
         SectionTitle {
-            title: "二次审计差分"
-            subtitle: "对比两份 audit.json，量化补证进展"
+            title: "实际变更与二次审计"
+            subtitle: "先核对 repaired-project 的真实补丁，再查看确定性评分变化"
+        }
+
+        Card {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 260
+            visible: root.compiler.repairWorkspace.available === true
+            padding: 14
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 8
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        Layout.fillWidth: true
+                        text: "真实 changes.patch · "
+                              + root.compiler.repairWorkspace.changedFileCount + " 个文件"
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontMd
+                        font.bold: true
+                    }
+                    Pill {
+                        text: root.compiler.repairWorkspace.truncated ? "预览已截断" : "完整预览"
+                        bg: Theme.surfaceMuted
+                        fg: Theme.textMuted
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: root.compiler.repairWorkspace.patchPath
+                    color: Theme.textMuted
+                    font.family: Theme.monoFamily
+                    font.pixelSize: Theme.fontXs
+                    elide: Text.ElideMiddle
+                }
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    TextArea {
+                        text: root.compiler.repairWorkspace.patchPreview || ""
+                        readOnly: true
+                        selectByMouse: true
+                        wrapMode: TextArea.NoWrap
+                        color: Theme.textPrimary
+                        font.family: Theme.monoFamily
+                        font.pixelSize: Theme.fontSm
+                        background: Rectangle { color: Theme.surfaceMuted; radius: Theme.radiusSm }
+                    }
+                }
+            }
         }
 
         Card {
@@ -35,7 +88,7 @@ Item {
                         Layout.preferredWidth: 88
                         text: "旧 audit"
                         color: Theme.textSecondary
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontMd
                     }
                     FieldInput {
                         Layout.fillWidth: true
@@ -51,7 +104,7 @@ Item {
                         Layout.preferredWidth: 88
                         text: "新 audit"
                         color: Theme.textSecondary
-                        font.pixelSize: 13
+                        font.pixelSize: Theme.fontMd
                     }
                     FieldInput {
                         Layout.fillWidth: true
@@ -76,7 +129,7 @@ Item {
                 anchors.fill: parent
                 text: root.value("summary")
                 color: Theme.textPrimary
-                font.pixelSize: 14
+                font.pixelSize: Theme.fontLg
                 wrapMode: Text.WordWrap
             }
         }
@@ -102,10 +155,10 @@ Item {
                         anchors.fill: parent
                         anchors.leftMargin: 12
                         anchors.rightMargin: 12
-                        Text { Layout.preferredWidth: 130; text: "指标"; color: Theme.textMuted; font.pixelSize: 12; font.bold: true }
-                        Text { Layout.preferredWidth: 90; text: "旧"; color: Theme.textMuted; font.pixelSize: 12; font.bold: true }
-                        Text { Layout.preferredWidth: 90; text: "新"; color: Theme.textMuted; font.pixelSize: 12; font.bold: true }
-                        Text { Layout.fillWidth: true; text: "说明"; color: Theme.textMuted; font.pixelSize: 12; font.bold: true }
+                        Text { Layout.preferredWidth: 130; text: "指标"; color: Theme.textMuted; font.pixelSize: Theme.fontSm; font.bold: true }
+                        Text { Layout.preferredWidth: 90; text: "旧"; color: Theme.textMuted; font.pixelSize: Theme.fontSm; font.bold: true }
+                        Text { Layout.preferredWidth: 90; text: "新"; color: Theme.textMuted; font.pixelSize: Theme.fontSm; font.bold: true }
+                        Text { Layout.fillWidth: true; text: "说明"; color: Theme.textMuted; font.pixelSize: Theme.fontSm; font.bold: true }
                     }
                 }
 
@@ -121,18 +174,22 @@ Item {
                 ]
 
                 delegate: Rectangle {
+                    id: metricDelegate
+                    required property int index
+                    required property var modelData
+
                     width: metricsList.width
                     height: 40
                     radius: Theme.radiusSm
-                    color: index % 2 === 0 ? Theme.surfaceMuted : "transparent"
+                    color: metricDelegate.index % 2 === 0 ? Theme.surfaceMuted : "transparent"
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 12
                         anchors.rightMargin: 12
-                        Text { Layout.preferredWidth: 130; text: modelData[0]; color: Theme.textPrimary; font.pixelSize: 13; font.bold: true }
-                        Text { Layout.preferredWidth: 90; text: modelData[1]; color: Theme.textSecondary; font.pixelSize: 13 }
-                        Text { Layout.preferredWidth: 90; text: modelData[2]; color: Theme.textPrimary; font.pixelSize: 13; font.bold: true }
-                        Text { Layout.fillWidth: true; text: modelData[3]; color: Theme.textMuted; font.pixelSize: 12 }
+                        Text { Layout.preferredWidth: 130; text: metricDelegate.modelData[0]; color: Theme.textPrimary; font.pixelSize: Theme.fontMd; font.bold: true }
+                        Text { Layout.preferredWidth: 90; text: metricDelegate.modelData[1]; color: Theme.textSecondary; font.pixelSize: Theme.fontMd }
+                        Text { Layout.preferredWidth: 90; text: metricDelegate.modelData[2]; color: Theme.textPrimary; font.pixelSize: Theme.fontMd; font.bold: true }
+                        Text { Layout.fillWidth: true; text: metricDelegate.modelData[3]; color: Theme.textMuted; font.pixelSize: Theme.fontSm }
                     }
                 }
             }

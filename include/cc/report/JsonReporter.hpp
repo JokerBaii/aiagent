@@ -20,12 +20,14 @@ class JsonReporter {
     /**
      * @brief 将 AuditResult 转换为完整 JSON 对象。
      */
-    [[nodiscard]] JsonValue toJson(const AuditResult& result) const;
+    [[nodiscard]] JsonValue toJson(const AuditResult& result,
+                                   const AuditDiff* diff = nullptr) const;
     /**
      * @brief 将 JSON 审计包写入文件。
      */
     [[nodiscard]] Result<void> write(const AuditResult& result,
-                                     const std::filesystem::path& output) const;
+                                     const std::filesystem::path& output,
+                                     const AuditDiff* diff = nullptr) const;
 };
 
 /** @brief 导出项目上下文。 */

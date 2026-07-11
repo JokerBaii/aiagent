@@ -1,60 +1,64 @@
-/**
- * @file ProjectMemory.cpp
- * @brief 项目记忆文件初始化实现。
- */
-
 #include "cc/agent/ProjectMemory.hpp"
+
 #include "cc/agent/LifecycleHookManager.hpp"
 #include "cc/core/JsonValue.hpp"
 #include "cc/util/FileUtil.hpp"
 #include "cc/util/JsonUtil.hpp"
 
+#include <filesystem>
 #include <sstream>
 
 namespace cc {
+namespace {
 
-Result<void> ProjectMemory::init(const std::filesystem::path& projectPath,
+constexpr std::size_t kMaximumInstructionsBytes = 64U * 1024U;
+
+[[nodiscard]] std::filesystem::path memoryRoot(const std::filesystem::path& workspaceRoot) {
+    return workspaceRoot / ".project-trust";
+}
+
+} // namespace
+
+Result<void> ProjectMemory::init(const std::filesystem::path& workspaceRoot,
                                  CompetitionType track) const {
     std::error_code ec;
-    if (!std::filesystem::exists(projectPath, ec) ||
-        !std::filesystem::is_directory(projectPath, ec)) {
-        return Result<void>::failure("无法初始化项目记忆，项目目录不存在");
+    if (!std::filesystem::is_directory(workspaceRoot, ec)) {
+        return Result<void>::failure("无法初始化项目记忆，工作区不存在");
     }
-    const auto root = projectPath / ".project-trust";
+    const auto root = memoryRoot(workspaceRoot);
     std::filesystem::create_directories(root, ec);
     if (ec) {
-        return Result<void>::failure("无法创建 .project-trust: " + ec.message());
+        return Result<void>::failure("无法创建项目记忆目录: " + ec.message());
     }
 
-    std::ostringstream md;
-    md << "# PROJECT_RULES\n\n";
-    md << "- 赛道：" << toString(track) << "\n";
-    md << "- 禁止无证据声明直接进入最终报告。\n";
-    md << "- 修复必须采用 diff-first 或补证任务模式，不直接覆盖原项目。\n";
-    auto written = util::writeTextFile(root / "PROJECT_RULES.md", md.str());
+    std::ostringstream instructions;
+    instructions << "# 项目审计约束\n\n";
+    instructions << "- 赛道：" << toString(track) << "\n";
+    instructions << "- 声明必须绑定可复核证据；草稿、智能体新建文件和待复核文本不能充当事实证据。\n";
+    instructions << "- 修改只能发生在 repaired-project 隔离副本，禁止覆盖原项目。\n";
+    instructions << "- 最终评分由确定性规则引擎生成，大模型只能解释和提出建议。\n";
+    auto written = util::writeTextFile(root / "PROJECT_RULES.md", instructions.str());
     if (!written.ok()) {
         return written;
     }
 
     const JsonValue projectRules = JsonValue::Object{
         {"track", toString(track)},
-        {"required_materials",
-         util::stringArrayToJson({"申报材料", "证据材料", "可复核说明", "补证任务闭环"})},
-        {"forbidden_unverified_claims",
-         util::stringArrayToJson(
-             {"用户数量", "营收", "合作协议", "专利软著", "实验结果", "市场规模"})},
-        {"report_requirements",
-         util::stringArrayToJson({"规则 ID", "证据来源", "可信评分", "可信债务", "补证任务"})}};
+        {"evidence_policy", "Only verified original evidence may support claims"},
+        {"repair_policy", "Workspace-only edits; original project is immutable"},
+        {"score_policy", "Deterministic rules remain authoritative"}};
     written = util::writeTextFile(root / "project_rules.json", writeJson(projectRules, 2) + "\n");
     if (!written.ok()) {
         return written;
     }
 
     const JsonValue permissions = JsonValue::Object{
-        {"allowed",
-         util::stringArrayToJson({"ReadProjectFiles", "WriteWorkspace", "ExportReport"})},
-        {"denied", util::stringArrayToJson(
-                       {"ModifyOriginalProject", "ExecuteCommand", "NetworkAccess", "LLMAccess"})}};
+        {"always_allowed", util::stringArrayToJson({"ReadProjectFiles", "ExportReport"})},
+        {"explicit_consent_required",
+         util::stringArrayToJson(
+             {"WriteWorkspace", "ReadExternalFiles", "NetworkAccess", "LLMAccess"})},
+        {"always_denied",
+         util::stringArrayToJson({"ModifyOriginalProject", "ExecuteCommand"})}};
     written = util::writeTextFile(root / "permissions.json", writeJson(permissions, 2) + "\n");
     if (!written.ok()) {
         return written;
@@ -63,6 +67,24 @@ Result<void> ProjectMemory::init(const std::filesystem::path& projectPath,
     const JsonValue hooks = JsonValue::Object{
         {"enabled", util::stringArrayToJson(LifecycleHookManager{}.builtinHooks())}};
     return util::writeTextFile(root / "hooks.json", writeJson(hooks, 2) + "\n");
+}
+
+Result<std::string>
+ProjectMemory::loadInstructions(const std::filesystem::path& workspaceRoot) const {
+    const auto path = memoryRoot(workspaceRoot) / "PROJECT_RULES.md";
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) {
+        return Result<std::string>::failure("项目记忆尚未初始化");
+    }
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec || size > kMaximumInstructionsBytes) {
+        return Result<std::string>::failure("项目记忆文件超过读取上限或无法读取");
+    }
+    auto content = util::readFileLimited(path, kMaximumInstructionsBytes + 1U);
+    if (content.empty() || content.size() > kMaximumInstructionsBytes) {
+        return Result<std::string>::failure("项目记忆为空或超过读取上限");
+    }
+    return Result<std::string>::success(std::move(content));
 }
 
 } // namespace cc

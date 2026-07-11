@@ -18,7 +18,7 @@ Rectangle {
         anchors.centerIn: parent
         text: root.text
         color: root.fg
-        font.pixelSize: 12
+        font.pixelSize: Theme.fontSm
         font.bold: true
     }
 }

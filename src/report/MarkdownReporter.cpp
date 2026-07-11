@@ -30,7 +30,7 @@ namespace {
 
 } // namespace
 
-std::string MarkdownReporter::render(const AuditResult& result) const {
+std::string MarkdownReporter::render(const AuditResult& result, const AuditDiff* diff) const {
     std::ostringstream output;
     output << "# 竞赛项目可信审计报告\n\n";
     output << "## 项目概况\n\n";
@@ -44,6 +44,14 @@ std::string MarkdownReporter::render(const AuditResult& result) const {
     output << "- 资产数量：" << result.inventory.assets.size() << "\n";
     output << "- 可信评分：" << result.trustScore.totalScore << "/100\n";
     output << "- 可信债务：" << result.trustScore.trustDebt << "\n\n";
+
+    const auto ruleBlockers = std::count_if(
+        result.findings.begin(), result.findings.end(),
+        [](const AuditFinding& finding) { return finding.severity == Severity::Blocker; });
+    const auto p0Tasks = std::count_if(result.fixTasks.begin(), result.fixTasks.end(),
+                                      [](const FixTask& task) { return task.priority == "P0"; });
+    output << "- 规则阻断项：" << ruleBlockers << "\n";
+    output << "- 必须处理任务：" << p0Tasks << "\n\n";
 
     output << "## 资产清单\n\n";
     for (const auto& asset : result.inventory.assets) {
@@ -142,15 +150,27 @@ std::string MarkdownReporter::render(const AuditResult& result) const {
     output << result.repairPlan.markdown << "\n";
 
     output << "## 二次审计差分\n\n";
-    output << "当前报告未绑定旧版审计包；如需二次审计差分，请在 Workbench 的差分页导入"
-              "两份 JSON 审计包。\n\n";
+    if (diff == nullptr) {
+        output << "当前报告未绑定旧版审计包；完成修复工作区二次审计后可生成差分。\n\n";
+    } else {
+        output << "- 可信评分：" << diff->oldScore << " -> " << diff->newScore << "\n";
+        output << "- 可信债务：" << diff->oldTrustDebt << " -> " << diff->newTrustDebt << "\n";
+        output << "- 阻断项：" << diff->oldBlockers << " -> " << diff->newBlockers << "\n";
+        output << "- 警告项：" << diff->oldWarnings << " -> " << diff->newWarnings << "\n";
+        output << "- 证据覆盖率：" << diff->oldEvidenceCoverage << "% -> "
+               << diff->newEvidenceCoverage << "%\n";
+        output << "- 补证任务：" << diff->oldFixTaskCount << " -> " << diff->newFixTaskCount
+               << "\n\n";
+        output << diff->summary << "\n\n";
+    }
     output << "本报告不直接覆盖原项目，不生成虚假数据，关键结论均保留规则 ID 或证据来源。\n";
     return output.str();
 }
 
 Result<void> MarkdownReporter::write(const AuditResult& result,
-                                     const std::filesystem::path& output) const {
-    return util::writeTextFile(output, render(result));
+                                     const std::filesystem::path& output,
+                                     const AuditDiff* diff) const {
+    return util::writeTextFile(output, render(result, diff));
 }
 
 } // namespace cc

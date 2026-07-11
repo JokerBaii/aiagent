@@ -9,6 +9,8 @@
 #pragma once
 
 #include "cc/core/Result.hpp"
+#include "cc/loader/ArchiveExtractionOutcome.hpp"
+#include "cc/loader/ImportLimits.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -39,6 +41,7 @@ struct ZipArchiveEntry {
 struct ZipExtractionRequest {
     std::filesystem::path archivePath;
     std::filesystem::path destinationRoot;
+    ImportLimits limits{};
 };
 
 /**
@@ -48,6 +51,7 @@ struct ZipEntryReadRequest {
     std::filesystem::path archivePath;
     std::filesystem::path entryPath;
     std::size_t maxBytes{0};
+    ImportLimits limits{};
 };
 
 /**
@@ -65,7 +69,7 @@ class ZipArchiveReader {
      * @return 成功时返回条目列表；失败时返回格式不支持或文件读取错误。
      */
     [[nodiscard]] Result<std::vector<ZipArchiveEntry>>
-    list(const std::filesystem::path& archivePath) const;
+    list(const std::filesystem::path& archivePath, const ImportLimits& limits = {}) const;
 
     /**
      * @brief 将 zip 条目解压到目标目录。
@@ -73,7 +77,7 @@ class ZipArchiveReader {
      * @param request zip 文件路径和工作区 input 目录。
      * @return 成功时返回解压出的普通文件相对路径；失败时返回格式或写入错误。
      */
-    [[nodiscard]] Result<std::vector<std::filesystem::path>>
+    [[nodiscard]] Result<ArchiveExtractionOutcome>
     extractAll(const ZipExtractionRequest& request) const;
 
     /**

@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Shapes
 import ".."
 
-// 审计助手头像：盾牌代表材料可信审查，勾表示规则步骤已完成。
 Rectangle {
     id: root
     property real size: 32

@@ -10,7 +10,6 @@ Item {
     property int radius: Theme.radius
     property bool hoverable: false
 
-    // 取第一个可视子项作为内容度量来源；Layout 类会正确上报 implicitHeight。
     readonly property Item contentChild: body.children.length > 0 ? body.children[0] : null
 
     implicitWidth: (contentChild ? contentChild.implicitWidth : 0) + padding * 2

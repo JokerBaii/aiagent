@@ -169,7 +169,9 @@ Result<JsonValue> parseJson(std::string_view text) {
 
 std::string writeJson(const JsonValue& value, int indent) {
     const auto thirdParty = toThirdPartyJson(value);
-    return indent <= 0 ? thirdParty.dump() : thirdParty.dump(indent);
+    constexpr auto errorHandler = nlohmann::json::error_handler_t::replace;
+    return indent <= 0 ? thirdParty.dump(-1, ' ', false, errorHandler)
+                       : thirdParty.dump(indent, ' ', false, errorHandler);
 }
 
 std::string jsonEscape(std::string_view value) {

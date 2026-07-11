@@ -202,6 +202,7 @@ struct AuditDiff {
 struct AuditOptions {
     CompetitionType track{CompetitionType::Unknown};
     std::filesystem::path rulesDir{"rules"};
+    std::vector<std::filesystem::path> unverifiedFiles;
 };
 
 } // namespace cc

@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -46,7 +48,7 @@ Item {
                     Layout.fillWidth: true
                     text: root.compiler.summary
                     color: Theme.textPrimary
-                    font.pixelSize: 14
+                    font.pixelSize: Theme.fontLg
                     wrapMode: Text.WordWrap
                     lineHeight: 1.3
                 }
@@ -77,6 +79,9 @@ Item {
                 }
 
                 delegate: Rectangle {
+                    id: penaltyDelegate
+                    required property var modelData
+
                     width: list.width
                     implicitHeight: row.implicitHeight + 20
                     radius: Theme.radiusSm
@@ -93,21 +98,21 @@ Item {
                         spacing: 12
 
                         Pill {
-                            text: modelData.dimension
+                            text: penaltyDelegate.modelData.dimension
                             bg: Theme.accentSoft
                             fg: Theme.accentActive
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: modelData.reason
+                            text: penaltyDelegate.modelData.reason
                             color: Theme.textPrimary
-                            font.pixelSize: 13
+                            font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
                         }
                         Text {
-                            text: "-" + modelData.points
+                            text: "-" + penaltyDelegate.modelData.points
                             color: Theme.danger
-                            font.pixelSize: 15
+                            font.pixelSize: Theme.fontXl
                             font.bold: true
                         }
                     }

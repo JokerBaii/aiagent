@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -36,7 +38,7 @@ ApplicationWindow {
         Theme.colorTheme = persistedTheme.colorTheme
         Theme.backgroundTheme = persistedTheme.backgroundTheme
         Theme.fontPreset = persistedTheme.fontPreset
-        Theme.uiFontSize = persistedTheme.uiFontSize
+        Theme.uiFontSize = Math.max(12, Math.min(24, persistedTheme.uiFontSize))
     }
 
     Connections {
@@ -50,7 +52,8 @@ ApplicationWindow {
 
     readonly property var panelTabs: [
         { key: "files", label: "文件", icon: "file" },
-        { key: "preview", label: "上下文", icon: "think" }
+        { key: "preview", label: "上下文", icon: "think" },
+        { key: "artifacts", label: "产物", icon: "skills" }
     ]
     readonly property var colorChoices: [
         { key: "black", label: "Black", color: "#333333" },
@@ -78,20 +81,54 @@ ApplicationWindow {
         { key: "ask", label: "Ask", hint: "常规问答与安全读取" },
         { key: "plan", label: "Plan", hint: "只生成计划，不执行工具" },
         { key: "code", label: "Code", hint: "写入受控工作区产物" },
-        { key: "bypass", label: "Bypass", hint: "完全授权，仅确认需要时使用" }
+        { key: "bypass", label: "Bypass", hint: "扩展授权读取，仍保护原项目" }
     ]
 
     property bool settingsOpen: false
-    property bool rightPanelOpen: true
+    property bool rightPanelOpen: false
     property string rightPanelTab: "files"
+    property string artifactPageKey: ""
     property string taskSearch: ""
     property string fileSearch: ""
+    property real animatedRightPanelWidth: rightPanelOpen ? 360 : 0
+
+    Behavior on animatedRightPanelWidth {
+        NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic }
+    }
 
     function fileName(path) {
         if (!path || path.length === 0) return "FocusZone"
         var normalized = String(path).replace(/\\/g, "/")
         var parts = normalized.split("/")
         return parts.length > 0 && parts[parts.length - 1].length > 0 ? parts[parts.length - 1] : normalized
+    }
+
+    function artifactIcon(pageKey) {
+        if (pageKey === "dashboard") return "preview"
+        if (pageKey === "assets") return "folder"
+        if (pageKey === "cpir") return "list"
+        if (pageKey === "claims") return "check"
+        if (pageKey === "consistency") return "diff"
+        if (pageKey === "findings") return "bypass"
+        if (pageKey === "tasks") return "plan"
+        if (pageKey === "diff") return "diff"
+        if (pageKey === "brain") return "think"
+        if (pageKey === "report") return "download"
+        return "file"
+    }
+
+    function openArtifact(pageKey, available) {
+        if (!available || !pageKey)
+            return
+        artifactPageKey = pageKey
+        rightPanelOpen = false
+    }
+
+    function closeArtifact() {
+        artifactPageKey = ""
+        rightPanelTab = "artifacts"
+        rightPanelOpen = true
+        workspacePage.focusComposerInput()
     }
 
     FolderDialog {
@@ -104,7 +141,10 @@ ApplicationWindow {
         id: materialFileDialog
         title: "添加项目材料或材料包"
         nameFilters: [
-            "项目材料 (*.pdf *.docx *.doc *.pptx *.ppt *.xlsx *.xls *.md *.txt *.json *.cpp *.c *.h *.hpp *.py *.java *.js *.ts *.zip *.tar *.tgz *.gz)",
+            "文档与数据 (*.pdf *.docx *.pptx *.xlsx *.doc *.ppt *.xls *.rtf *.odt *.odp *.ods *.md *.markdown *.txt *.rst *.adoc *.json *.jsonl *.yaml *.yml *.csv *.tsv *.xml *.html *.htm *.toml *.ini *.cfg *.conf *.sql)",
+            "源码与配置 (*.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.hxx *.py *.js *.mjs *.cjs *.ts *.tsx *.jsx *.vue *.svelte *.qml *.java *.kt *.kts *.go *.rs *.swift *.cs *.php *.rb *.lua *.r *.scala *.dart *.sh *.bash *.zsh *.ps1 *.bat *.cmd *.cmake *.gradle)",
+            "材料包与代码包 (*.zip *.tar *.tar.gz *.tar.bz2 *.tar.xz *.tar.zst *.tgz *.gz *.bz2 *.xz *.zst *.7z *.rar *.cab *.cpio *.iso *.ar *.deb *.rpm *.apk *.jar *.war *.ear *.whl)",
+            "图片、音视频与模型成果 (*.png *.jpg *.jpeg *.gif *.webp *.svg *.bmp *.tiff *.tif *.ico *.avif *.heic *.mp4 *.mov *.avi *.mkv *.webm *.mpeg *.mpg *.m4v *.wmv *.flv *.mp3 *.wav *.flac *.ogg *.m4a *.aac *.opus *.wma *.onnx *.pt *.pth *.pkl *.joblib *.safetensors *.tflite *.pb *.glb *.gltf *.fbx *.obj *.stl *.dae *.3ds *.blend)",
             "所有文件 (*)"
         ]
         onAccepted: compiler.selectProject(selectedFile)
@@ -118,6 +158,32 @@ ApplicationWindow {
     Shortcut {
         sequence: "Ctrl+Shift+O"
         onActivated: materialFileDialog.open()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+Shift+A"
+        onActivated: {
+            root.rightPanelTab = "artifacts"
+            root.rightPanelOpen = true
+        }
+    }
+
+    Shortcut {
+        sequence: "Escape"
+        onActivated: {
+            if (compiler.agentRunning || compiler.advisoryRunning) {
+                compiler.cancelCurrentJob()
+            } else if (root.settingsOpen) {
+                root.settingsOpen = false
+            } else if (root.artifactPageKey.length > 0) {
+                root.closeArtifact()
+            } else if (compiler.selectedFilePreview.content !== undefined
+                       || compiler.selectedFilePreview.error !== undefined) {
+                compiler.clearSelectedFilePreview()
+            } else if (root.rightPanelOpen) {
+                root.rightPanelOpen = false
+            }
+        }
     }
 
     RowLayout {
@@ -139,22 +205,12 @@ ApplicationWindow {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 16
-                    spacing: 7
-                    Rectangle { width: 11; height: 11; radius: 6; color: "#FF5F57" }
-                    Rectangle { width: 11; height: 11; radius: 6; color: "#FFBD2E" }
-                    Rectangle { width: 11; height: 11; radius: 6; color: "#28C840" }
-                    Item { Layout.fillWidth: true }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
                     spacing: 8
                     AiAvatar { size: 30 }
                     Text {
-                        text: "大学生项目材料审计平台"
+                        text: "项目审计"
                         color: Theme.sidebarTextActive
-                        font.pixelSize: 16
+                        font.pixelSize: Theme.fontXl
                         font.bold: true
                         Layout.fillWidth: true
                         elide: Text.ElideRight
@@ -178,11 +234,10 @@ ApplicationWindow {
                             font.bold: true
                         }
                     }
-                    MouseArea {
+                    ActionArea {
                         id: newTaskMouse
                         anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
+                        accessibleName: "开始新任务"
                         onClicked: {
                             compiler.newSession()
                             workspacePage.focusComposer("")
@@ -215,40 +270,11 @@ ApplicationWindow {
                             font.pixelSize: Theme.fontXs
                         }
                     }
-                    MouseArea {
+                    ActionArea {
                         id: addMouse
                         anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
+                        accessibleName: "添加项目文件夹"
                         onClicked: folderDialog.open()
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 42
-                    radius: Theme.radius
-                    color: Theme.surface
-                    border.color: Theme.border
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 9
-                        Rectangle { width: 8; height: 8; radius: 4; color: compiler.agentRunning ? Theme.warning : Theme.success }
-                        Text {
-                            Layout.fillWidth: true
-                            text: compiler.trustScore > 0 ? "可信评分 " + compiler.trustScore : "等待审计"
-                            color: Theme.textPrimary
-                            font.pixelSize: Theme.fontMd
-                            font.bold: true
-                            elide: Text.ElideRight
-                        }
-                        Text {
-                            text: compiler.agentRunning ? "审计中" : (compiler.trustScore > 0 ? "已完成" : "待开始")
-                            color: Theme.textTertiary
-                            font.pixelSize: Theme.fontXs
-                        }
                     }
                 }
 
@@ -268,6 +294,7 @@ ApplicationWindow {
                     }
                     TextField {
                         anchors.fill: parent
+                        Accessible.name: "搜索任务"
                         leftPadding: 38
                         rightPadding: 12
                         placeholderText: "搜索任务..."
@@ -294,13 +321,16 @@ ApplicationWindow {
                     })
                     section.property: "active"
                     delegate: Rectangle {
+                        id: sessionDelegate
+                        required property var modelData
+
                         width: sessionList.width
                         implicitHeight: 44
                         radius: Theme.radius
-                        color: modelData.active ? Theme.accentSoft
+                        color: sessionDelegate.modelData.active ? Theme.accentSoft
                              : sessionMouse.containsMouse ? Theme.surfaceMuted
                              : "transparent"
-                        border.color: modelData.active ? Theme.accentGhost : "transparent"
+                        border.color: sessionDelegate.modelData.active ? Theme.accentGhost : "transparent"
                         RowLayout {
                             anchors.fill: parent
                             anchors.leftMargin: 12
@@ -308,27 +338,25 @@ ApplicationWindow {
                             spacing: 8
                             Text {
                                 Layout.fillWidth: true
-                                text: modelData.title
-                                color: modelData.active ? Theme.textPrimary : Theme.sidebarText
+                                text: sessionDelegate.modelData.title
+                                color: sessionDelegate.modelData.active ? Theme.textPrimary : Theme.sidebarText
                                 font.pixelSize: Theme.fontMd
-                                font.bold: modelData.active
+                                font.bold: sessionDelegate.modelData.active
                                 elide: Text.ElideRight
                             }
                             Text {
-                                text: modelData.subtitle
+                                text: sessionDelegate.modelData.subtitle
                                 color: Theme.textTertiary
                                 font.pixelSize: Theme.fontXs
                                 elide: Text.ElideRight
                             }
                         }
-                        MouseArea {
+                        ActionArea {
                             id: sessionMouse
                             anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
+                            accessibleName: "打开任务上下文：" + sessionDelegate.modelData.title
                             onClicked: {
-                                root.rightPanelTab = "preview"
-                                root.rightPanelOpen = true
+                                compiler.activateSession(sessionDelegate.modelData.sessionId)
                             }
                         }
                     }
@@ -360,11 +388,10 @@ ApplicationWindow {
                             Icon { name: "think"; size: 15; color: Theme.textMuted }
                             Text { text: "上下文"; color: Theme.sidebarText; font.pixelSize: Theme.fontSm; font.bold: true }
                         }
-                        MouseArea {
+                        ActionArea {
                             id: packMouse
                             anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
+                            accessibleName: "打开上下文面板"
                             onClicked: {
                                 root.rightPanelTab = "preview"
                                 root.rightPanelOpen = true
@@ -382,11 +409,10 @@ ApplicationWindow {
                             Icon { name: "settings"; size: 15; color: Theme.textMuted }
                             Text { text: "设置"; color: Theme.sidebarText; font.pixelSize: Theme.fontSm; font.bold: true }
                         }
-                        MouseArea {
+                        ActionArea {
                             id: settingsMouse
                             anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
+                            accessibleName: "打开设置"
                             onClicked: root.settingsOpen = true
                         }
                     }
@@ -414,34 +440,46 @@ ApplicationWindow {
                     anchors.leftMargin: 24
                     anchors.rightMargin: 20
                     spacing: 14
-                    Text {
-                        text: compiler.trustScore > 0 ? "可信评分 " + compiler.trustScore : "项目材料审计"
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fontXl
-                        font.bold: true
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 1
+                        Text {
+                            Layout.fillWidth: true
+                            text: compiler.projectPath.length > 0
+                                  ? root.fileName(compiler.projectPath) : "新任务"
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontLg
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: compiler.agentRunning
+                                  ? (compiler.currentAgentAction || "正在处理")
+                                  : compiler.status
+                            color: compiler.agentRunning ? Theme.warning : Theme.textMuted
+                            font.pixelSize: Theme.fontSm
+                            elide: Text.ElideRight
+                        }
                     }
-                    Text {
-                        text: root.fileName(compiler.projectContext.originalRoot)
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontMd
-                        elide: Text.ElideRight
+                    Pill {
+                        visible: compiler.hasAuditResult
+                        text: "可信评分 " + compiler.trustScore
+                        bg: compiler.trustScore >= 80 ? Theme.successSoft
+                            : compiler.trustScore >= 60 ? Theme.warningSoft : Theme.dangerSoft
+                        fg: compiler.trustScore >= 80 ? Theme.success
+                            : compiler.trustScore >= 60 ? Theme.warning : Theme.danger
                     }
-                    Rectangle { width: 7; height: 7; radius: 4; color: Theme.success }
-                    Text { text: "审计助手"; color: Theme.success; font.pixelSize: Theme.fontSm; font.bold: true }
-                    Rectangle { width: 7; height: 7; radius: 4; color: Theme.borderStrong }
-                    Text { text: "规则引擎"; color: Theme.textMuted; font.pixelSize: Theme.fontSm }
-                    Item { Layout.fillWidth: true }
                     Rectangle {
-                        width: 32
-                        height: 32
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
                         radius: Theme.radiusSm
                         color: panelMouse.containsMouse ? Theme.surfaceMuted : "transparent"
                         Icon { anchors.centerIn: parent; name: "sidebar"; size: 16; color: root.rightPanelOpen ? Theme.accent : Theme.textMuted }
-                        MouseArea {
+                        ActionArea {
                             id: panelMouse
                             anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
+                            accessibleName: root.rightPanelOpen ? "关闭右侧面板" : "打开右侧面板"
                             onClicked: root.rightPanelOpen = !root.rightPanelOpen
                         }
                     }
@@ -449,21 +487,73 @@ ApplicationWindow {
                 Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: Theme.border }
             }
 
-            SessionWorkspacePage {
-                id: workspacePage
+            Item {
+                id: workspaceHost
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                compiler: compiler
-                onAttachProjectRequested: materialFileDialog.open()
+                readonly property bool splitArtifacts: root.artifactPageKey.length > 0
+                                                       && width >= 1000
+
+                SessionWorkspacePage {
+                    id: workspacePage
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: root.artifactPageKey.length === 0 ? parent.width
+                           : workspaceHost.splitArtifacts ? parent.width * 0.38
+                                                          : parent.width
+                    compiler: compiler
+                    enabled: root.artifactPageKey.length === 0 || workspaceHost.splitArtifacts
+                    opacity: enabled ? 1 : 0
+                    onAttachProjectRequested: materialFileDialog.open()
+                    onArtifactRequested: function(pageKey) { root.openArtifact(pageKey, true) }
+
+                    Behavior on opacity {
+                        NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic }
+                    }
+                    Behavior on width {
+                        NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic }
+                    }
+                }
+
+                ArtifactDetailPage {
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: workspaceHost.splitArtifacts ? parent.width * 0.62 : parent.width
+                    compiler: compiler
+                    pageKey: root.artifactPageKey.length > 0 ? root.artifactPageKey : "dashboard"
+                    enabled: root.artifactPageKey.length > 0
+                    visible: opacity > 0
+                    opacity: enabled ? 1 : 0
+                    onCloseRequested: root.closeArtifact()
+
+                    Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+                    Behavior on width {
+                        NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic }
+                    }
+                }
+
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    x: workspacePage.width
+                    width: 1
+                    visible: workspaceHost.splitArtifacts
+                    color: Theme.border
+                    opacity: visible ? 1 : 0
+
+                    Behavior on opacity { NumberAnimation { duration: Theme.fast } }
+                }
             }
         }
 
         Rectangle {
-            Layout.preferredWidth: root.rightPanelOpen ? 360 : 0
+            Layout.preferredWidth: root.animatedRightPanelWidth
             Layout.fillHeight: true
             color: Theme.surfaceMuted
             clip: true
-            visible: root.rightPanelOpen
+            visible: root.animatedRightPanelWidth > 0.5
 
             ColumnLayout {
                 anchors.fill: parent
@@ -481,39 +571,43 @@ ApplicationWindow {
                         Repeater {
                             model: root.panelTabs
                             delegate: Rectangle {
+                                id: panelTabDelegate
+                                required property var modelData
+
                                 implicitWidth: tabRow.implicitWidth + 30
                                 implicitHeight: 36
                                 radius: Theme.radiusSm
-                                color: root.rightPanelTab === modelData.key ? Theme.surfaceHover : "transparent"
+                                color: root.rightPanelTab === panelTabDelegate.modelData.key ? Theme.surfaceHover : "transparent"
                                 RowLayout {
                                     id: tabRow
                                     anchors.centerIn: parent
                                     spacing: 7
-                                    Icon { name: modelData.icon; size: 14; color: root.rightPanelTab === modelData.key ? Theme.textPrimary : Theme.textMuted }
+                                    Icon { name: panelTabDelegate.modelData.icon; size: 14; color: root.rightPanelTab === panelTabDelegate.modelData.key ? Theme.textPrimary : Theme.textMuted }
                                     Text {
-                                        text: modelData.label
-                                        color: root.rightPanelTab === modelData.key ? Theme.textPrimary : Theme.textMuted
+                                        text: panelTabDelegate.modelData.label
+                                        color: root.rightPanelTab === panelTabDelegate.modelData.key ? Theme.textPrimary : Theme.textMuted
                                         font.pixelSize: Theme.fontMd
-                                        font.bold: root.rightPanelTab === modelData.key
+                                        font.bold: root.rightPanelTab === panelTabDelegate.modelData.key
                                     }
                                 }
-                                MouseArea {
+                                ActionArea {
                                     anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.rightPanelTab = modelData.key
+                                    accessibleName: "切换到" + panelTabDelegate.modelData.label + "面板"
+                                    onClicked: root.rightPanelTab = panelTabDelegate.modelData.key
                                 }
                             }
                         }
                         Item { Layout.fillWidth: true }
                         Rectangle {
-                            width: 30; height: 30; radius: Theme.radiusSm
+                            Layout.preferredWidth: 30
+                            Layout.preferredHeight: 30
+                            radius: Theme.radiusSm
                             color: closePanelMouse.containsMouse ? Theme.surfaceHover : "transparent"
                             Icon { anchors.centerIn: parent; name: "close"; size: 14; color: Theme.textMuted }
-                            MouseArea {
+                            ActionArea {
                                 id: closePanelMouse
                                 anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
+                                accessibleName: "关闭右侧面板"
                                 onClicked: root.rightPanelOpen = false
                             }
                         }
@@ -525,7 +619,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     currentIndex: root.rightPanelTab === "files" ? 0
-                                  : 1
+                                  : root.rightPanelTab === "preview" ? 1 : 2
 
                     ColumnLayout {
                         spacing: 12
@@ -574,6 +668,7 @@ ApplicationWindow {
                             }
                             TextField {
                                 anchors.fill: parent
+                                Accessible.name: "搜索项目文件"
                                 leftPadding: 38
                                 rightPadding: 12
                                 placeholderText: "搜索文件..."
@@ -601,6 +696,9 @@ ApplicationWindow {
                                         || String(item.format).toLowerCase().indexOf(query) >= 0
                             })
                             delegate: Rectangle {
+                                id: fileDelegate
+                                required property var modelData
+
                                 width: fileList.width
                                 implicitHeight: 34
                                 radius: Theme.radiusSm
@@ -611,27 +709,26 @@ ApplicationWindow {
                                     anchors.rightMargin: 8
                                     spacing: 8
                                     Icon {
-                                        name: modelData.roleCode === "SourceCode" ? "code"
-                                             : modelData.roleCode === "Archive" ? "folder"
+                                        name: fileDelegate.modelData.roleCode === "SourceCode" ? "code"
+                                             : fileDelegate.modelData.roleCode === "Archive" ? "folder"
                                              : "file"
                                         size: 13
-                                        color: modelData.risk && modelData.risk.length > 0 ? Theme.warning : Theme.textTertiary
+                                        color: fileDelegate.modelData.risk && fileDelegate.modelData.risk.length > 0 ? Theme.warning : Theme.textTertiary
                                     }
                                     Text {
                                         Layout.fillWidth: true
-                                        text: modelData.path
-                                        color: modelData.risk && modelData.risk.length > 0 ? Theme.warning : Theme.textMuted
+                                        text: fileDelegate.modelData.path
+                                        color: fileDelegate.modelData.risk && fileDelegate.modelData.risk.length > 0 ? Theme.warning : Theme.textMuted
                                         font.pixelSize: Theme.fontMd
                                         elide: Text.ElideMiddle
                                     }
                                 }
-                                MouseArea {
+                                ActionArea {
                                     id: fileMouse
                                     anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
+                                    accessibleName: "预览文件：" + fileDelegate.modelData.path
                                     onClicked: {
-                                        compiler.previewProjectFile(modelData.path)
+                                        compiler.previewProjectFile(fileDelegate.modelData.path)
                                         root.rightPanelTab = "preview"
                                     }
                                 }
@@ -646,12 +743,78 @@ ApplicationWindow {
                     }
 
                     ScrollView {
-                        id: artifactScroll
+                        id: contextScroll
                         clip: true
                         contentWidth: availableWidth
+
                         ColumnLayout {
-                            width: artifactScroll.availableWidth
+                            width: contextScroll.availableWidth
                             spacing: 10
+
+                            Rectangle {
+                                Layout.leftMargin: 14
+                                Layout.rightMargin: 14
+                                Layout.topMargin: 12
+                                Layout.fillWidth: true
+                                implicitHeight: statusColumn.implicitHeight + 24
+                                radius: Theme.radius
+                                color: Theme.surface
+                                border.color: Theme.border
+
+                                ColumnLayout {
+                                    id: statusColumn
+                                    anchors.fill: parent
+                                    anchors.margins: 12
+                                    spacing: 8
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Rectangle {
+                                            Layout.preferredWidth: 8
+                                            Layout.preferredHeight: 8
+                                            radius: 4
+                                            color: compiler.agentRunning ? Theme.warning
+                                                   : compiler.hasAuditResult ? Theme.success
+                                                                             : Theme.textTertiary
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: compiler.agentRunning ? "审计正在运行" : "当前状态"
+                                            color: Theme.textPrimary
+                                            font.pixelSize: Theme.fontMd
+                                            font.bold: true
+                                        }
+                                        Pill {
+                                            visible: compiler.hasAuditResult
+                                            text: compiler.trustScore + " / 100"
+                                            bg: Theme.accentSoft
+                                            fg: Theme.accent
+                                        }
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: compiler.status
+                                        color: Theme.textMuted
+                                        font.pixelSize: Theme.fontSm
+                                        wrapMode: Text.WordWrap
+                                    }
+                                    RowLayout {
+                                        visible: compiler.hasAuditResult
+                                        spacing: 8
+                                        Pill {
+                                            text: "必须处理 " + compiler.blockerCount
+                                            bg: compiler.blockerCount > 0 ? Theme.dangerSoft : Theme.surfaceMuted
+                                            fg: compiler.blockerCount > 0 ? Theme.danger : Theme.textMuted
+                                        }
+                                        Pill {
+                                            text: "需关注 " + compiler.warningCount
+                                            bg: compiler.warningCount > 0 ? Theme.warningSoft : Theme.surfaceMuted
+                                            fg: compiler.warningCount > 0 ? Theme.warning : Theme.textMuted
+                                        }
+                                    }
+                                }
+                            }
+
                             Rectangle {
                                 Layout.leftMargin: 14
                                 Layout.rightMargin: 14
@@ -663,11 +826,13 @@ ApplicationWindow {
                                 color: Theme.surface
                                 border.color: compiler.selectedFilePreview.error
                                               ? Theme.danger : Theme.accentGhost
+
                                 ColumnLayout {
                                     id: previewColumn
                                     anchors.fill: parent
                                     anchors.margins: 12
                                     spacing: 8
+
                                     RowLayout {
                                         Layout.fillWidth: true
                                         Icon { name: "file"; size: 14; color: Theme.accent }
@@ -680,8 +845,8 @@ ApplicationWindow {
                                             elide: Text.ElideMiddle
                                         }
                                         Rectangle {
-                                            width: 26
-                                            height: 26
+                                            Layout.preferredWidth: 26
+                                            Layout.preferredHeight: 26
                                             radius: Theme.radiusSm
                                             color: closePreviewMouse.containsMouse
                                                    ? Theme.surfaceHover : "transparent"
@@ -691,11 +856,10 @@ ApplicationWindow {
                                                 size: 12
                                                 color: Theme.textMuted
                                             }
-                                            MouseArea {
+                                            ActionArea {
                                                 id: closePreviewMouse
                                                 anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
+                                                accessibleName: "关闭文件预览"
                                                 onClicked: compiler.clearSelectedFilePreview()
                                             }
                                         }
@@ -711,61 +875,210 @@ ApplicationWindow {
                                         font.pixelSize: Theme.fontXs
                                         wrapMode: Text.WordWrap
                                     }
-                                    TextArea {
+                                    ScrollView {
                                         Layout.fillWidth: true
-                                        text: compiler.selectedFilePreview.error
-                                              || compiler.selectedFilePreview.content || ""
-                                        color: compiler.selectedFilePreview.error
-                                               ? Theme.danger : Theme.textPrimary
-                                        font.family: Theme.monoFamily
-                                        font.pixelSize: Theme.fontSm
-                                        wrapMode: TextArea.Wrap
-                                        textFormat: Text.PlainText
-                                        selectByMouse: true
-                                        readOnly: true
-                                        leftPadding: 0
-                                        rightPadding: 0
-                                        topPadding: 0
-                                        bottomPadding: 0
-                                        background: null
+                                        Layout.preferredHeight: 260
+                                        clip: true
+                                        contentWidth: availableWidth
+
+                                        TextArea {
+                                            id: filePreviewText
+                                            width: parent.width
+                                            text: compiler.selectedFilePreview.error
+                                                  || compiler.selectedFilePreview.content || ""
+                                            color: compiler.selectedFilePreview.error
+                                                   ? Theme.danger : Theme.textPrimary
+                                            font.family: Theme.monoFamily
+                                            font.pixelSize: Theme.fontSm
+                                            wrapMode: TextArea.Wrap
+                                            textFormat: Text.PlainText
+                                            selectByMouse: true
+                                            readOnly: true
+                                            leftPadding: 0
+                                            rightPadding: 8
+                                            topPadding: 0
+                                            bottomPadding: 0
+                                            background: null
+                                        }
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        visible: compiler.selectedFilePreview.truncated === true
+                                        text: "预览已限长；完整内容不会一次性加载到界面。"
+                                        color: Theme.warning
+                                        font.pixelSize: Theme.fontXs
+                                        wrapMode: Text.WordWrap
                                     }
                                 }
                             }
+
                             SectionTitle {
                                 Layout.leftMargin: 14
-                                title: "审计资料"
-                                subtitle: "项目申报、成果证明和软著相关材料会自动提供给审计助手。"
+                                Layout.rightMargin: 14
+                                title: "审计流程"
+                                subtitle: compiler.agentRunning
+                                          ? "当前步骤会随运行实时更新。"
+                                          : "每一步结果都会进入当前会话上下文。"
+                            }
+                            Repeater {
+                                model: compiler.toolCards
+                                delegate: Rectangle {
+                                    id: toolDelegate
+                                    required property var modelData
+
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    Layout.fillWidth: true
+                                    implicitHeight: toolColumn.implicitHeight + 18
+                                    radius: Theme.radius
+                                    color: Theme.surface
+                                    border.color: toolDelegate.modelData.status === "进行中"
+                                                  ? Theme.warning : Theme.border
+
+                                    ColumnLayout {
+                                        id: toolColumn
+                                        anchors.fill: parent
+                                        anchors.margins: 10
+                                        spacing: 4
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Icon {
+                                                name: toolDelegate.modelData.status === "完成" ? "checkSmall"
+                                                      : toolDelegate.modelData.status === "进行中" ? "think" : "toolStack"
+                                                size: 13
+                                                color: toolDelegate.modelData.status === "完成" ? Theme.success
+                                                       : toolDelegate.modelData.status === "进行中" ? Theme.warning
+                                                                                     : Theme.textTertiary
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: toolDelegate.modelData.name
+                                                color: Theme.textPrimary
+                                                font.pixelSize: Theme.fontMd
+                                                font.bold: true
+                                            }
+                                            Pill {
+                                                text: toolDelegate.modelData.status
+                                                bg: toolDelegate.modelData.status === "完成" ? Theme.successSoft
+                                                    : toolDelegate.modelData.status === "进行中" ? Theme.warningSoft
+                                                                                  : Theme.surfaceMuted
+                                                fg: toolDelegate.modelData.status === "完成" ? Theme.success
+                                                    : toolDelegate.modelData.status === "进行中" ? Theme.warning
+                                                                                  : Theme.textMuted
+                                            }
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: toolDelegate.modelData.detail
+                                            color: Theme.textMuted
+                                            font.pixelSize: Theme.fontSm
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                }
+                            }
+                            Item { Layout.preferredHeight: 8 }
+                        }
+                    }
+
+                    ScrollView {
+                        id: artifactPanelScroll
+                        clip: true
+                        contentWidth: availableWidth
+
+                        ColumnLayout {
+                            width: artifactPanelScroll.availableWidth
+                            spacing: 10
+
+                            SectionTitle {
+                                Layout.leftMargin: 14
+                                Layout.rightMargin: 14
+                                Layout.topMargin: 14
+                                title: "审计产物"
+                                subtitle: "打开总览、证据、风险、任务、差分或报告。"
                             }
                             Repeater {
                                 model: compiler.artifacts
                                 delegate: Rectangle {
+                                    id: artifactDelegate
+                                    required property var modelData
+
                                     Layout.leftMargin: 14
                                     Layout.rightMargin: 14
                                     Layout.fillWidth: true
-                                    implicitHeight: artifactCol.implicitHeight + 20
+                                    implicitHeight: artifactColumn.implicitHeight + 22
                                     radius: Theme.radius
-                                    color: Theme.surface
-                                    border.color: Theme.border
+                                    color: artifactAction.containsMouse && artifactDelegate.modelData.available
+                                           ? Theme.surfaceHover : Theme.surface
+                                    border.color: root.artifactPageKey === artifactDelegate.modelData.pageKey
+                                                  ? Theme.accent : Theme.border
+                                    opacity: artifactDelegate.modelData.available ? 1 : 0.58
+
+                                    Behavior on color { ColorAnimation { duration: Theme.fast } }
+                                    Behavior on border.color { ColorAnimation { duration: Theme.fast } }
+
                                     ColumnLayout {
-                                        id: artifactCol
+                                        id: artifactColumn
                                         anchors.fill: parent
-                                        anchors.margins: 12
+                                        anchors.margins: 11
                                         spacing: 6
                                         RowLayout {
                                             Layout.fillWidth: true
-                                            Icon { name: "file"; size: 13; color: Theme.textMuted }
-                                            Text { Layout.fillWidth: true; text: modelData.title; color: Theme.textPrimary; font.pixelSize: Theme.fontMd; font.bold: true }
-                                            Pill { text: modelData.kind; bg: Theme.surfaceMuted; fg: Theme.textMuted }
+                                            Icon {
+                                                name: root.artifactIcon(artifactDelegate.modelData.pageKey)
+                                                size: 14
+                                                color: artifactDelegate.modelData.available ? Theme.accent : Theme.textTertiary
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: artifactDelegate.modelData.title
+                                                color: artifactDelegate.modelData.available ? Theme.textPrimary : Theme.textMuted
+                                                font.pixelSize: Theme.fontMd
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+                                            Pill {
+                                                text: artifactDelegate.modelData.kind
+                                                bg: Theme.surfaceMuted
+                                                fg: Theme.textMuted
+                                            }
+                                            Icon {
+                                                visible: artifactDelegate.modelData.available
+                                                name: "chevronRight"
+                                                size: 11
+                                                color: Theme.textTertiary
+                                            }
                                         }
-                                        Text { Layout.fillWidth: true; text: modelData.detail; color: Theme.textMuted; font.pixelSize: Theme.fontSm; wrapMode: Text.WordWrap }
-                                        RowLayout {
-                                            spacing: 5
-                                            Icon { name: "checkSmall"; size: 12; color: Theme.success }
-                                            Text { text: "审计助手自动参考"; color: Theme.success; font.pixelSize: Theme.fontSm; font.bold: true }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: artifactDelegate.modelData.detail
+                                            color: Theme.textMuted
+                                            font.pixelSize: Theme.fontSm
+                                            wrapMode: Text.WordWrap
                                         }
+                                    }
+                                    ActionArea {
+                                        id: artifactAction
+                                        anchors.fill: parent
+                                        enabled: artifactDelegate.modelData.available
+                                        accessibleName: artifactDelegate.modelData.available
+                                                        ? "打开" + artifactDelegate.modelData.title
+                                                        : artifactDelegate.modelData.title + "，完成审计后可用"
+                                        onClicked: root.openArtifact(artifactDelegate.modelData.pageKey,
+                                                                     artifactDelegate.modelData.available)
                                     }
                                 }
                             }
+                            Text {
+                                Layout.leftMargin: 14
+                                Layout.rightMargin: 14
+                                Layout.fillWidth: true
+                                text: "快捷键 Ctrl+Shift+A 可随时打开产物面板。"
+                                color: Theme.textTertiary
+                                font.pixelSize: Theme.fontXs
+                                wrapMode: Text.WordWrap
+                            }
+                            Item { Layout.preferredHeight: 8 }
                         }
                     }
 
@@ -774,30 +1087,38 @@ ApplicationWindow {
         }
     }
 
-    DropArea {
-        anchors.fill: parent
-        onDropped: function(drop) {
-            if (drop.urls.length > 0) compiler.selectProject(drop.urls[0])
-        }
-    }
-
     Rectangle {
+        id: settingsLayer
         anchors.fill: parent
         color: "#00000000"
-        visible: root.settingsOpen
+        enabled: root.settingsOpen
+        visible: opacity > 0
+        opacity: root.settingsOpen ? 1 : 0
         z: 20
+
+        Behavior on opacity { NumberAnimation { duration: Theme.normal } }
+
         Rectangle {
             anchors.fill: parent
             color: "#000000"
-            opacity: root.settingsOpen ? 0.22 : 0
-            MouseArea { anchors.fill: parent; onClicked: root.settingsOpen = false }
+            opacity: 0.22
+            ActionArea {
+                anchors.fill: parent
+                accessibleName: "关闭设置"
+                onClicked: root.settingsOpen = false
+            }
         }
         Rectangle {
+            id: settingsDrawer
             width: Math.min(520, parent.width - 80)
             height: parent.height
-            anchors.right: parent.right
+            x: root.settingsOpen ? parent.width - width : parent.width
             color: Theme.surface
             border.color: Theme.border
+
+            Behavior on x {
+                NumberAnimation { duration: Theme.normal; easing.type: Easing.OutCubic }
+            }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -807,10 +1128,17 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Text { Layout.fillWidth: true; text: "设置"; color: Theme.textPrimary; font.pixelSize: Theme.fontTitle; font.bold: true }
                     Rectangle {
-                        width: 32; height: 32; radius: Theme.radiusSm
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        radius: Theme.radiusSm
                         color: closeSettingsMouse.containsMouse ? Theme.surfaceMuted : "transparent"
                         Icon { anchors.centerIn: parent; name: "close"; size: 15; color: Theme.textMuted }
-                        MouseArea { id: closeSettingsMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.settingsOpen = false }
+                        ActionArea {
+                            id: closeSettingsMouse
+                            anchors.fill: parent
+                            accessibleName: "关闭设置"
+                            onClicked: root.settingsOpen = false
+                        }
                     }
                 }
 
@@ -858,6 +1186,7 @@ ApplicationWindow {
                         anchors.margins: 9
                         spacing: 8
                         CheckBox {
+                            Accessible.name: "允许联网并调用大模型"
                             checked: compiler.llmApproved
                             onToggled: compiler.llmApproved = checked
                         }
@@ -881,13 +1210,20 @@ ApplicationWindow {
                             { key: "dark", label: "深色" }
                         ]
                         delegate: Rectangle {
+                            id: appearanceDelegate
+                            required property var modelData
+
                             Layout.fillWidth: true
                             Layout.preferredHeight: 38
                             radius: 12
-                            color: Theme.appearance === modelData.key ? Theme.accentSoft : Theme.surfaceMuted
-                            border.color: Theme.appearance === modelData.key ? Theme.accent : Theme.border
-                            Text { anchors.centerIn: parent; text: modelData.label; color: Theme.appearance === modelData.key ? Theme.accent : Theme.textMuted; font.pixelSize: Theme.fontMd; font.bold: true }
-                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.appearance = modelData.key }
+                            color: Theme.appearance === appearanceDelegate.modelData.key ? Theme.accentSoft : Theme.surfaceMuted
+                            border.color: Theme.appearance === appearanceDelegate.modelData.key ? Theme.accent : Theme.border
+                            Text { anchors.centerIn: parent; text: appearanceDelegate.modelData.label; color: Theme.appearance === appearanceDelegate.modelData.key ? Theme.accent : Theme.textMuted; font.pixelSize: Theme.fontMd; font.bold: true }
+                            ActionArea {
+                                anchors.fill: parent
+                                accessibleName: "切换为" + appearanceDelegate.modelData.label
+                                onClicked: Theme.appearance = appearanceDelegate.modelData.key
+                            }
                         }
                     }
                 }
@@ -901,18 +1237,25 @@ ApplicationWindow {
                     Repeater {
                         model: root.colorChoices
                         delegate: Rectangle {
+                            id: colorDelegate
+                            required property var modelData
+
                             Layout.fillWidth: true
                             Layout.preferredHeight: 72
                             radius: 14
-                            color: Theme.colorTheme === modelData.key ? Theme.accentSoft : Theme.surfaceMuted
-                            border.color: Theme.colorTheme === modelData.key ? Theme.accent : Theme.border
+                            color: Theme.colorTheme === colorDelegate.modelData.key ? Theme.accentSoft : Theme.surfaceMuted
+                            border.color: Theme.colorTheme === colorDelegate.modelData.key ? Theme.accent : Theme.border
                             Column {
                                 anchors.centerIn: parent
                                 spacing: 7
-                                Rectangle { anchors.horizontalCenter: parent.horizontalCenter; width: 24; height: 24; radius: 12; color: modelData.color }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.label; color: Theme.textPrimary; font.pixelSize: Theme.fontSm; font.bold: true }
+                                Rectangle { anchors.horizontalCenter: parent.horizontalCenter; width: 24; height: 24; radius: 12; color: colorDelegate.modelData.color }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: colorDelegate.modelData.label; color: Theme.textPrimary; font.pixelSize: Theme.fontSm; font.bold: true }
                             }
-                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.colorTheme = modelData.key }
+                            ActionArea {
+                                anchors.fill: parent
+                                accessibleName: "选择强调色 " + colorDelegate.modelData.label
+                                onClicked: Theme.colorTheme = colorDelegate.modelData.key
+                            }
                         }
                     }
                 }
@@ -926,11 +1269,14 @@ ApplicationWindow {
                     Repeater {
                         model: root.backgroundChoices
                         delegate: Rectangle {
+                            id: backgroundDelegate
+                            required property var modelData
+
                             Layout.fillWidth: true
                             Layout.preferredHeight: 78
                             radius: 14
-                            color: Theme.backgroundTheme === modelData.key ? Theme.accentSoft : Theme.surfaceMuted
-                            border.color: Theme.backgroundTheme === modelData.key ? Theme.accent : Theme.border
+                            color: Theme.backgroundTheme === backgroundDelegate.modelData.key ? Theme.accentSoft : Theme.surfaceMuted
+                            border.color: Theme.backgroundTheme === backgroundDelegate.modelData.key ? Theme.accent : Theme.border
                             Column {
                                 anchors.centerIn: parent
                                 spacing: 8
@@ -939,14 +1285,18 @@ ApplicationWindow {
                                     width: 72
                                     height: 30
                                     radius: 8
-                                    color: modelData.color
+                                    color: backgroundDelegate.modelData.color
                                     border.color: Theme.border
-                                    Rectangle { anchors.left: parent.left; width: 20; height: parent.height; radius: 8; color: Theme.backgroundTheme === "vscode" && modelData.key === "vscode" ? "#252526" : Qt.rgba(0, 0, 0, 0.06) }
+                                    Rectangle { anchors.left: parent.left; width: 20; height: parent.height; radius: 8; color: Theme.backgroundTheme === "vscode" && backgroundDelegate.modelData.key === "vscode" ? "#252526" : Qt.rgba(0, 0, 0, 0.06) }
                                     Rectangle { anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 5; width: 12; height: 12; radius: 4; color: Theme.accent }
                                 }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.label; color: Theme.textPrimary; font.pixelSize: Theme.fontSm; font.bold: true }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: backgroundDelegate.modelData.label; color: Theme.textPrimary; font.pixelSize: Theme.fontSm; font.bold: true }
                             }
-                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.backgroundTheme = modelData.key }
+                            ActionArea {
+                                anchors.fill: parent
+                                accessibleName: "选择背景 " + backgroundDelegate.modelData.label
+                                onClicked: Theme.backgroundTheme = backgroundDelegate.modelData.key
+                            }
                         }
                     }
                 }
@@ -956,17 +1306,29 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     spacing: 8
                     Rectangle {
-                        width: 34; height: 34; radius: 10
+                        Layout.preferredWidth: 34
+                        Layout.preferredHeight: 34
+                        radius: 10
                         color: Theme.surfaceMuted
                         Text { anchors.centerIn: parent; text: "−"; color: Theme.textPrimary; font.pixelSize: 18; font.bold: true }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.uiFontSize = Math.max(10, Theme.uiFontSize - 1) }
+                        ActionArea {
+                            anchors.fill: parent
+                            accessibleName: "减小界面字体"
+                            onClicked: Theme.uiFontSize = Math.max(12, Theme.uiFontSize - 1)
+                        }
                     }
                     Text { text: Theme.uiFontSize + "px"; color: Theme.textPrimary; font.pixelSize: Theme.fontMd; font.bold: true; horizontalAlignment: Text.AlignHCenter; Layout.preferredWidth: 54 }
                     Rectangle {
-                        width: 34; height: 34; radius: 10
+                        Layout.preferredWidth: 34
+                        Layout.preferredHeight: 34
+                        radius: 10
                         color: Theme.surfaceMuted
                         Text { anchors.centerIn: parent; text: "+"; color: Theme.textPrimary; font.pixelSize: 18; font.bold: true }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.uiFontSize = Math.min(36, Theme.uiFontSize + 1) }
+                        ActionArea {
+                            anchors.fill: parent
+                            accessibleName: "增大界面字体"
+                            onClicked: Theme.uiFontSize = Math.min(24, Theme.uiFontSize + 1)
+                        }
                     }
                 }
                 ComboBox {
@@ -985,14 +1347,17 @@ ApplicationWindow {
                     Repeater {
                         model: root.accessModeChoices
                         delegate: Rectangle {
+                            id: accessDelegate
+                            required property var modelData
+
                             Layout.fillWidth: true
                             Layout.preferredHeight: 74
                             radius: 14
-                            color: compiler.accessMode === modelData.key
-                                   ? (modelData.key === "bypass" ? Theme.warningSoft : Theme.accentSoft)
+                            color: compiler.accessMode === accessDelegate.modelData.key
+                                   ? (accessDelegate.modelData.key === "bypass" ? Theme.warningSoft : Theme.accentSoft)
                                    : Theme.surfaceMuted
-                            border.color: compiler.accessMode === modelData.key
-                                          ? (modelData.key === "bypass" ? Theme.warning : Theme.accent)
+                            border.color: compiler.accessMode === accessDelegate.modelData.key
+                                          ? (accessDelegate.modelData.key === "bypass" ? Theme.warning : Theme.accent)
                                           : Theme.border
                             ColumnLayout {
                                 anchors.fill: parent
@@ -1000,25 +1365,25 @@ ApplicationWindow {
                                 spacing: 3
                                 Text {
                                     Layout.fillWidth: true
-                                    text: modelData.label
-                                    color: compiler.accessMode === modelData.key
-                                           ? (modelData.key === "bypass" ? Theme.warning : Theme.accent)
+                                    text: accessDelegate.modelData.label
+                                    color: compiler.accessMode === accessDelegate.modelData.key
+                                           ? (accessDelegate.modelData.key === "bypass" ? Theme.warning : Theme.accent)
                                            : Theme.textPrimary
                                     font.pixelSize: Theme.fontMd
                                     font.bold: true
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: modelData.hint
+                                    text: accessDelegate.modelData.hint
                                     color: Theme.textMuted
                                     font.pixelSize: Theme.fontXs
                                     wrapMode: Text.WordWrap
                                 }
                             }
-                            MouseArea {
+                            ActionArea {
                                 anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: compiler.accessMode = modelData.key
+                                accessibleName: "切换权限模式到 " + accessDelegate.modelData.label
+                                onClicked: compiler.accessMode = accessDelegate.modelData.key
                             }
                         }
                     }
@@ -1027,10 +1392,13 @@ ApplicationWindow {
                 Repeater {
                     model: compiler.permissionCards
                     delegate: Rectangle {
+                        id: permissionDelegate
+                        required property var modelData
+
                         Layout.fillWidth: true
                         implicitHeight: permCol.implicitHeight + 18
                         radius: 12
-                        color: modelData.allowed ? Theme.successSoft : Theme.dangerSoft
+                        color: permissionDelegate.modelData.allowed ? Theme.successSoft : Theme.dangerSoft
                         border.color: Theme.border
                         ColumnLayout {
                             id: permCol
@@ -1039,10 +1407,10 @@ ApplicationWindow {
                             spacing: 4
                             RowLayout {
                                 Layout.fillWidth: true
-                                Text { Layout.fillWidth: true; text: modelData.name; color: Theme.textPrimary; font.pixelSize: Theme.fontMd; font.bold: true }
-                                Text { text: modelData.status; color: modelData.allowed ? Theme.success : Theme.danger; font.pixelSize: Theme.fontSm; font.bold: true }
+                                Text { Layout.fillWidth: true; text: permissionDelegate.modelData.name; color: Theme.textPrimary; font.pixelSize: Theme.fontMd; font.bold: true }
+                                Text { text: permissionDelegate.modelData.status; color: permissionDelegate.modelData.allowed ? Theme.success : Theme.danger; font.pixelSize: Theme.fontSm; font.bold: true }
                             }
-                            Text { Layout.fillWidth: true; text: modelData.detail; color: Theme.textMuted; font.pixelSize: Theme.fontSm; wrapMode: Text.WordWrap }
+                            Text { Layout.fillWidth: true; text: permissionDelegate.modelData.detail; color: Theme.textMuted; font.pixelSize: Theme.fontSm; wrapMode: Text.WordWrap }
                         }
                     }
                 }

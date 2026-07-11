@@ -21,6 +21,14 @@ class DiffVerifier {
      */
     [[nodiscard]] Result<AuditDiff> diffFiles(const std::filesystem::path& oldAudit,
                                               const std::filesystem::path& newAudit) const;
+
+    /** @brief 比较两个内存中的审计结果，供修复工作区二次审计使用。 */
+    [[nodiscard]] Result<AuditDiff> diffResults(const AuditResult& oldAudit,
+                                                const AuditResult& newAudit) const;
+
+    /** @brief 比较两个已解析且符合审计报告 schema 的 JSON 对象。 */
+    [[nodiscard]] Result<AuditDiff> diffJson(const JsonValue& oldAudit,
+                                             const JsonValue& newAudit) const;
 };
 
 } // namespace cc

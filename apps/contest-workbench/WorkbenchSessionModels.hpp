@@ -12,6 +12,7 @@
 #include <QVariantMap>
 
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace workbench {
@@ -24,26 +25,35 @@ namespace workbench {
  * 取值：user / plan / tool / assistant / system / artifact。缺省时由 role 推断。
  */
 struct SessionMessage {
+    SessionMessage() = default;
+    SessionMessage(QString roleValue, QString textValue, QString contextValue = {},
+                   QString kindValue = {}, QString detailValue = {}, bool okValue = true,
+                   QString targetValue = {})
+        : role{std::move(roleValue)}, text{std::move(textValue)},
+          context{std::move(contextValue)}, kind{std::move(kindValue)},
+          detail{std::move(detailValue)}, target{std::move(targetValue)}, ok{okValue} {}
+
     QString role;
     QString text;
     QString context;
     QString kind;
     QString detail;
+    QString target;
     bool ok{true};
 };
 
-[[nodiscard]] QVariantMap projectContext(const std::optional<cc::AuditResult>& result,
+[[nodiscard]] QVariantMap projectContext(const cc::AuditResult* result,
                                          const QString& normalizedProjectPath);
-[[nodiscard]] QVariantList sessionHistory(const std::optional<cc::AuditResult>& result,
+[[nodiscard]] QVariantList sessionHistory(const cc::AuditResult* result,
                                           const std::vector<SessionMessage>& conversation,
                                           const QString& normalizedProjectPath);
-[[nodiscard]] QVariantList toolCards(const std::optional<cc::AuditResult>& result,
+[[nodiscard]] QVariantList toolCards(const cc::AuditResult* result,
                                      const std::optional<cc::AuditDiff>& auditDiff,
                                      bool agentRunning, int activeStep, int completedSteps);
 [[nodiscard]] QVariantList permissionCards(bool llmApproved, const QString& accessMode);
-[[nodiscard]] QVariantList artifacts(const std::optional<cc::AuditResult>& result,
+[[nodiscard]] QVariantList artifacts(const cc::AuditResult* result,
                                      const std::optional<cc::AuditDiff>& auditDiff,
                                      const QString& agentResult);
-[[nodiscard]] QString agentSummary(const std::optional<cc::AuditResult>& result);
+[[nodiscard]] QString agentSummary(const cc::AuditResult* result);
 
 } // namespace workbench

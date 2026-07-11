@@ -7,6 +7,10 @@
 
 #include "cc/core/ProjectModels.hpp"
 #include "cc/core/Result.hpp"
+#include "cc/loader/ImportLimits.hpp"
+
+#include <span>
+#include <string>
 
 namespace cc {
 
@@ -16,6 +20,37 @@ namespace cc {
 struct ArchiveImportRequest {
     std::filesystem::path archivePath;
     std::filesystem::path workspaceRoot;
+    ImportLimits limits{};
+};
+
+enum class ArchiveFormat {
+    Unknown,
+    Zip,
+    Gzip,
+    SevenZip,
+    Xz,
+    Bzip2,
+    Zstd,
+    Rar,
+    Tar,
+    Cpio,
+    Ar,
+    Cab,
+    Lz4,
+};
+
+enum class ArchiveReaderKind {
+    None,
+    NativeZip,
+    LibArchive,
+    MetadataOnly,
+};
+
+struct ArchiveProbe {
+    bool archive{false};
+    bool signatureMatched{false};
+    ArchiveFormat format{ArchiveFormat::Unknown};
+    ArchiveReaderKind reader{ArchiveReaderKind::None};
 };
 
 class ArchiveExtractor {
@@ -27,6 +62,18 @@ class ArchiveExtractor {
      * @return 成功时返回 ProjectContext；失败时返回路径穿越、嵌套压缩包或解包错误。
      */
     [[nodiscard]] Result<ProjectContext> extract(const ArchiveImportRequest& request) const;
+
+    /**
+     * @brief 在固定 512 字节预算内识别归档签名并结合已知扩展名给出安全路由。
+     */
+    [[nodiscard]] static Result<ArchiveProbe> probe(const std::filesystem::path& path);
+
+    /**
+     * @brief 只检查已在内存中的有界文件头，不使用路径扩展名。
+     */
+    [[nodiscard]] static ArchiveProbe probeHeader(std::span<const unsigned char> header);
+
+    [[nodiscard]] static std::string formatName(ArchiveFormat format);
     /**
      * @brief 判断路径是否属于压缩包类型。
      *

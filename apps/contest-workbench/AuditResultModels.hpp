@@ -16,6 +16,7 @@ namespace workbench {
 [[nodiscard]] int blockerCount(const cc::AuditResult& result);
 [[nodiscard]] int warningCount(const cc::AuditResult& result);
 [[nodiscard]] QString summary(const cc::AuditResult& result);
+[[nodiscard]] QString riskFlags(const std::vector<std::string>& values);
 [[nodiscard]] QVariantList assets(const cc::AuditResult& result);
 [[nodiscard]] QVariantList roleDistribution(const cc::AuditResult& result);
 [[nodiscard]] QVariantMap cpir(const cc::AuditResult& result);

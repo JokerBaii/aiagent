@@ -18,6 +18,7 @@ struct Endpoint {
     std::string host;
     std::string port;
     std::string target;
+    std::string hostHeader;
 };
 
 /**

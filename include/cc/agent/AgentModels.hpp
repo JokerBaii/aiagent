@@ -9,6 +9,7 @@
 #include "cc/core/JsonValue.hpp"
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -112,18 +113,22 @@ struct AgentEvent {
  */
 struct AgentRunRequest {
     std::string userGoal;
+    std::string projectInstructions;
     std::filesystem::path projectRoot;
     std::filesystem::path workspaceRoot;
     AuditOptions auditOptions;
     std::vector<AgentConversationMessage> conversationHistory;
     std::string permissionMode{"ask"};
     bool requireAudit{false};
+    bool allowWriteWorkspace{false};
     bool allowReadExternal{false};
     bool allowModifyOriginal{false};
     bool allowExecuteCommand{false};
     bool allowNetwork{false};
     bool allowLlm{false};
+    std::function<bool()> isCancelled;
     const AuditResult* auditResult{nullptr};
+    const AuditResult* baselineAuditResult{nullptr};
 };
 
 /**
@@ -136,6 +141,7 @@ struct AgentRunResult {
     std::string finalAnswer;
     JsonValue trace;
     std::optional<AuditResult> auditResult;
+    std::optional<AuditDiff> auditDiff;
 };
 
 /**
@@ -146,6 +152,7 @@ struct AgentRunResult {
 struct AgentToolExecution {
     std::vector<AgentObservation> observations;
     std::optional<AuditResult> auditResult;
+    std::optional<AuditDiff> auditDiff;
 };
 
 /** @brief 将回合事件类型转为稳定字符串。 */

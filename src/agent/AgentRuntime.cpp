@@ -8,47 +8,219 @@
 #include "cc/agent/PermissionGate.hpp"
 #include "cc/agent/StagedAuditPipeline.hpp"
 #include "cc/agent/ToolRegistry.hpp"
+#include "cc/agent/WorkspaceEditor.hpp"
+#include "cc/audit/DiffVerifier.hpp"
 #include "cc/inventory/FormatDetector.hpp"
 #include "cc/loader/ArchiveExtractor.hpp"
 #include "cc/loader/LibArchiveReader.hpp"
 #include "cc/loader/PathGuard.hpp"
 #include "cc/loader/ZipArchiveReader.hpp"
+#include "cc/report/JsonReporter.hpp"
 #include "cc/util/FileUtil.hpp"
 #include "cc/util/StringUtil.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <sstream>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
 namespace cc {
 namespace {
 
+[[nodiscard]] bool requestCancelled(const AgentRunRequest& request) {
+    return request.isCancelled && request.isCancelled();
+}
+
 constexpr std::size_t kDefaultReadLimit = 12000U;
+constexpr std::size_t kMaximumReadLimit = 64U * 1024U;
 constexpr std::size_t kPreviewLimit = 1200U;
 constexpr std::size_t kSearchReadLimit = 256000U;
+constexpr std::size_t kMaximumListFiles = 200U;
+constexpr std::size_t kMaximumArchiveEntries = 200U;
+constexpr std::size_t kMaximumSearchFiles = 200U;
+constexpr std::size_t kMaximumSearchMatches = 100U;
+constexpr std::size_t kMaximumTraversalEntries = 10000U;
+constexpr std::size_t kSensitiveSampleLimit = 32U * 1024U;
 
 [[nodiscard]] std::string pathText(const std::filesystem::path& path) {
     return path.generic_string();
 }
 
+[[nodiscard]] std::size_t utf8PrefixLength(std::string_view value, std::size_t limit) {
+    auto length = std::min(value.size(), limit);
+    while (length > 0U && length < value.size() &&
+           (static_cast<unsigned char>(value[length]) & 0xC0U) == 0x80U) {
+        --length;
+    }
+    return length;
+}
+
+[[nodiscard]] std::string sanitizeUtf8(std::string_view value) {
+    std::string clean;
+    clean.reserve(value.size());
+    for (std::size_t index = 0U; index < value.size();) {
+        const auto lead = static_cast<unsigned char>(value[index]);
+        std::size_t width = 0U;
+        if (lead <= 0x7FU) {
+            width = 1U;
+        } else if (lead >= 0xC2U && lead <= 0xDFU) {
+            width = 2U;
+        } else if (lead >= 0xE0U && lead <= 0xEFU) {
+            width = 3U;
+        } else if (lead >= 0xF0U && lead <= 0xF4U) {
+            width = 4U;
+        }
+        bool valid = width != 0U && index + width <= value.size();
+        for (std::size_t offset = 1U; valid && offset < width; ++offset) {
+            const auto continuation = static_cast<unsigned char>(value[index + offset]);
+            valid = (continuation & 0xC0U) == 0x80U;
+        }
+        if (valid && width == 3U) {
+            const auto second = static_cast<unsigned char>(value[index + 1U]);
+            valid = !((lead == 0xE0U && second < 0xA0U) ||
+                      (lead == 0xEDU && second >= 0xA0U));
+        }
+        if (valid && width == 4U) {
+            const auto second = static_cast<unsigned char>(value[index + 1U]);
+            valid = !((lead == 0xF0U && second < 0x90U) ||
+                      (lead == 0xF4U && second >= 0x90U));
+        }
+        if (!valid) {
+            clean.push_back('?');
+            ++index;
+            continue;
+        }
+        clean.append(value.substr(index, width));
+        index += width;
+    }
+    return clean;
+}
+
 [[nodiscard]] std::string truncateText(const std::string& value, std::size_t limit) {
     if (value.size() <= limit) {
-        return value;
+        return sanitizeUtf8(value);
     }
-    return value.substr(0U, limit) + "\n...[已截断]";
+    return sanitizeUtf8(value.substr(0U, utf8PrefixLength(value, limit))) + "\n...[已截断]";
 }
 
 [[nodiscard]] std::string extensionLower(const std::filesystem::path& path) {
     return util::lowerAscii(path.extension().generic_string());
 }
 
-[[nodiscard]] bool isReadableTextLike(const std::filesystem::path& path) {
+[[nodiscard]] bool hasTextLikeExtension(const std::filesystem::path& path) {
     const auto ext = extensionLower(path);
     return ext.empty() || isLikelyTextExtension(ext) || isCodeExtension(ext);
+}
+
+[[nodiscard]] bool sampleLooksBinary(const std::filesystem::path& path) {
+    const auto sample = util::readFileLimited(path, 8192U);
+    if (sample.empty()) {
+        return false;
+    }
+    std::size_t suspicious = 0U;
+    for (const auto byte : sample) {
+        const auto value = static_cast<unsigned char>(byte);
+        if (value == 0U) {
+            return true;
+        }
+        if (value < 0x09U || (value > 0x0DU && value < 0x20U)) {
+            ++suspicious;
+        }
+    }
+    return suspicious * 20U > sample.size();
+}
+
+[[nodiscard]] bool isReadableTextLike(const std::filesystem::path& path) {
+    std::error_code ec;
+    if (!hasTextLikeExtension(path) || !std::filesystem::is_regular_file(path, ec)) {
+        return false;
+    }
+    return !sampleLooksBinary(path);
+}
+
+[[nodiscard]] bool hasSensitivePathComponent(const std::filesystem::path& path) {
+    for (const auto& component : path) {
+        const auto name = util::lowerAscii(component.generic_string());
+        const std::filesystem::path componentPath{name};
+        const auto extension = componentPath.extension().generic_string();
+        if (name.rfind(".env", 0U) == 0U || name == ".npmrc" || name == ".pypirc" ||
+            name == ".netrc" || name == "id_rsa" || name == "id_ed25519" ||
+            name == "credentials" || name == "credentials.json" ||
+            name == "service-account.json" || extension == ".pem" || extension == ".key" ||
+            extension == ".p12" || extension == ".pfx" ||
+            util::contains(name, "credential") || util::contains(name, "private-key") ||
+            util::contains(name, "private_key") || util::contains(name, "secret") ||
+            util::contains(name, "access-token") || util::contains(name, "access_token")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool textContainsSecretMarker(std::string sample) {
+    sample = util::lowerAscii(std::move(sample));
+    static constexpr std::string_view markers[] = {
+        "-----begin private key", "-----begin rsa private key", "-----begin openssh private key",
+        "client_secret",         "api_key=",                    "api-key:",
+        "apikey=",               "access_token",                "refresh_token",
+        "authorization: bearer", "aws_secret_access_key",       "password=",
+        "\"password\":",       "\"secret\":"};
+    return std::any_of(std::begin(markers), std::end(markers), [&](std::string_view marker) {
+        return sample.find(marker) != std::string::npos;
+    });
+}
+
+[[nodiscard]] bool contentLooksSensitive(const std::filesystem::path& path) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) {
+        return false;
+    }
+    return textContainsSecretMarker(util::readFileLimited(path, kSensitiveSampleLimit));
+}
+
+[[nodiscard]] bool isSensitiveFile(const std::filesystem::path& path) {
+    return hasSensitivePathComponent(path) || contentLooksSensitive(path);
+}
+
+[[nodiscard]] std::string projectRootLabel() {
+    return "project://";
+}
+
+[[nodiscard]] std::string workspacePathLabel(const std::filesystem::path& relative) {
+    return "workspace://" + relative.generic_string();
+}
+
+[[nodiscard]] std::string projectPathLabel(const std::filesystem::path& relative) {
+    return "project://" + relative.generic_string();
+}
+
+[[nodiscard]] std::size_t boundedInteger(const JsonValue& input, const std::string& key,
+                                         std::size_t fallback, std::size_t maximum) {
+    const auto& value = input.at(key);
+    if (!value.isNumber()) {
+        return fallback;
+    }
+    const auto number = value.asNumber();
+    if (!std::isfinite(number) || number < 1.0) {
+        return fallback;
+    }
+    const auto bounded = std::min(number, static_cast<double>(maximum));
+    return static_cast<std::size_t>(bounded);
+}
+
+[[nodiscard]] AgentObservation rejectedObservation(const AgentToolCall& callItem,
+                                                   std::string summary) {
+    return AgentObservation{.callId = callItem.id,
+                            .toolName = callItem.name,
+                            .ok = false,
+                            .summary = std::move(summary),
+                            .output = JsonValue::Object{}};
 }
 
 [[nodiscard]] std::filesystem::path readableRoot(const AgentRunRequest& request) {
@@ -118,7 +290,28 @@ constexpr std::size_t kSearchReadLimit = 256000U;
     return "权限门控拒绝工具调用，需要权限: " + toString(permission);
 }
 
+[[nodiscard]] bool hasRiskFlag(const ProjectAsset& asset, std::string_view flag) {
+    return std::find(asset.riskFlags.begin(), asset.riskFlags.end(), flag) !=
+           asset.riskFlags.end();
+}
+
+[[nodiscard]] bool contentDeferred(const ProjectAsset& asset) {
+    return hasRiskFlag(asset, "CONTENT_DEFERRED");
+}
+
+[[nodiscard]] bool assetTextReadable(const ProjectAsset& asset) {
+    if (contentDeferred(asset) || !asset.auditable) {
+        return false;
+    }
+    return asset.mime.starts_with("text/") || !asset.language.empty();
+}
+
 [[nodiscard]] JsonValue assetJson(const ProjectAsset& asset) {
+    JsonValue::Array riskFlags;
+    riskFlags.reserve(asset.riskFlags.size());
+    for (const auto& flag : asset.riskFlags) {
+        riskFlags.emplace_back(flag);
+    }
     return JsonValue::Object{{"path", asset.relativePath.generic_string()},
                              {"name", asset.fileName},
                              {"extension", asset.extension},
@@ -126,8 +319,12 @@ constexpr std::size_t kSearchReadLimit = 256000U;
                              {"format", asset.format},
                              {"mime", asset.mime},
                              {"language", asset.language},
-                             {"text_readable", isReadableTextLike(asset.absolutePath)},
-                             {"auditable", asset.auditable}};
+                             {"role", toString(asset.role)},
+                             {"text_readable", assetTextReadable(asset)},
+                             {"auditable", asset.auditable},
+                             {"content_deferred", contentDeferred(asset)},
+                             {"on_demand_text_candidate", false},
+                             {"risk_flags", JsonValue{std::move(riskFlags)}}};
 }
 
 [[nodiscard]] ProjectAsset detectProjectAsset(const AgentRunRequest& request,
@@ -136,6 +333,140 @@ constexpr std::size_t kSearchReadLimit = 256000U;
     std::error_code ec;
     const auto base = std::filesystem::is_regular_file(root, ec) ? root.parent_path() : root;
     return FormatDetector{}.detect(base.empty() ? root : base, file);
+}
+
+[[nodiscard]] std::filesystem::path requestedRelativePath(const AgentRunRequest& request,
+                                                          const JsonValue& input) {
+    const auto raw = input.at("path").asString();
+    std::error_code ec;
+    const auto root = readableRoot(request);
+    if (std::filesystem::is_regular_file(root, ec) &&
+        (raw.empty() || raw == "." || raw == "./" || raw == root.filename().generic_string())) {
+        return root.filename();
+    }
+    return std::filesystem::path{raw}.lexically_normal();
+}
+
+[[nodiscard]] const ProjectAsset* findAuditAsset(const AgentRunRequest& request,
+                                                 const JsonValue& input) {
+    if (request.auditResult == nullptr) {
+        return nullptr;
+    }
+    const auto relative = requestedRelativePath(request, input);
+    const auto found = std::find_if(
+        request.auditResult->inventory.assets.begin(), request.auditResult->inventory.assets.end(),
+        [&](const ProjectAsset& asset) {
+            return asset.relativePath.lexically_normal() == relative;
+        });
+    return found == request.auditResult->inventory.assets.end() ? nullptr : &(*found);
+}
+
+[[nodiscard]] bool manifestAssetSensitive(const ProjectAsset& asset) {
+    return asset.sensitive || hasSensitivePathComponent(asset.relativePath);
+}
+
+[[nodiscard]] bool hasSymlinkComponent(const std::filesystem::path& root,
+                                       const std::filesystem::path& relative) {
+    std::error_code ec;
+    auto current = root;
+    for (const auto& component : relative) {
+        current /= component;
+        if (std::filesystem::is_symlink(std::filesystem::symlink_status(current, ec))) {
+            return true;
+        }
+        if (ec) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] Result<std::filesystem::path>
+resolveDeferredOriginalFile(const AgentRunRequest& request, const ProjectAsset& asset) {
+    if (request.auditResult == nullptr || !contentDeferred(asset)) {
+        return Result<std::filesystem::path>::failure("该文件不属于延迟内容清单");
+    }
+    const auto& context = request.auditResult->context;
+    if (context.archiveInput) {
+        return Result<std::filesystem::path>::failure(
+            "该文件位于归档内部；未安全解压的内容不能绕过归档边界直接读取");
+    }
+    if (ArchiveExtractor::isArchivePath(context.originalRoot)) {
+        return Result<std::filesystem::path>::failure(
+            "归档容器不能作为普通延迟文件绕过归档安全策略直接读取");
+    }
+    std::error_code ec;
+    if (std::filesystem::is_regular_file(context.originalRoot, ec)) {
+        ec.clear();
+        if (std::filesystem::is_symlink(
+                std::filesystem::symlink_status(context.originalRoot, ec)) ||
+            ec) {
+            return Result<std::filesystem::path>::failure(
+                "用户所选单文件是符号链接，不能作为延迟内容读取");
+        }
+        if (asset.relativePath.lexically_normal() != context.originalRoot.filename()) {
+            return Result<std::filesystem::path>::failure(
+                "延迟清单项与用户所选单文件不一致");
+        }
+        auto normalized = PathGuard::normalize(context.originalRoot);
+        if (!normalized.ok()) {
+            return Result<std::filesystem::path>::failure(
+                "无法安全定位用户所选的延迟单文件");
+        }
+        return normalized;
+    }
+    ec.clear();
+    if (!std::filesystem::is_directory(context.originalRoot, ec)) {
+        return Result<std::filesystem::path>::failure("延迟文件没有可安全读取的原始来源");
+    }
+    const auto relative = asset.relativePath.lexically_normal();
+    if (!PathGuard::isSafeArchiveEntry(relative.generic_string())) {
+        return Result<std::filesystem::path>::failure("延迟文件路径未通过安全校验");
+    }
+    const auto target = context.originalRoot / relative;
+    if (!PathGuard::isInsideRoot(context.originalRoot, target) ||
+        hasSymlinkComponent(context.originalRoot, relative)) {
+        return Result<std::filesystem::path>::failure(
+            "延迟文件路径包含符号链接或越过用户所选目录");
+    }
+    if (!std::filesystem::is_regular_file(target, ec)) {
+        return Result<std::filesystem::path>::failure("延迟文件的原始来源已不存在或不是普通文件");
+    }
+    auto normalized = PathGuard::normalize(target);
+    if (!normalized.ok() || !PathGuard::isInsideRoot(context.originalRoot, normalized.value())) {
+        return Result<std::filesystem::path>::failure("无法安全定位延迟文件的原始来源");
+    }
+    return normalized;
+}
+
+[[nodiscard]] bool onDemandTextCandidate(const AgentRunRequest& request,
+                                         const ProjectAsset& asset) {
+    if (request.auditResult == nullptr || !contentDeferred(asset) ||
+        request.auditResult->context.archiveInput ||
+        ArchiveExtractor::isArchivePath(request.auditResult->context.originalRoot)) {
+        return false;
+    }
+    const auto source = resolveDeferredOriginalFile(request, asset);
+    return source.ok();
+}
+
+[[nodiscard]] JsonValue requestAssetJson(const AgentRunRequest& request,
+                                         const ProjectAsset& asset) {
+    auto value = assetJson(asset);
+    value.asObject().insert_or_assign("on_demand_text_candidate",
+                                      onDemandTextCandidate(request, asset));
+    return value;
+}
+
+[[nodiscard]] std::filesystem::path originalDetectionRoot(const ProjectContext& context) {
+    std::error_code ec;
+    return std::filesystem::is_regular_file(context.originalRoot, ec)
+               ? context.originalRoot.parent_path()
+               : context.originalRoot;
+}
+
+[[nodiscard]] bool confirmedTextAsset(const ProjectAsset& asset) {
+    return asset.auditable && (asset.mime.starts_with("text/") || !asset.language.empty());
 }
 
 [[nodiscard]] bool shouldSkipDirectory(const std::filesystem::path& path) {
@@ -336,6 +667,9 @@ finalAnswerFromObservations(const AgentRunRequest& request,
 [[nodiscard]] Result<AgentToolExecution>
 runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& callItem,
                          const AgentObservationObserver& observe) {
+    if (requestCancelled(request)) {
+        return Result<AgentToolExecution>::failure("智能体任务已取消");
+    }
     if (request.auditResult != nullptr) {
         return Result<AgentToolExecution>::success(AgentToolExecution{
             .observations = {AgentObservation{.callId = callItem.id,
@@ -364,6 +698,9 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
     std::vector<AgentObservation> observations;
     observations.reserve(StagedAuditPipeline::stages().size() + 1U);
     while (pipeline.hasNext()) {
+        if (requestCancelled(request)) {
+            return Result<AgentToolExecution>::failure("智能体任务已取消");
+        }
         auto observed = pipeline.advance();
         if (!observed.ok()) {
             return Result<AgentToolExecution>::failure(observed.error());
@@ -388,8 +725,8 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
         .output = JsonValue::Object{
             {"summary", summary},
             {"session_id", result.value().context.sessionId},
-            {"project_root", pathText(result.value().context.inputRoot)},
-            {"workspace_root", pathText(result.value().context.workspaceRoot)},
+            {"project_root", projectRootLabel()},
+            {"workspace_root", "workspace://"},
             {"score", result.value().trustScore.totalScore},
             {"trust_debt", result.value().trustScore.trustDebt},
             {"finding_count", static_cast<int>(result.value().findings.size())},
@@ -406,6 +743,49 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
 
 [[nodiscard]] Result<AgentObservation> runListProjectFiles(const AgentRunRequest& request,
                                                            const AgentToolCall& callItem) {
+    const auto maxFiles =
+        boundedInteger(callItem.input, "max_files", 80U, kMaximumListFiles);
+    if (request.auditResult != nullptr) {
+        JsonValue::Array files;
+        std::size_t omittedSensitive = 0U;
+        std::size_t visibleCount = 0U;
+        std::size_t deferredCount = 0U;
+        for (const auto& asset : request.auditResult->inventory.assets) {
+            if (manifestAssetSensitive(asset)) {
+                ++omittedSensitive;
+                continue;
+            }
+            ++visibleCount;
+            if (contentDeferred(asset)) {
+                ++deferredCount;
+            }
+            if (files.size() < maxFiles) {
+                files.push_back(requestAssetJson(request, asset));
+            }
+        }
+        const bool truncated = visibleCount > files.size();
+        return Result<AgentObservation>::success(AgentObservation{
+            .callId = callItem.id,
+            .toolName = callItem.name,
+            .ok = true,
+            .summary = "已从审计清单列出可安全暴露的项目文件 " +
+                       std::to_string(files.size()) + " 个" +
+                       (deferredCount == 0U
+                            ? std::string{}
+                            : "，其中清单保留 " + std::to_string(deferredCount) +
+                                  " 个仅元数据或按需读取的文件") +
+                       (omittedSensitive == 0U
+                            ? std::string{}
+                            : "；" + std::to_string(omittedSensitive) + " 个敏感文件已隐藏"),
+            .output = JsonValue::Object{
+                {"root", projectRootLabel()},
+                {"source", "audit_inventory"},
+                {"omitted_sensitive_count", static_cast<double>(omittedSensitive)},
+                {"deferred_count", static_cast<double>(deferredCount)},
+                {"truncated", truncated},
+                {"files", JsonValue{std::move(files)}}}});
+    }
+
     const auto root = readableRoot(request);
     std::error_code ec;
     if (root.empty() || !std::filesystem::exists(root, ec)) {
@@ -414,14 +794,19 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                              .toolName = callItem.name,
                              .ok = false,
                              .summary = "项目路径不存在或不可访问",
-                             .output = JsonValue::Object{{"root", pathText(root)}}});
+                             .output = JsonValue::Object{{"root", projectRootLabel()}}});
     }
 
-    const auto maxFiles =
-        static_cast<std::size_t>(std::max(1.0, callItem.input.at("max_files").asNumber(80.0)));
     JsonValue::Array files;
+    std::size_t omittedSensitive = 0U;
+    std::size_t visitedEntries = 0U;
+    bool traversalTruncated = false;
 
     if (std::filesystem::is_regular_file(root, ec)) {
+        if (isSensitiveFile(root)) {
+            return Result<AgentObservation>::success(rejectedObservation(
+                callItem, "该文件命中敏感信息策略，未向智能体暴露文件名、元数据或内容"));
+        }
         auto asset = detectProjectAsset(request, root);
         asset.relativePath = root.filename();
         files.push_back(assetJson(asset));
@@ -430,7 +815,9 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
             .toolName = callItem.name,
             .ok = true,
             .summary = "当前输入是单个项目文件，已读取文件元数据",
-            .output = JsonValue::Object{{"root", pathText(root)}, {"files", JsonValue{files}}}});
+            .output = JsonValue::Object{{"root", projectRootLabel()},
+                                        {"omitted_sensitive_count", 0},
+                                        {"files", JsonValue{files}}}});
     }
 
     if (!std::filesystem::is_directory(root, ec)) {
@@ -439,11 +826,12 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                              .toolName = callItem.name,
                              .ok = false,
                              .summary = "项目路径不是可枚举目录或普通文件",
-                             .output = JsonValue::Object{{"root", pathText(root)}}});
+                             .output = JsonValue::Object{{"root", projectRootLabel()}}});
     }
 
-    for (std::filesystem::recursive_directory_iterator iter(root, ec), end; iter != end && !ec;
-         iter.increment(ec)) {
+    for (std::filesystem::recursive_directory_iterator iter(root, ec), end;
+         iter != end && !ec && visitedEntries < kMaximumTraversalEntries; iter.increment(ec)) {
+        ++visitedEntries;
         if (iter->is_directory(ec) && shouldSkipDirectory(iter->path())) {
             iter.disable_recursion_pending();
             continue;
@@ -455,6 +843,13 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
         if (ec) {
             continue;
         }
+        if (!PathGuard::isInsideRoot(root, iter->path())) {
+            continue;
+        }
+        if (isSensitiveFile(iter->path())) {
+            ++omittedSensitive;
+            continue;
+        }
         auto asset = detectProjectAsset(request, iter->path());
         asset.relativePath = relative;
         files.push_back(assetJson(asset));
@@ -462,12 +857,21 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
             break;
         }
     }
+    traversalTruncated = visitedEntries >= kMaximumTraversalEntries;
     return Result<AgentObservation>::success(AgentObservation{
         .callId = callItem.id,
         .toolName = callItem.name,
         .ok = true,
-        .summary = "已枚举项目文件 " + std::to_string(files.size()) + " 个",
-        .output = JsonValue::Object{{"root", pathText(root)}, {"files", JsonValue{files}}}});
+        .summary = "已枚举可安全暴露的项目文件 " + std::to_string(files.size()) + " 个" +
+                   (omittedSensitive == 0U
+                        ? std::string{}
+                        : "，另有 " + std::to_string(omittedSensitive) +
+                              " 个敏感文件已隐藏"),
+        .output = JsonValue::Object{{"root", projectRootLabel()},
+                                    {"omitted_sensitive_count",
+                                     static_cast<double>(omittedSensitive)},
+                                    {"truncated", traversalTruncated || files.size() >= maxFiles},
+                                    {"files", JsonValue{files}}}});
 }
 
 [[nodiscard]] Result<AgentObservation> runInspectProjectFile(const AgentRunRequest& request,
@@ -480,17 +884,54 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                                                   .summary = path.error(),
                                                                   .output = JsonValue::Object{}});
     }
+    const auto* manifestAsset = findAuditAsset(request, callItem.input);
+    if (manifestAsset != nullptr && manifestAssetSensitive(*manifestAsset)) {
+        return Result<AgentObservation>::success(rejectedObservation(
+            callItem, "该文件命中敏感信息策略，未向智能体暴露文件名、元数据或内容"));
+    }
+    if (isSensitiveFile(path.value())) {
+        return Result<AgentObservation>::success(rejectedObservation(
+            callItem, "该文件命中敏感信息策略，未向智能体暴露文件名、元数据或内容"));
+    }
     std::error_code ec;
     if (!std::filesystem::is_regular_file(path.value(), ec)) {
+        if (manifestAsset != nullptr && contentDeferred(*manifestAsset)) {
+            bool canReadText = false;
+            auto source = resolveDeferredOriginalFile(request, *manifestAsset);
+            if (source.ok()) {
+                if (isSensitiveFile(source.value())) {
+                    return Result<AgentObservation>::success(rejectedObservation(
+                        callItem,
+                        "该文件命中敏感信息策略，未向智能体暴露文件名、元数据或内容"));
+                }
+                const auto detected = FormatDetector{}.detect(
+                    originalDetectionRoot(request.auditResult->context), source.value());
+                canReadText = confirmedTextAsset(detected);
+            }
+            return Result<AgentObservation>::success(AgentObservation{
+                .callId = callItem.id,
+                .toolName = callItem.name,
+                .ok = true,
+                .summary = "已从审计清单检查文件元数据；内容未载入项目工作副本",
+                .output = JsonValue::Object{
+                    {"path", manifestAsset->relativePath.generic_string()},
+                    {"asset", requestAssetJson(request, *manifestAsset)},
+                    {"content_deferred", true},
+                    {"on_demand_text_candidate",
+                     onDemandTextCandidate(request, *manifestAsset)},
+                    {"can_read_text", canReadText},
+                    {"can_inspect_archive", false},
+                    {"suggested_tool", canReadText ? "read_text_file" : "list_project_files"}}});
+        }
         return Result<AgentObservation>::success(
             AgentObservation{.callId = callItem.id,
                              .toolName = callItem.name,
                              .ok = false,
-                             .summary = "目标不是普通文件: " + pathText(path.value()),
+                             .summary = "目标不是项目内普通文件",
                              .output = JsonValue::Object{}});
     }
     const auto asset = detectProjectAsset(request, path.value());
-    const bool canReadText = isReadableTextLike(path.value());
+    const bool canReadText = confirmedTextAsset(asset);
     const bool canInspectArchive = ArchiveExtractor::isArchivePath(path.value());
     const auto suggested = canReadText         ? "read_text_file"
                            : canInspectArchive ? "inspect_archive"
@@ -502,6 +943,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                          .summary = "已检查文件格式: " + pathText(asset.relativePath),
                          .output = JsonValue::Object{{"path", pathText(asset.relativePath)},
                                                      {"asset", assetJson(asset)},
+                                                     {"content_deferred", false},
                                                      {"can_read_text", canReadText},
                                                      {"can_inspect_archive", canInspectArchive},
                                                      {"suggested_tool", suggested}}});
@@ -517,26 +959,128 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                                                   .summary = path.error(),
                                                                   .output = JsonValue::Object{}});
     }
-    const auto asset = detectProjectAsset(request, path.value());
-    if (!isReadableTextLike(path.value())) {
+    const auto* manifestAsset = findAuditAsset(request, callItem.input);
+    if (manifestAsset != nullptr && manifestAssetSensitive(*manifestAsset)) {
+        return Result<AgentObservation>::success(rejectedObservation(
+            callItem, "该文件命中敏感信息策略，已拒绝读取且不会把内容发送给模型"));
+    }
+    if (isSensitiveFile(path.value())) {
+        return Result<AgentObservation>::success(rejectedObservation(
+            callItem, "该文件命中敏感信息策略，已拒绝读取且不会把内容发送给模型"));
+    }
+    const auto limit =
+        boundedInteger(callItem.input, "max_bytes", kDefaultReadLimit, kMaximumReadLimit);
+    std::error_code ec;
+    if (std::filesystem::is_regular_file(path.value(), ec)) {
+        const auto asset = detectProjectAsset(request, path.value());
+        if (!confirmedTextAsset(asset)) {
+            return Result<AgentObservation>::success(
+                AgentObservation{.callId = callItem.id,
+                                 .toolName = callItem.name,
+                                 .ok = false,
+                                 .summary = "该文件不是可安全读取的文本或代码格式",
+                                 .output = JsonValue::Object{{"asset", assetJson(asset)},
+                                                             {"content_deferred", false}}});
+        }
+        const auto content = truncateText(util::readFileLimited(path.value(), limit), limit);
+        const auto sizeBytes = std::filesystem::file_size(path.value(), ec);
+        const bool truncated = !ec && sizeBytes > limit;
+        return Result<AgentObservation>::success(AgentObservation{
+            .callId = callItem.id,
+            .toolName = callItem.name,
+            .ok = true,
+            .summary = "已读取文本/代码文件: " + callItem.input.at("path").asString(),
+            .output = JsonValue::Object{{"path", callItem.input.at("path").asString()},
+                                        {"asset", assetJson(asset)},
+                                        {"content_deferred", false},
+                                        {"truncated", truncated},
+                                        {"content", content}}});
+    }
+
+    if (manifestAsset == nullptr || !contentDeferred(*manifestAsset)) {
         return Result<AgentObservation>::success(
             AgentObservation{.callId = callItem.id,
                              .toolName = callItem.name,
                              .ok = false,
-                             .summary = "该文件不是安全文本/代码格式: " + pathText(path.value()),
-                             .output = JsonValue::Object{{"asset", assetJson(asset)}}});
+                             .summary = "目标不是项目内普通文件，审计清单中也没有可按需读取的内容",
+                             .output = JsonValue::Object{}});
     }
-    const auto limit = static_cast<std::size_t>(
-        std::max(1.0, callItem.input.at("max_bytes").asNumber(kDefaultReadLimit)));
-    const auto content = util::readFileLimited(path.value(), limit);
-    return Result<AgentObservation>::success(
-        AgentObservation{.callId = callItem.id,
-                         .toolName = callItem.name,
-                         .ok = true,
-                         .summary = "已读取文本/代码文件: " + callItem.input.at("path").asString(),
-                         .output = JsonValue::Object{{"path", callItem.input.at("path").asString()},
-                                                     {"asset", assetJson(asset)},
-                                                     {"content", content}}});
+
+    auto source = resolveDeferredOriginalFile(request, *manifestAsset);
+    if (!source.ok()) {
+        return Result<AgentObservation>::success(
+            AgentObservation{.callId = callItem.id,
+                             .toolName = callItem.name,
+                             .ok = false,
+                             .summary = source.error(),
+                             .output = JsonValue::Object{{"asset", requestAssetJson(
+                                                                      request, *manifestAsset)},
+                                                         {"content_deferred", true}}});
+    }
+    if (isSensitiveFile(source.value())) {
+        return Result<AgentObservation>::success(rejectedObservation(
+            callItem, "延迟文件的原始内容命中敏感信息策略，已拒绝读取且不会发送给模型"));
+    }
+    const auto detected = FormatDetector{}.detect(
+        originalDetectionRoot(request.auditResult->context), source.value());
+    if (!confirmedTextAsset(detected)) {
+        return Result<AgentObservation>::success(AgentObservation{
+            .callId = callItem.id,
+            .toolName = callItem.name,
+            .ok = false,
+            .summary = "延迟文件经有界内容检测后不是可安全读取的文本或代码格式",
+            .output = JsonValue::Object{{"asset", requestAssetJson(request, *manifestAsset)},
+                                        {"content_deferred", true}}});
+    }
+    const auto content = truncateText(util::readFileLimited(source.value(), limit), limit);
+    const auto sizeBytes = std::filesystem::file_size(source.value(), ec);
+    const bool truncated = !ec && sizeBytes > limit;
+    return Result<AgentObservation>::success(AgentObservation{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = "已从用户选择的原始来源按需限量读取延迟文本文件: " +
+                   manifestAsset->relativePath.generic_string(),
+        .output = JsonValue::Object{{"path", manifestAsset->relativePath.generic_string()},
+                                    {"asset", requestAssetJson(request, *manifestAsset)},
+                                    {"content_deferred", true},
+                                    {"on_demand_original_read", true},
+                                    {"truncated", truncated},
+                                    {"content", content}}});
+}
+
+[[nodiscard]] Result<AgentObservation>
+runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& callItem) {
+    if (request.auditResult == nullptr) {
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "请先运行项目审计，再读取文档抽取结果"));
+    }
+    const auto relative = std::filesystem::path{callItem.input.at("path").asString()};
+    if (!PathGuard::isSafeArchiveEntry(relative.generic_string()) ||
+        hasSensitivePathComponent(relative)) {
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "文档路径未通过项目边界或敏感信息策略"));
+    }
+    const auto document = std::find_if(
+        request.auditResult->corpus.begin(), request.auditResult->corpus.end(),
+        [&](const TextDocument& item) { return item.sourceFile == relative; });
+    if (document == request.auditResult->corpus.end()) {
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "审计语料中没有该文档的可用抽取结果"));
+    }
+    const auto limit = boundedInteger(callItem.input, "max_bytes", 24000U, kMaximumReadLimit);
+    const bool needsReview = document->status.starts_with("NEED_REVIEW") ||
+                             document->status == "EMPTY_OR_UNREADABLE";
+    return Result<AgentObservation>::success(AgentObservation{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = needsReview
+                       ? "文档抽取不完整，内容仅供人工复核，不能作为高置信事实"
+                       : "已读取审计管线抽取的文档文本",
+        .output = JsonValue::Object{{"path", relative.generic_string()},
+                                    {"status", document->status},
+                                    {"content", truncateText(document->text, limit)}}});
 }
 
 [[nodiscard]] JsonValue archiveEntryJson(const std::filesystem::path& relativePath, bool directory,
@@ -573,6 +1117,10 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                                                   .summary = path.error(),
                                                                   .output = JsonValue::Object{}});
     }
+    if (isSensitiveFile(path.value())) {
+        return Result<AgentObservation>::success(rejectedObservation(
+            callItem, "该压缩包命中敏感信息策略，已拒绝枚举其内容"));
+    }
     const auto asset = detectProjectAsset(request, path.value());
     if (!ArchiveExtractor::isArchivePath(path.value())) {
         return Result<AgentObservation>::success(AgentObservation{
@@ -591,11 +1139,12 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
             .output = JsonValue::Object{{"asset", assetJson(asset)}, {"supported", false}}});
     }
 
-    const auto maxEntries =
-        static_cast<std::size_t>(std::max(1.0, callItem.input.at("max_entries").asNumber(120.0)));
+    const auto maxEntries = boundedInteger(callItem.input, "max_entries", 120U,
+                                           kMaximumArchiveEntries);
     JsonValue::Array entries;
     bool safeToExtract = true;
     bool truncated = false;
+    std::size_t omittedSensitive = 0U;
 
     if (isZipArchivePath(path.value())) {
         auto listed = ZipArchiveReader{}.list(path.value());
@@ -608,6 +1157,11 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                 .output = JsonValue::Object{{"asset", assetJson(asset)}, {"supported", true}}});
         }
         for (const auto& entry : listed.value()) {
+            if (hasSensitivePathComponent(entry.relativePath)) {
+                ++omittedSensitive;
+                safeToExtract = false;
+                continue;
+            }
             auto item = archiveEntryJson(entry.relativePath, entry.directory, entry.symlink,
                                          entry.uncompressedSize, entry.compressedSize,
                                          entry.compressionMethod);
@@ -627,6 +1181,8 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                         {"asset", assetJson(asset)},
                                         {"supported", true},
                                         {"safe_to_extract", safeToExtract},
+                                        {"omitted_sensitive_count",
+                                         static_cast<double>(omittedSensitive)},
                                         {"truncated", truncated},
                                         {"entries", JsonValue{entries}}}});
     }
@@ -641,6 +1197,11 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
             .output = JsonValue::Object{{"asset", assetJson(asset)}, {"supported", true}}});
     }
     for (const auto& entry : listed.value()) {
+        if (hasSensitivePathComponent(entry.relativePath)) {
+            ++omittedSensitive;
+            safeToExtract = false;
+            continue;
+        }
         auto item =
             archiveEntryJson(entry.relativePath, entry.directory, entry.symlink, entry.sizeBytes);
         safeToExtract = safeToExtract && archiveEntrySafe(item);
@@ -659,6 +1220,8 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                     {"asset", assetJson(asset)},
                                     {"supported", true},
                                     {"safe_to_extract", safeToExtract},
+                                    {"omitted_sensitive_count",
+                                     static_cast<double>(omittedSensitive)},
                                     {"truncated", truncated},
                                     {"entries", JsonValue{entries}}}});
 }
@@ -677,9 +1240,9 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
     }
 
     const auto maxFiles =
-        static_cast<std::size_t>(std::max(1.0, callItem.input.at("max_files").asNumber(80.0)));
+        boundedInteger(callItem.input, "max_files", 80U, kMaximumSearchFiles);
     const auto maxMatches =
-        static_cast<std::size_t>(std::max(1.0, callItem.input.at("max_matches").asNumber(40.0)));
+        boundedInteger(callItem.input, "max_matches", 40U, kMaximumSearchMatches);
     const auto caseSensitive = callItem.input.at("case_sensitive").asBool(false);
     const auto needle = caseSensitive ? query : util::lowerAscii(query);
 
@@ -691,17 +1254,21 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                              .toolName = callItem.name,
                              .ok = false,
                              .summary = "项目路径不存在或不可访问",
-                             .output = JsonValue::Object{{"root", pathText(root)}}});
+                             .output = JsonValue::Object{{"root", projectRootLabel()}}});
     }
 
     if (std::filesystem::is_regular_file(root, ec)) {
+        if (isSensitiveFile(root)) {
+            return Result<AgentObservation>::success(rejectedObservation(
+                callItem, "该文件命中敏感信息策略，已拒绝搜索且不会把内容发送给模型"));
+        }
         if (!isReadableTextLike(root)) {
             return Result<AgentObservation>::success(
                 AgentObservation{.callId = callItem.id,
                                  .toolName = callItem.name,
                                  .ok = false,
                                  .summary = "单文件输入不是安全文本/代码格式",
-                                 .output = JsonValue::Object{{"root", pathText(root)}}});
+                                 .output = JsonValue::Object{{"root", projectRootLabel()}}});
         }
         ++scannedFiles;
         const auto content = util::readFileLimited(root, kSearchReadLimit);
@@ -720,7 +1287,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
             .toolName = callItem.name,
             .ok = true,
             .summary = "已搜索单个项目文件，命中 " + std::to_string(matches.size()) + " 行",
-            .output = JsonValue::Object{{"root", pathText(root)},
+            .output = JsonValue::Object{{"root", projectRootLabel()},
                                         {"query", query},
                                         {"scanned_files", static_cast<int>(scannedFiles)},
                                         {"matches", JsonValue{matches}}}});
@@ -732,17 +1299,31 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                              .toolName = callItem.name,
                              .ok = false,
                              .summary = "项目路径不是可搜索目录或普通文件",
-                             .output = JsonValue::Object{{"root", pathText(root)}}});
+                             .output = JsonValue::Object{{"root", projectRootLabel()}}});
     }
 
+    std::size_t visitedEntries = 0U;
+    std::size_t omittedSensitive = 0U;
     for (std::filesystem::recursive_directory_iterator iter(root, ec), end;
-         iter != end && !ec && scannedFiles < maxFiles && matches.size() < maxMatches;
+         iter != end && !ec && scannedFiles < maxFiles && matches.size() < maxMatches &&
+         visitedEntries < kMaximumTraversalEntries;
          iter.increment(ec)) {
+        ++visitedEntries;
         if (iter->is_directory(ec) && shouldSkipDirectory(iter->path())) {
             iter.disable_recursion_pending();
             continue;
         }
-        if (!iter->is_regular_file(ec) || !isReadableTextLike(iter->path())) {
+        if (!iter->is_regular_file(ec)) {
+            continue;
+        }
+        if (!PathGuard::isInsideRoot(root, iter->path())) {
+            continue;
+        }
+        if (isSensitiveFile(iter->path())) {
+            ++omittedSensitive;
+            continue;
+        }
+        if (!isReadableTextLike(iter->path())) {
             continue;
         }
         const auto relative = std::filesystem::relative(iter->path(), root, ec);
@@ -769,9 +1350,14 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
         .ok = true,
         .summary = "已搜索项目文本，扫描 " + std::to_string(scannedFiles) + " 个文件，命中 " +
                    std::to_string(matches.size()) + " 行",
-        .output = JsonValue::Object{{"root", pathText(root)},
+        .output = JsonValue::Object{{"root", projectRootLabel()},
                                     {"query", query},
                                     {"scanned_files", static_cast<int>(scannedFiles)},
+                                    {"omitted_sensitive_count",
+                                     static_cast<double>(omittedSensitive)},
+                                    {"truncated", visitedEntries >= kMaximumTraversalEntries ||
+                                                      scannedFiles >= maxFiles ||
+                                                      matches.size() >= maxMatches},
                                     {"matches", JsonValue{matches}}}});
 }
 
@@ -785,6 +1371,10 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                                                   .summary = path.error(),
                                                                   .output = JsonValue::Object{}});
     }
+    if (isSensitiveFile(path.value())) {
+        return Result<AgentObservation>::success(rejectedObservation(
+            callItem, "该 Markdown 文件命中敏感信息策略，已拒绝读取和生成修订稿"));
+    }
     if (extensionLower(path.value()) != ".md") {
         return Result<AgentObservation>::success(
             AgentObservation{.callId = callItem.id,
@@ -793,12 +1383,21 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                              .summary = "只允许生成 Markdown 修订稿",
                              .output = JsonValue::Object{}});
     }
-    const auto original = util::readFileLimited(path.value(), 256000U);
+    const auto original = sanitizeUtf8(util::readFileLimited(path.value(), 256000U));
     const auto replacement = callItem.input.at("replacement_markdown").asString();
     const auto revised = replacement.empty() ? normalizeMarkdown(original) : replacement;
+    if (textContainsSecretMarker(revised)) {
+        return Result<AgentObservation>::success(rejectedObservation(
+            callItem, "修订内容包含疑似凭据或密钥片段，已拒绝写入工作区"));
+    }
     const auto workspace = writableRoot(request);
     const auto relative = callItem.input.at("path").asString();
-    const auto outputPath = workspace / "markdown-revisions" / relative;
+    const auto outputRelative = std::filesystem::path{"markdown-revisions"} / relative;
+    const auto outputPath = workspace / outputRelative;
+    if (!PathGuard::isInsideRoot(workspace, outputPath)) {
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "拒绝写入工作区边界外路径"));
+    }
     auto written = util::writeTextFile(outputPath, revised);
     if (!written.ok()) {
         return Result<AgentObservation>::failure(written.error());
@@ -807,8 +1406,8 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
         .callId = callItem.id,
         .toolName = callItem.name,
         .ok = true,
-        .summary = "已生成 Markdown 工作区修订稿: " + pathText(outputPath),
-        .output = JsonValue::Object{{"workspace_path", pathText(outputPath)},
+        .summary = "已生成 Markdown 工作区修订稿: " + workspacePathLabel(outputRelative),
+        .output = JsonValue::Object{{"workspace_path", workspacePathLabel(outputRelative)},
                                     {"preview", truncateText(revised, kPreviewLimit)}}});
 }
 
@@ -824,6 +1423,11 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
     }
 
     const auto content = callItem.input.at("content").asString();
+    const auto relative = std::filesystem::path{callItem.input.at("path").asString()};
+    if (hasSensitivePathComponent(relative) || textContainsSecretMarker(content)) {
+        return Result<AgentObservation>::success(rejectedObservation(
+            callItem, "目标路径或内容包含疑似凭据/密钥片段，已拒绝写入工作区"));
+    }
     auto written = util::writeTextFile(path.value(), content);
     if (!written.ok()) {
         return Result<AgentObservation>::failure(written.error());
@@ -832,12 +1436,165 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
         .callId = callItem.id,
         .toolName = callItem.name,
         .ok = true,
-        .summary = "已写入工作区文件: " + pathText(path.value()),
-        .output = JsonValue::Object{{"workspace_path", pathText(path.value())},
+        .summary = "已写入工作区文件: " + workspacePathLabel(relative),
+        .output = JsonValue::Object{{"workspace_path", workspacePathLabel(relative)},
                                     {"format", extensionLower(path.value()).empty()
                                                    ? "text"
                                                    : extensionLower(path.value()).substr(1)},
                                     {"preview", truncateText(content, kPreviewLimit)}}});
+}
+
+[[nodiscard]] Result<AgentObservation>
+runPrepareRepairedWorkspace(const AgentRunRequest& request, const AgentToolCall& callItem) {
+    const auto prepared = WorkspaceEditor{}.prepare(request.projectRoot, request.workspaceRoot);
+    if (!prepared.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, prepared.error()));
+    }
+    return Result<AgentObservation>::success(AgentObservation{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = "已建立 repaired project；后续修改不会覆盖原项目",
+        .output = JsonValue::Object{{"repaired_root", "workspace://repaired-project/"}}});
+}
+
+[[nodiscard]] Result<AgentObservation>
+runApplyRepairedTextEdit(const AgentRunRequest& request, const AgentToolCall& callItem) {
+    const auto expectedOccurrences = boundedInteger(callItem.input, "expected_occurrences", 1U,
+                                                     100U);
+    const auto edited = WorkspaceEditor{}.applyTextEdit(
+        request.projectRoot, request.workspaceRoot, callItem.input.at("path").asString(),
+        callItem.input.at("expected_text").asString(),
+        callItem.input.at("replacement_text").asString(), expectedOccurrences);
+    if (!edited.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, edited.error()));
+    }
+    return Result<AgentObservation>::success(AgentObservation{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = "已在 repaired project 精确修改 " +
+                   edited.value().relativePath.generic_string() + "，并更新统一 diff",
+        .output = JsonValue::Object{
+            {"path", edited.value().relativePath.generic_string()},
+            {"patch", "workspace://changes.patch"},
+            {"diff", truncateText(edited.value().diff, 12000U)},
+            {"preview", truncateText(edited.value().preview, kPreviewLimit)}}});
+}
+
+[[nodiscard]] Result<AgentObservation>
+runCreateRepairedTextFile(const AgentRunRequest& request, const AgentToolCall& callItem) {
+    const auto created = WorkspaceEditor{}.createTextFile(
+        request.projectRoot, request.workspaceRoot, callItem.input.at("path").asString(),
+        callItem.input.at("content").asString());
+    if (!created.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, created.error()));
+    }
+    return Result<AgentObservation>::success(AgentObservation{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = "已在 repaired project 新建 " + created.value().relativePath.generic_string() +
+                   "，并更新统一 diff",
+        .output = JsonValue::Object{
+            {"path", created.value().relativePath.generic_string()},
+            {"patch", "workspace://changes.patch"},
+            {"diff", truncateText(created.value().diff, 12000U)},
+            {"preview", truncateText(created.value().preview, kPreviewLimit)}}});
+}
+
+[[nodiscard]] Result<AgentObservation>
+runReadRepairedTextFile(const AgentRunRequest& request, const AgentToolCall& callItem) {
+    const auto limit = boundedInteger(callItem.input, "max_bytes", 24000U, kMaximumReadLimit);
+    const auto content = WorkspaceEditor{}.readTextFile(
+        request.projectRoot, request.workspaceRoot, callItem.input.at("path").asString(), limit);
+    if (!content.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, content.error()));
+    }
+    return Result<AgentObservation>::success(AgentObservation{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = "已读回 repaired project 文件，供修改结果复核",
+        .output = JsonValue::Object{{"path", callItem.input.at("path").asString()},
+                                    {"content", truncateText(content.value(), limit)}}});
+}
+
+[[nodiscard]] Result<AgentObservation>
+runListWorkspaceChanges(const AgentRunRequest& request, const AgentToolCall& callItem) {
+    const auto changes = WorkspaceEditor{}.changes(request.projectRoot, request.workspaceRoot);
+    if (!changes.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, changes.error()));
+    }
+    JsonValue::Array items;
+    for (const auto& change : changes.value()) {
+        items.emplace_back(JsonValue::Object{
+            {"path", change.relativePath.generic_string()},
+            {"kind", change.kind},
+            {"diff_preview", truncateText(change.diff, 4000U)}});
+    }
+    return Result<AgentObservation>::success(AgentObservation{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = "repaired project 共有 " + std::to_string(items.size()) + " 个真实变更",
+        .output = JsonValue::Object{{"changes", JsonValue{items}},
+                                    {"patch", "workspace://changes.patch"}}});
+}
+
+[[nodiscard]] Result<AgentToolExecution>
+runReAuditRepairedProject(const AgentRunRequest& request, const AgentToolCall& callItem) {
+    if (request.auditResult == nullptr) {
+        return Result<AgentToolExecution>::success(AgentToolExecution{
+            .observations = {rejectedObservation(callItem,
+                                                 "二次审计需要修复前的确定性审计结果")}});
+    }
+    const auto changes = WorkspaceEditor{}.changes(request.projectRoot, request.workspaceRoot);
+    if (!changes.ok() || changes.value().empty()) {
+        return Result<AgentToolExecution>::success(AgentToolExecution{
+            .observations = {rejectedObservation(
+                callItem, changes.ok() ? "repaired project 尚无变更" : changes.error())}});
+    }
+    const auto* baseline = request.baselineAuditResult == nullptr
+                               ? request.auditResult
+                               : request.baselineAuditResult;
+    auto updated = WorkspaceEditor{}.reAudit(request.projectRoot, request.workspaceRoot,
+                                             request.auditOptions, &baseline->context);
+    if (!updated.ok()) {
+        return Result<AgentToolExecution>::failure(updated.error());
+    }
+    constexpr std::size_t kMaximumPatchBytes = 16U * 1024U * 1024U;
+    const auto patchFile = request.workspaceRoot / "changes.patch";
+    const auto patch = util::readFileLimited(patchFile, kMaximumPatchBytes + 1U);
+    if (patch.empty() || patch.size() > kMaximumPatchBytes) {
+        return Result<AgentToolExecution>::failure(
+            "真实 changes.patch 为空或超过 16 MiB 上限，已停止二次审计绑定");
+    }
+    updated.value().repairPlan.diffText = patch;
+    updated.value().repairPlan.markdown +=
+        "\n\n## repaired-project 实际变更\n\n"
+        "真实统一补丁保存在 `changes.patch`。修改文件均标记为待人工确认草稿，不会作为独立证据抬高评分。\n";
+    auto diff = DiffVerifier{}.diffResults(*baseline, updated.value());
+    if (!diff.ok()) {
+        return Result<AgentToolExecution>::failure(diff.error());
+    }
+    AgentObservation observation{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = diff.value().summary,
+        .output = JsonValue::Object{{"summary", diff.value().summary},
+                                    {"old_score", diff.value().oldScore},
+                                    {"new_score", diff.value().newScore},
+                                    {"audit_diff", auditDiffToJson(diff.value())},
+                                    {"patch", "workspace://changes.patch"},
+                                    {"patch_bytes", static_cast<double>(patch.size())},
+                                    {"changed_file_count",
+                                     static_cast<double>(changes.value().size())}}};
+    return Result<AgentToolExecution>::success(
+        AgentToolExecution{.observations = {std::move(observation)},
+                           .auditResult = std::move(updated.value()),
+                           .auditDiff = std::move(diff.value())});
 }
 
 using ToolRunner = Result<AgentObservation> (*)(const AgentRunRequest&, const AgentToolCall&);
@@ -848,8 +1605,14 @@ using ToolRunner = Result<AgentObservation> (*)(const AgentRunRequest&, const Ag
         {"list_project_files", runListProjectFiles},
         {"inspect_project_file", runInspectProjectFile},
         {"read_text_file", runReadTextFile},
+        {"read_extracted_document", runReadExtractedDocument},
         {"inspect_archive", runInspectArchive},
         {"search_project_text", runSearchProjectText},
+        {"prepare_repaired_workspace", runPrepareRepairedWorkspace},
+        {"apply_repaired_text_edit", runApplyRepairedTextEdit},
+        {"create_repaired_text_file", runCreateRepairedTextFile},
+        {"read_repaired_text_file", runReadRepairedTextFile},
+        {"list_workspace_changes", runListWorkspaceChanges},
         {"draft_markdown_revision", runDraftMarkdownRevision},
         {"write_workspace_file", runWriteWorkspaceFile}};
     return runners;
@@ -890,7 +1653,8 @@ std::string toString(AgentDecisionKind kind) {
 
 std::string agentCommandHelpText() {
     return "可用命令：/audit 运行缺点评审；/agent <任务> 或 /task <任务> 提交智能体任务；"
-           "/status 查看会话状态；/compact 压缩当前审计上下文；/clear 开始新会话。"
+           "/optimize [目标] 在 repaired project 中修改并二次审计；/status 查看会话状态；"
+           "/compact 压缩当前审计上下文；/clear 开始新会话。"
            "权限模式和高风险边界在设置中管理；普通输入会作为常规问答或项目评审任务处理。";
 }
 
@@ -918,6 +1682,9 @@ void setAgentFinalAnswer(AgentRunResult& result, std::string finalAnswer, std::s
 }
 
 Result<AgentRunResult> AgentRuntime::runLocal(const AgentRunRequest& request) const {
+    if (requestCancelled(request)) {
+        return Result<AgentRunResult>::failure("智能体任务已取消");
+    }
     AgentPlan plan;
     plan.summary = "本地受控探索：未授权 LLM 时只收集可复核上下文，不冒充模型做语义决策。"
                    "启用 Brain 后，大模型会基于这些观察继续选择受控工具。";
@@ -934,6 +1701,9 @@ Result<AgentRunResult> AgentRuntime::runLocal(const AgentRunRequest& request) co
     }
 
     if (!request.projectRoot.empty()) {
+        if (requestCancelled(request)) {
+            return Result<AgentRunResult>::failure("智能体任务已取消");
+        }
         auto list = call("local_2", "list_project_files", "枚举项目文件，建立工具上下文",
                          JsonValue::Object{{"max_files", 120}});
         plan.calls.push_back(list);
@@ -971,6 +1741,9 @@ Result<AgentToolExecution>
 AgentRuntime::runToolExecution(const AgentRunRequest& request,
                                const AgentToolCall& callItem,
                                AgentObservationObserver observe) const {
+    if (requestCancelled(request)) {
+        return Result<AgentToolExecution>::failure("智能体任务已取消");
+    }
     auto specs = ToolRegistry{}.interactiveToolSpecs();
     const auto* toolSpec = findSpec(callItem.name, specs);
     if (toolSpec == nullptr) {
@@ -981,6 +1754,14 @@ AgentRuntime::runToolExecution(const AgentRunRequest& request,
                 .ok = false,
                 .summary = "未注册或当前不允许 Brain 直接驱动的工具: " + callItem.name,
                 .output = JsonValue::Object{}}},
+            .auditResult = std::nullopt});
+    }
+
+    auto validInput = ToolRegistry{}.validateInteractiveInput(callItem.name, callItem.input);
+    if (!validInput.ok()) {
+        return Result<AgentToolExecution>::success(AgentToolExecution{
+            .observations = {rejectedObservation(
+                callItem, "工具输入校验失败: " + validInput.error())},
             .auditResult = std::nullopt});
     }
 
@@ -997,6 +1778,11 @@ AgentRuntime::runToolExecution(const AgentRunRequest& request,
     }
 
     PermissionGate gate;
+    if (request.allowWriteWorkspace) {
+        gate.allow(ToolPermission::WriteWorkspace);
+    } else {
+        gate.deny(ToolPermission::WriteWorkspace);
+    }
     if (request.allowReadExternal) {
         gate.allow(ToolPermission::ReadExternalFiles);
     }
@@ -1029,6 +1815,15 @@ AgentRuntime::runToolExecution(const AgentRunRequest& request,
 
     if (callItem.name == "run_project_audit") {
         return runProjectAuditExecution(request, callItem, observe);
+    }
+    if (callItem.name == "re_audit_repaired_project") {
+        auto execution = runReAuditRepairedProject(request, callItem);
+        if (execution.ok() && observe) {
+            for (const auto& observation : execution.value().observations) {
+                observe(observation);
+            }
+        }
+        return execution;
     }
 
     const auto runner = findRunner(callItem.name);

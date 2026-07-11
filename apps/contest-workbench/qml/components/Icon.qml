@@ -2,24 +2,17 @@ import QtQuick
 import QtQuick.Shapes
 import ".."
 
-// 用 QtQuick.Shapes 渲染参考应用同款矢量图标（16×16 viewBox、描边风格），
-// 取代早期的 Unicode 字形。这样描边粗细、圆角和视觉重量都能与 TOKENICODE 一比一对齐。
 Item {
     id: root
 
-    // 图标名，对应 iconData 中的一条路径定义。
     required property string name
-    // 图标线条/填充色。
     property color color: Theme.textMuted
-    // 逻辑像素尺寸，内部按 16 单位 viewBox 等比缩放。
     property real size: 16
     property real strokeWidth: 1.5
 
     implicitWidth: size
     implicitHeight: size
 
-    // 每个条目：paths 为描边路径数组，fills 为填充路径数组（可缺省），
-    // 描边路径统一使用圆角端点，贴合参考图标的观感。
     readonly property var iconData: ({
         "plus":        { paths: ["M8 3v10M3 8h10"] },
         "chevronLeft": { paths: ["M10 4L6 8L10 12"] },
@@ -55,18 +48,14 @@ Item {
     })
 
     readonly property var current: iconData[name] !== undefined ? iconData[name] : ({})
-    // 把多条子路径拼成单个 SVG path 字符串：SVG 路径数据本身支持多段 M...，
-    // 这样只需一个 ShapePath，避免用 Repeater 生成 ShapePath（非 Item，Repeater 不支持）。
     readonly property string strokePath: current.paths !== undefined ? current.paths.join(" ") : ""
     readonly property string fillPath: current.fills !== undefined ? current.fills.join(" ") : ""
 
     Shape {
         anchors.fill: parent
         preferredRendererType: Shape.CurveRenderer
-        // 16 单位 viewBox 映射到实际尺寸。
         transform: Scale { xScale: root.width / 16; yScale: root.height / 16 }
 
-        // 描边路径（所有子路径共用同一描边样式）。
         ShapePath {
             strokeColor: root.strokePath.length > 0 ? root.color : "transparent"
             strokeWidth: root.strokeWidth
@@ -76,7 +65,6 @@ Item {
             PathSvg { path: root.strokePath }
         }
 
-        // 填充路径（如实心方块 stop、圆点）。
         ShapePath {
             strokeColor: "transparent"
             strokeWidth: 0

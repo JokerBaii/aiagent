@@ -20,12 +20,14 @@ class MarkdownReporter {
     /**
      * @brief 渲染中文 Markdown 审计报告。
      */
-    [[nodiscard]] std::string render(const AuditResult& result) const;
+    [[nodiscard]] std::string render(const AuditResult& result,
+                                     const AuditDiff* diff = nullptr) const;
     /**
      * @brief 将 Markdown 报告写入文件。
      */
     [[nodiscard]] Result<void> write(const AuditResult& result,
-                                     const std::filesystem::path& output) const;
+                                     const std::filesystem::path& output,
+                                     const AuditDiff* diff = nullptr) const;
 };
 
 } // namespace cc

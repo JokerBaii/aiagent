@@ -6,6 +6,8 @@
 #pragma once
 
 #include "cc/core/Result.hpp"
+#include "cc/loader/ArchiveExtractionOutcome.hpp"
+#include "cc/loader/ImportLimits.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -29,6 +31,7 @@ struct LibArchiveEntry {
 struct LibArchiveExtractionRequest {
     std::filesystem::path archivePath;
     std::filesystem::path destinationRoot;
+    ImportLimits limits{};
 };
 
 /**
@@ -46,7 +49,7 @@ class LibArchiveReader {
      * @return 条目摘要；失败时返回 libarchive 错误。
      */
     [[nodiscard]] Result<std::vector<LibArchiveEntry>>
-    list(const std::filesystem::path& archivePath) const;
+    list(const std::filesystem::path& archivePath, const ImportLimits& limits = {}) const;
 
     /**
      * @brief 解包到隔离工作区。
@@ -54,7 +57,7 @@ class LibArchiveReader {
      * @param request 解包请求。
      * @return 写入的相对文件路径；失败时返回路径、条目类型或解包错误。
      */
-    [[nodiscard]] Result<std::vector<std::filesystem::path>>
+    [[nodiscard]] Result<ArchiveExtractionOutcome>
     extractAll(const LibArchiveExtractionRequest& request) const;
 };
 

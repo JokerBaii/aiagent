@@ -10,6 +10,7 @@
 #include "cc/util/StringUtil.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace cc {
@@ -62,6 +63,21 @@ void addEvidence(RuleConditionResult& result, const std::vector<std::filesystem:
     if (lower == "revenue") {
         return ClaimType::Revenue;
     }
+    if (lower == "costreduction") {
+        return ClaimType::CostReduction;
+    }
+    if (lower == "patent") {
+        return ClaimType::Patent;
+    }
+    if (lower == "copyright") {
+        return ClaimType::Copyright;
+    }
+    if (lower == "partnership") {
+        return ClaimType::Partnership;
+    }
+    if (lower == "prototype") {
+        return ClaimType::Prototype;
+    }
     if (lower == "researchresult") {
         return ClaimType::ResearchResult;
     }
@@ -76,7 +92,14 @@ void addEvidence(RuleConditionResult& result, const std::vector<std::filesystem:
 
 [[nodiscard]] std::vector<AssetRole> roleList(const JsonValue* value) {
     std::vector<AssetRole> roles;
-    if (value == nullptr || !value->isArray()) {
+    if (value == nullptr) {
+        return roles;
+    }
+    if (value->isString()) {
+        roles.emplace_back(assetRoleFromString(value->asString()));
+        return roles;
+    }
+    if (!value->isArray()) {
         return roles;
     }
     for (const auto& item : value->asArray()) {
@@ -101,8 +124,7 @@ void addEvidence(RuleConditionResult& result, const std::vector<std::filesystem:
         const auto iter =
             std::find_if(matches.begin(), matches.end(), [&](const EvidenceMatch& match) {
                 return match.claimId == claim.claimId &&
-                       (match.status == EvidenceStatus::Supported ||
-                        match.status == EvidenceStatus::Partial);
+                       match.status == EvidenceStatus::Supported;
             });
         if (iter != matches.end()) {
             return true;
@@ -112,11 +134,23 @@ void addEvidence(RuleConditionResult& result, const std::vector<std::filesystem:
 }
 
 [[nodiscard]] std::string cpirField(const CPIR& cpir, const std::string& field) {
+    if (field == "project_name") {
+        return cpir.projectName;
+    }
     if (field == "target_user") {
         return cpir.targetUser;
     }
     if (field == "business_model") {
         return cpir.businessModel;
+    }
+    if (field == "pain_point") {
+        return cpir.painPoint;
+    }
+    if (field == "solution") {
+        return cpir.solution;
+    }
+    if (field == "product_or_service") {
+        return cpir.productOrService;
     }
     if (field == "financial_projection") {
         return cpir.financialProjection;
@@ -126,6 +160,15 @@ void addEvidence(RuleConditionResult& result, const std::vector<std::filesystem:
     }
     if (field == "market_analysis") {
         return cpir.marketAnalysis;
+    }
+    if (field == "competitor_analysis") {
+        return cpir.competitorAnalysis;
+    }
+    if (field == "team_structure") {
+        return cpir.teamStructure;
+    }
+    if (field == "current_results") {
+        return cpir.currentResults;
     }
     if (field == "social_value") {
         return cpir.socialValue;
@@ -161,10 +204,14 @@ void evaluateMinimumAssetCount(const ConditionContext& context, RuleConditionRes
         return;
     }
 
-    const auto expected = static_cast<std::size_t>(minAssetCount->asNumber(0.0));
+    const auto configured = minAssetCount->asNumber(0.0);
+    if (!std::isfinite(configured) || configured < 1.0 || configured > 1000000.0) {
+        addMissing(result, "规则中的材料数量阈值无效");
+        return;
+    }
+    const auto expected = static_cast<std::size_t>(configured);
     if (context.inventory->assets.size() < expected) {
-        addMissing(result, "材料数量至少 " +
-                               std::to_string(static_cast<int>(minAssetCount->asNumber(0.0))));
+        addMissing(result, "材料数量至少 " + std::to_string(static_cast<int>(configured)));
     }
 }
 
@@ -193,11 +240,35 @@ void evaluateRequiredClaimEvidence(const ConditionContext& context, RuleConditio
     for (const auto& claimName :
          util::jsonStringArray(claimValue == nullptr ? JsonValue{} : *claimValue)) {
         const auto type = claimTypeFromString(claimName);
-        if (hasClaim(type, *context.claims) &&
-            !supported(type, *context.claims, *context.matches)) {
+        if (!hasClaim(type, *context.claims)) {
             result.failed = true;
             const auto needed = missingEvidenceForClaim(type);
             result.missing.insert(result.missing.end(), needed.begin(), needed.end());
+            result.missing.emplace_back("缺少规则要求的 " + claimName + " 声明及其证据");
+            continue;
+        }
+        for (const auto& claim : *context.claims) {
+            if (claim.claimType != type) {
+                continue;
+            }
+            const auto match = std::find_if(
+                context.matches->begin(), context.matches->end(), [&](const EvidenceMatch& item) {
+                    return item.claimId == claim.claimId;
+                });
+            if (match != context.matches->end() &&
+                match->status == EvidenceStatus::Supported) {
+                continue;
+            }
+            result.failed = true;
+            const auto needed = match == context.matches->end()
+                                    ? missingEvidenceForClaim(type)
+                                    : match->missingEvidence;
+            result.missing.insert(result.missing.end(), needed.begin(), needed.end());
+            result.missing.emplace_back("声明 " + claim.claimId + " 尚无充分独立证据");
+            if (match != context.matches->end()) {
+                result.evidence.insert(result.evidence.end(), match->evidenceFiles.begin(),
+                                       match->evidenceFiles.end());
+            }
         }
     }
 }
@@ -220,16 +291,18 @@ void evaluateConsistencyIssues(const ConditionContext& context, RuleConditionRes
     result.failed = true;
     for (const auto& issue : *context.issues) {
         result.missing.emplace_back(issue.issueId);
+        result.evidence.insert(result.evidence.end(), issue.affectedFiles.begin(),
+                               issue.affectedFiles.end());
     }
 }
 
 void evaluateDocCodeSupport(const ConditionContext& context, RuleConditionResult& result) {
-    const std::vector<AssetRole> supportRoles{AssetRole::BuildSystem, AssetRole::DependencyManifest,
-                                              AssetRole::DeploymentDoc};
+    const std::vector<AssetRole> supportRoles{AssetRole::BuildSystem,
+                                              AssetRole::DependencyManifest};
     if (flagEnabled(*context.condition, "doc_code_support") &&
         hasRole(*context.inventory, AssetRole::SourceCode) &&
         !hasAnyRole(*context.inventory, supportRoles)) {
-        addMissing(result, "源码缺少构建入口、依赖清单或部署说明支撑");
+        addMissing(result, "源码缺少构建入口或依赖清单");
     }
 }
 
@@ -244,13 +317,11 @@ void evaluateBusinessCompleteness(const ConditionContext& context, RuleCondition
 }
 
 void evaluateTechnicalCompleteness(const ConditionContext& context, RuleConditionResult& result) {
-    const std::vector<AssetRole> supportRoles{AssetRole::BuildSystem, AssetRole::DependencyManifest,
-                                              AssetRole::DeploymentDoc};
     if (flagEnabled(*context.condition, "technical_route_completeness") &&
         (context.cpir->technicalRoute.empty() ||
          !hasRole(*context.inventory, AssetRole::SourceCode) ||
-         !hasAnyRole(*context.inventory, supportRoles))) {
-        addMissing(result, "技术路线、源码或复现入口不完整");
+         !hasRole(*context.inventory, AssetRole::DeploymentDoc))) {
+        addMissing(result, "技术路线、源码或部署/复现说明不完整");
     }
 }
 
@@ -302,6 +373,8 @@ RuleConditionEvaluator::evaluate(const AuditRule& rule, const ProjectInventory& 
                                    .issues = &issues};
 
     evaluateRequiredRoles(context, result, "required_assets");
+    evaluateRequiredRoles(context, result, "required_asset");
+    evaluateRequiredRoles(context, result, "missing_asset");
     evaluateRequiredRoles(context, result, "missing_assets");
     evaluateRequiredAnyAssets(context, result);
     evaluateMinimumAssetCount(context, result);
@@ -316,6 +389,13 @@ RuleConditionEvaluator::evaluate(const AuditRule& rule, const ProjectInventory& 
     evaluateResearchReproducibility(context, result);
     evaluateSocialImpactEvidence(context, result);
     evaluateVendorGeneratedRatio(context, result);
+
+    std::sort(result.missing.begin(), result.missing.end());
+    result.missing.erase(std::unique(result.missing.begin(), result.missing.end()),
+                         result.missing.end());
+    std::sort(result.evidence.begin(), result.evidence.end());
+    result.evidence.erase(std::unique(result.evidence.begin(), result.evidence.end()),
+                          result.evidence.end());
 
     return result;
 }

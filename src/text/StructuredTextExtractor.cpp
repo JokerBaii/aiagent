@@ -76,6 +76,13 @@ Result<TextDocument> StructuredTextExtractor::extract(const ProjectAsset& asset)
     document.sourceFile = asset.relativePath;
     document.title = asset.fileName;
     const auto content = util::readFileLimited(asset.absolutePath, kMaxStructuredBytes);
+    std::error_code error;
+    const auto size = std::filesystem::file_size(asset.absolutePath, error);
+    if (!error && size > kMaxStructuredBytes) {
+        document.text = content;
+        document.status = "NEED_REVIEW_STRUCTURED_TEXT_TRUNCATED";
+        return Result<TextDocument>::success(std::move(document));
+    }
     if (content.empty()) {
         document.status = "EMPTY_OR_UNREADABLE";
         return Result<TextDocument>::success(std::move(document));

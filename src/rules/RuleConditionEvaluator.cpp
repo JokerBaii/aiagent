@@ -123,8 +123,7 @@ void addEvidence(RuleConditionResult& result, const std::vector<std::filesystem:
         }
         const auto iter =
             std::find_if(matches.begin(), matches.end(), [&](const EvidenceMatch& match) {
-                return match.claimId == claim.claimId &&
-                       match.status == EvidenceStatus::Supported;
+                return match.claimId == claim.claimId && match.status == EvidenceStatus::Supported;
             });
         if (iter != matches.end()) {
             return true;
@@ -252,17 +251,14 @@ void evaluateRequiredClaimEvidence(const ConditionContext& context, RuleConditio
                 continue;
             }
             const auto match = std::find_if(
-                context.matches->begin(), context.matches->end(), [&](const EvidenceMatch& item) {
-                    return item.claimId == claim.claimId;
-                });
-            if (match != context.matches->end() &&
-                match->status == EvidenceStatus::Supported) {
+                context.matches->begin(), context.matches->end(),
+                [&](const EvidenceMatch& item) { return item.claimId == claim.claimId; });
+            if (match != context.matches->end() && match->status == EvidenceStatus::Supported) {
                 continue;
             }
             result.failed = true;
-            const auto needed = match == context.matches->end()
-                                    ? missingEvidenceForClaim(type)
-                                    : match->missingEvidence;
+            const auto needed = match == context.matches->end() ? missingEvidenceForClaim(type)
+                                                                : match->missingEvidence;
             result.missing.insert(result.missing.end(), needed.begin(), needed.end());
             result.missing.emplace_back("声明 " + claim.claimId + " 尚无充分独立证据");
             if (match != context.matches->end()) {

@@ -45,9 +45,8 @@ writeStoredZipFixture(const std::filesystem::path& path,
 
     for (const auto& [name, content] : entries) {
         const auto localOffset = static_cast<std::uint32_t>(bytes.size());
-        const auto crc = static_cast<std::uint32_t>(
-            crc32(0L, reinterpret_cast<const Bytef*>(content.data()),
-                  static_cast<uInt>(content.size())));
+        const auto crc = static_cast<std::uint32_t>(crc32(
+            0L, reinterpret_cast<const Bytef*>(content.data()), static_cast<uInt>(content.size())));
         appendU32(bytes, 0x04034b50U);
         appendU16(bytes, 20U);
         appendU16(bytes, 0U);

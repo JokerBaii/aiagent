@@ -16,10 +16,10 @@ namespace {
 
 [[nodiscard]] const cc::ProjectAsset& assetAt(const cc::ProjectInventory& inventory,
                                               std::string_view path) {
-    const auto found = std::find_if(inventory.assets.begin(), inventory.assets.end(),
-                                    [&](const auto& asset) {
-                                        return asset.relativePath.generic_string() == path;
-                                    });
+    const auto found =
+        std::find_if(inventory.assets.begin(), inventory.assets.end(), [&](const auto& asset) {
+            return asset.relativePath.generic_string() == path;
+        });
     if (found == inventory.assets.end()) {
         throw std::runtime_error("asset missing: " + std::string{path});
     }
@@ -80,7 +80,7 @@ void runInventoryTests() {
                       static_cast<std::streamsize>(zipHeader.size()));
         std::ofstream model(magicRoot / "scene.unknown", std::ios::binary);
         const std::array<unsigned char, 12> glbHeader{'g', 'l', 'T', 'F', 2U, 0U,
-                                                      0U,  0U,  12U, 0U, 0U, 0U};
+                                                      0U,  0U,  12U, 0U,  0U, 0U};
         model.write(reinterpret_cast<const char*>(glbHeader.data()),
                     static_cast<std::streamsize>(glbHeader.size()));
     }

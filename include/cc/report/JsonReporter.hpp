@@ -25,8 +25,7 @@ class JsonReporter {
     /**
      * @brief 将 JSON 审计包写入文件。
      */
-    [[nodiscard]] Result<void> write(const AuditResult& result,
-                                     const std::filesystem::path& output,
+    [[nodiscard]] Result<void> write(const AuditResult& result, const std::filesystem::path& output,
                                      const AuditDiff* diff = nullptr) const;
 };
 

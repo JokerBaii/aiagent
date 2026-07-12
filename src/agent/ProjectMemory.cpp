@@ -34,7 +34,8 @@ Result<void> ProjectMemory::init(const std::filesystem::path& workspaceRoot,
     std::ostringstream instructions;
     instructions << "# 项目审计约束\n\n";
     instructions << "- 赛道：" << toString(track) << "\n";
-    instructions << "- 声明必须绑定可复核证据；草稿、智能体新建文件和待复核文本不能充当事实证据。\n";
+    instructions
+        << "- 声明必须绑定可复核证据；草稿、智能体新建文件和待复核文本不能充当事实证据。\n";
     instructions << "- 修改只能发生在 repaired-project 隔离副本，禁止覆盖原项目。\n";
     instructions << "- 最终评分由确定性规则引擎生成，大模型只能解释和提出建议。\n";
     auto written = util::writeTextFile(root / "PROJECT_RULES.md", instructions.str());
@@ -42,11 +43,11 @@ Result<void> ProjectMemory::init(const std::filesystem::path& workspaceRoot,
         return written;
     }
 
-    const JsonValue projectRules = JsonValue::Object{
-        {"track", toString(track)},
-        {"evidence_policy", "Only verified original evidence may support claims"},
-        {"repair_policy", "Workspace-only edits; original project is immutable"},
-        {"score_policy", "Deterministic rules remain authoritative"}};
+    const JsonValue projectRules =
+        JsonValue::Object{{"track", toString(track)},
+                          {"evidence_policy", "Only verified original evidence may support claims"},
+                          {"repair_policy", "Workspace-only edits; original project is immutable"},
+                          {"score_policy", "Deterministic rules remain authoritative"}};
     written = util::writeTextFile(root / "project_rules.json", writeJson(projectRules, 2) + "\n");
     if (!written.ok()) {
         return written;
@@ -57,8 +58,7 @@ Result<void> ProjectMemory::init(const std::filesystem::path& workspaceRoot,
         {"explicit_consent_required",
          util::stringArrayToJson(
              {"WriteWorkspace", "ReadExternalFiles", "NetworkAccess", "LLMAccess"})},
-        {"always_denied",
-         util::stringArrayToJson({"ModifyOriginalProject", "ExecuteCommand"})}};
+        {"always_denied", util::stringArrayToJson({"ModifyOriginalProject", "ExecuteCommand"})}};
     written = util::writeTextFile(root / "permissions.json", writeJson(permissions, 2) + "\n");
     if (!written.ok()) {
         return written;

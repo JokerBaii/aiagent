@@ -37,29 +37,25 @@ class WorkspaceEditor {
     applyTextEdit(const std::filesystem::path& projectRoot,
                   const std::filesystem::path& workspaceRoot,
                   const std::filesystem::path& relativePath, const std::string& expectedText,
-                  const std::string& replacementText,
-                  std::size_t expectedOccurrences = 1U) const;
+                  const std::string& replacementText, std::size_t expectedOccurrences = 1U) const;
 
     [[nodiscard]] Result<WorkspaceEditResult>
     createTextFile(const std::filesystem::path& projectRoot,
                    const std::filesystem::path& workspaceRoot,
-                   const std::filesystem::path& relativePath,
-                   const std::string& content) const;
+                   const std::filesystem::path& relativePath, const std::string& content) const;
 
-    [[nodiscard]] Result<std::string>
-    readTextFile(const std::filesystem::path& projectRoot,
-                 const std::filesystem::path& workspaceRoot,
-                 const std::filesystem::path& relativePath,
-                 std::size_t maxBytes = 64U * 1024U) const;
+    [[nodiscard]] Result<std::string> readTextFile(const std::filesystem::path& projectRoot,
+                                                   const std::filesystem::path& workspaceRoot,
+                                                   const std::filesystem::path& relativePath,
+                                                   std::size_t maxBytes = 64U * 1024U) const;
 
     [[nodiscard]] Result<std::vector<WorkspaceChange>>
     changes(const std::filesystem::path& projectRoot,
             const std::filesystem::path& workspaceRoot) const;
 
     [[nodiscard]] Result<AuditResult>
-    reAudit(const std::filesystem::path& projectRoot,
-            const std::filesystem::path& workspaceRoot, const AuditOptions& options,
-            const ProjectContext* baselineContext = nullptr) const;
+    reAudit(const std::filesystem::path& projectRoot, const std::filesystem::path& workspaceRoot,
+            const AuditOptions& options, const ProjectContext* baselineContext = nullptr) const;
 
   private:
     ImportLimits limits_;

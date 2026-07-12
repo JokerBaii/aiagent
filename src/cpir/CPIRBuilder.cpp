@@ -39,9 +39,8 @@ namespace {
 
 [[nodiscard]] std::string stripMarkdownPrefix(std::string line) {
     line = util::trim(std::move(line));
-    while (!line.empty() &&
-           (line.front() == '#' || line.front() == '-' || line.front() == '*' ||
-            line.front() == '>')) {
+    while (!line.empty() && (line.front() == '#' || line.front() == '-' || line.front() == '*' ||
+                             line.front() == '>')) {
         line = util::trim(line.substr(1U));
     }
     return line;
@@ -145,22 +144,29 @@ CPIR CPIRBuilder::build(const ProjectInventory& inventory, const std::vector<Tex
     cpir.competitionConfidence = type.confidence;
     cpir.competitionReason = type.reason;
     cpir.track = trackKey(type.type);
-    cpir.targetUser = fieldLine(inventory, corpus, {"目标用户", "用户画像", "服务对象", "target_user"});
-    cpir.painPoint = fieldLine(inventory, corpus, {"用户痛点", "核心痛点", "实际问题", "pain_point"});
+    cpir.targetUser =
+        fieldLine(inventory, corpus, {"目标用户", "用户画像", "服务对象", "target_user"});
+    cpir.painPoint =
+        fieldLine(inventory, corpus, {"用户痛点", "核心痛点", "实际问题", "pain_point"});
     cpir.solution = fieldLine(inventory, corpus, {"解决方案", "解决路径", "solution"});
     cpir.productOrService =
         fieldLine(inventory, corpus, {"产品或服务", "核心产品", "产品形态", "product_service"});
-    cpir.technicalRoute = fieldLine(inventory, corpus, {"技术路线", "技术架构", "核心算法", "technical_route"});
-    cpir.businessModel = fieldLine(inventory, corpus, {"商业模式", "收入模式", "付费方", "business_model"});
-    cpir.marketAnalysis =
-        fieldLine(inventory, corpus, {"市场规模", "市场分析", "tam", "sam", "som", "market_analysis"});
+    cpir.technicalRoute =
+        fieldLine(inventory, corpus, {"技术路线", "技术架构", "核心算法", "technical_route"});
+    cpir.businessModel =
+        fieldLine(inventory, corpus, {"商业模式", "收入模式", "付费方", "business_model"});
+    cpir.marketAnalysis = fieldLine(
+        inventory, corpus, {"市场规模", "市场分析", "tam", "sam", "som", "market_analysis"});
     cpir.competitorAnalysis =
         fieldLine(inventory, corpus, {"竞品分析", "竞争分析", "差异化", "competitor_analysis"});
     cpir.financialProjection =
         fieldLine(inventory, corpus, {"财务预测", "营收预测", "成本结构", "financial_projection"});
-    cpir.teamStructure = fieldLine(inventory, corpus, {"团队结构", "团队分工", "核心成员", "team_structure"});
-    cpir.currentResults = fieldLine(inventory, corpus, {"当前成果", "已取得成果", "项目进展", "current_results"});
-    cpir.socialValue = fieldLine(inventory, corpus, {"社会价值", "社会影响", "公益价值", "social_value"});
+    cpir.teamStructure =
+        fieldLine(inventory, corpus, {"团队结构", "团队分工", "核心成员", "team_structure"});
+    cpir.currentResults =
+        fieldLine(inventory, corpus, {"当前成果", "已取得成果", "项目进展", "current_results"});
+    cpir.socialValue =
+        fieldLine(inventory, corpus, {"社会价值", "社会影响", "公益价值", "social_value"});
 
     const std::vector<std::pair<std::string, std::string>> required = {
         {"target_user", cpir.targetUser},

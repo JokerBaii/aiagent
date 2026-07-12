@@ -12,8 +12,7 @@ namespace {
     if (ruleTrack == trackKey(type)) {
         return true;
     }
-    if ((type == CompetitionType::AiApplication ||
-         type == CompetitionType::EngineeringProduct) &&
+    if ((type == CompetitionType::AiApplication || type == CompetitionType::EngineeringProduct) &&
         ruleTrack == "software_project") {
         return true;
     }

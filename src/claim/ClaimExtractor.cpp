@@ -30,12 +30,12 @@ namespace {
 
 [[nodiscard]] bool negated(const std::string& line) {
     const auto lower = util::lowerAscii(line);
-    return containsAny(lower, {"未申请", "未获得", "未授权", "未取得", "未签署", "未合作",
-                               "未上线", "未部署", "未实现", "未产生", "未形成", "没有营收",
-                               "没有收入", "无营收", "无收入", "无专利", "无软著", "暂无",
-                               "尚未", "暂未", "不具备", "不涉及", "不代表", "不承诺", "禁止",
-                               "不得", "取消合作", "计划申请", "拟申请", "计划上线", "拟上线",
-                               "拟合作", "寻求合作"});
+    return containsAny(lower, {"未申请",   "未获得", "未授权",   "未取得",   "未签署", "未合作",
+                               "未上线",   "未部署", "未实现",   "未产生",   "未形成", "没有营收",
+                               "没有收入", "无营收", "无收入",   "无专利",   "无软著", "暂无",
+                               "尚未",     "暂未",   "不具备",   "不涉及",   "不代表", "不承诺",
+                               "禁止",     "不得",   "取消合作", "计划申请", "拟申请", "计划上线",
+                               "拟上线",   "拟合作", "寻求合作"});
 }
 
 [[nodiscard]] std::optional<ClaimType> classify(const std::string& line) {
@@ -141,8 +141,8 @@ namespace {
     return 0.76;
 }
 
-[[nodiscard]] std::vector<ProjectClaim>
-extractClaims(const std::vector<TextDocument>& corpus, const ProjectInventory* inventory) {
+[[nodiscard]] std::vector<ProjectClaim> extractClaims(const std::vector<TextDocument>& corpus,
+                                                      const ProjectInventory* inventory) {
     constexpr std::size_t kMaxClaims = 120U;
     std::vector<ProjectClaim> claims;
     std::set<std::string> seen;

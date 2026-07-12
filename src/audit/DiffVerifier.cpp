@@ -47,8 +47,8 @@ struct AuditMetrics {
         }
         return Result<int>::success(static_cast<int>(checked.value()));
     }
-    const auto checked = requiredNumber(root.at("trust_score").at("dimensions"), dimension, 0.0,
-                                        100.0, true);
+    const auto checked =
+        requiredNumber(root.at("trust_score").at("dimensions"), dimension, 0.0, 100.0, true);
     if (!checked.ok()) {
         return Result<int>::failure("审计报告缺少维度 " + dimension);
     }
@@ -70,8 +70,8 @@ struct AuditMetrics {
     const auto consistency = dimensionMetric(root, "consistency_score", "项目逻辑自洽性");
     if (!score.ok() || !debt.ok() || !blockers.ok() || !warnings.ok() || !coverage.ok() ||
         !taskCount.ok() || !material.ok() || !consistency.ok()) {
-        const Result<double>* failures[]{&score, &debt, &blockers, &warnings, &coverage,
-                                         &taskCount};
+        const Result<double>* failures[]{&score,    &debt,     &blockers,
+                                         &warnings, &coverage, &taskCount};
         for (const auto* failure : failures) {
             if (!failure->ok()) {
                 return Result<AuditMetrics>::failure(failure->error());
@@ -100,9 +100,9 @@ struct AuditMetrics {
 }
 
 [[nodiscard]] int taskCount(const AuditResult& result, const std::string& priority) {
-    return static_cast<int>(std::count_if(
-        result.fixTasks.begin(), result.fixTasks.end(),
-        [&](const FixTask& task) { return task.priority == priority; }));
+    return static_cast<int>(
+        std::count_if(result.fixTasks.begin(), result.fixTasks.end(),
+                      [&](const FixTask& task) { return task.priority == priority; }));
 }
 
 [[nodiscard]] AuditMetrics metricsFromResult(const AuditResult& result) {
@@ -131,8 +131,7 @@ struct AuditMetrics {
     return metrics;
 }
 
-[[nodiscard]] AuditDiff makeDiff(const AuditMetrics& oldMetrics,
-                                 const AuditMetrics& newMetrics) {
+[[nodiscard]] AuditDiff makeDiff(const AuditMetrics& oldMetrics, const AuditMetrics& newMetrics) {
     AuditDiff diff;
     diff.oldScore = oldMetrics.score;
     diff.newScore = newMetrics.score;
@@ -153,10 +152,10 @@ struct AuditMetrics {
 
     std::ostringstream summary;
     summary << "可信评分 " << diff.oldScore << " -> " << diff.newScore << "，blocker "
-            << diff.oldBlockers << " -> " << diff.newBlockers << "，warning "
-            << diff.oldWarnings << " -> " << diff.newWarnings << "，证据覆盖率 "
-            << diff.oldEvidenceCoverage << "% -> " << diff.newEvidenceCoverage << "%，补证任务 "
-            << diff.oldFixTaskCount << " -> " << diff.newFixTaskCount << "。";
+            << diff.oldBlockers << " -> " << diff.newBlockers << "，warning " << diff.oldWarnings
+            << " -> " << diff.newWarnings << "，证据覆盖率 " << diff.oldEvidenceCoverage << "% -> "
+            << diff.newEvidenceCoverage << "%，补证任务 " << diff.oldFixTaskCount << " -> "
+            << diff.newFixTaskCount << "。";
     diff.summary = summary.str();
     return diff;
 }
@@ -199,8 +198,8 @@ Result<AuditDiff> DiffVerifier::diffFiles(const std::filesystem::path& oldAudit,
 
 Result<AuditDiff> DiffVerifier::diffResults(const AuditResult& oldAudit,
                                             const AuditResult& newAudit) const {
-    return Result<AuditDiff>::success(makeDiff(metricsFromResult(oldAudit),
-                                               metricsFromResult(newAudit)));
+    return Result<AuditDiff>::success(
+        makeDiff(metricsFromResult(oldAudit), metricsFromResult(newAudit)));
 }
 
 Result<AuditDiff> DiffVerifier::diffJson(const JsonValue& oldAudit,

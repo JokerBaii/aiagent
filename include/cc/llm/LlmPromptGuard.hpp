@@ -15,8 +15,8 @@ namespace cc {
 
 struct LlmPromptBudget {
     std::size_t maxMessages{32U};
-    std::size_t maxMessageBytes{16U * 1024U};
-    std::size_t maxTotalBytes{96U * 1024U};
+    std::size_t maxMessageBytes{std::size_t{16U} * 1024U};
+    std::size_t maxTotalBytes{std::size_t{96U} * 1024U};
 };
 
 class LlmPromptGuard {

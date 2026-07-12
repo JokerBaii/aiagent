@@ -134,7 +134,8 @@ Result<ProjectInventory> InventoryEngine::build(const ProjectContext& context) c
         }
 
         auto asset = formatDetector.detectMetadata(deferred.relativePath, deferred.sizeBytes);
-        const bool virtualOnly = context.archiveInput || context.unpackStatus == "INPUT_METADATA_ONLY";
+        const bool virtualOnly =
+            context.archiveInput || context.unpackStatus == "INPUT_METADATA_ONLY";
         if (virtualOnly) {
             // Archive entries and selected special files have no independently readable regular
             // source. Sampling originalRoot would either inspect the container or follow a link.

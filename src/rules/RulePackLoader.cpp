@@ -45,8 +45,7 @@ Result<std::vector<AuditRule>> RulePackLoader::loadDirectory(const std::filesyst
     for (const auto& file : files) {
         std::error_code ec;
         if (!std::filesystem::is_regular_file(file, ec) || ec) {
-            return Result<std::vector<AuditRule>>::failure("缺少规则包: " +
-                                                           util::pathString(file));
+            return Result<std::vector<AuditRule>>::failure("缺少规则包: " + util::pathString(file));
         }
         auto loaded = loadFile(file);
         if (!loaded.ok()) {
@@ -96,7 +95,7 @@ Result<std::vector<AuditRule>> RulePackLoader::loadFile(const std::filesystem::p
 
     std::vector<AuditRule> rules;
     const std::set<std::string, std::less<>> allowedFields{
-        "rule_id", "name",        "track",      "severity", "target",
+        "rule_id",     "name",      "track",       "severity", "target",
         "description", "condition", "fail_reason", "fix_task"};
     for (const auto& item : rulesValue->asArray()) {
         if (!item.isObject()) {
@@ -111,8 +110,7 @@ Result<std::vector<AuditRule>> RulePackLoader::loadFile(const std::filesystem::p
         const auto severityText = objectString(object, "severity").value_or("");
         const auto severity = util::lowerAscii(severityText);
         if (severity != "blocker" && severity != "warning" && severity != "info") {
-            return Result<std::vector<AuditRule>>::failure("规则 severity 无效: " +
-                                                           severityText);
+            return Result<std::vector<AuditRule>>::failure("规则 severity 无效: " + severityText);
         }
         AuditRule rule;
         rule.ruleId = objectString(object, "rule_id").value_or("");

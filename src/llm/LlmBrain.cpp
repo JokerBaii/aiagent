@@ -7,8 +7,8 @@
 #include "cc/core/Enums.hpp"
 #include "cc/llm/EndpointParser.hpp"
 #include "cc/llm/HttpsJsonClient.hpp"
-#include "cc/llm/LlmProviderProfile.hpp"
 #include "cc/llm/LlmPromptGuard.hpp"
+#include "cc/llm/LlmProviderProfile.hpp"
 #include "cc/report/JsonReporter.hpp"
 #include "cc/util/FileUtil.hpp"
 #include "cc/util/StringUtil.hpp"
@@ -31,8 +31,8 @@ constexpr std::size_t kMaximumJsonStringBytes = 4096U;
 constexpr std::size_t kMaximumJsonArrayItems = 48U;
 constexpr std::size_t kMaximumJsonObjectFields = 64U;
 constexpr std::size_t kMaximumJsonDepth = 8U;
-constexpr std::size_t kMaximumModelOutputBytes = 2U * 1024U * 1024U;
-constexpr std::size_t kMaximumRetainedRawResponseBytes = 256U * 1024U;
+constexpr std::size_t kMaximumModelOutputBytes = std::size_t{2U} * 1024U * 1024U;
+constexpr std::size_t kMaximumRetainedRawResponseBytes = std::size_t{256U} * 1024U;
 
 [[nodiscard]] std::string boundedText(const std::string& text, std::size_t limit) {
     if (text.size() <= limit) {
@@ -193,7 +193,7 @@ constexpr std::size_t kMaximumRetainedRawResponseBytes = 256U * 1024U;
     const auto count = std::min(tools.size(), kMaximumToolsInPrompt);
     array.reserve(count);
     for (std::size_t index = 0U; index < count; ++index) {
-        const auto& tool = tools[index];
+        const auto& tool = tools.at(index);
         array.push_back(JsonValue::Object{{"name", boundedText(tool.name, 128U)},
                                           {"description", boundedText(tool.description, 1024U)},
                                           {"permission", toString(tool.permission)},
@@ -204,7 +204,7 @@ constexpr std::size_t kMaximumRetainedRawResponseBytes = 256U * 1024U;
 }
 
 [[nodiscard]] std::string agentStepSystemPrompt() {
-    return "你是大学生项目材料审计平台的智能审计助手。你要"
+    return "你是大学生项目审计与完善平台的智能助手。你要"
            "在受控工具循环中逐步工作：先看已有 observations，再决定调用一个工具，"
            "或在信息足够时给出最终回答。只能输出一个 JSON object。调用工具时输出 "
            "{\"action\":\"tool\",\"summary\":string,\"call\":{\"id\":string,"
@@ -218,7 +218,13 @@ constexpr std::size_t kMaximumRetainedRawResponseBytes = 256U * 1024U;
            "当 audit_required=true 且 audit_context.available=false 时，必须先调用 "
            "run_project_audit，让确定性规则引擎生成审计结果，禁止直接给出评审结论；"
            "run_project_audit 返回后要基于规则结果继续研判，必要时再读取或搜索项目文件；"
-           "先利用文件列表里的 format/mime/language/text_readable 元数据判断能否读取；"
+           "当 workspace_change_required=true 时，必须先读取相关材料，再用 repaired project "
+           "编辑工具产生至少一项真实修改；当 reaudit_required=true 时，还必须读回或列出变更并"
+           "调用 re_audit_repaired_project，得到修改前后对比后才能输出 final；"
+           "必须读取用户导入的真实项目文件，不能把资产清单、审计摘要或文件名当成文件正文；"
+           "源码、配置和纯文本使用 read_text_file；PDF、DOCX、PPTX、XLSX 使用 "
+           "read_extracted_document，并保留抽取完整性状态；先利用文件列表里的 "
+           "format/mime/language/text_readable/extracted_document_available 判断读取方式；"
            "遇到 zip/tar/7z/tgz 等项目包时先 inspect_archive；遇到代码文件时可 read_text_file；"
            "如果当前 permission_mode 不允许某项能力，选择可用工具或在 final_answer "
            "中说明需要切换模式；"
@@ -241,7 +247,7 @@ constexpr std::size_t kMaximumRetainedRawResponseBytes = 256U * 1024U;
                            : 0U;
     array.reserve(observations.size() - first);
     for (std::size_t index = first; index < observations.size(); ++index) {
-        const auto& observation = observations[index];
+        const auto& observation = observations.at(index);
         array.push_back(JsonValue::Object{{"tool_name", observation.toolName},
                                           {"ok", observation.ok},
                                           {"summary", boundedText(observation.summary, 1024U)},
@@ -258,7 +264,7 @@ conversationHistoryToJson(const std::vector<AgentConversationMessage>& history) 
                            : 0U;
     array.reserve(history.size() - first);
     for (std::size_t index = first; index < history.size(); ++index) {
-        const auto& message = history[index];
+        const auto& message = history.at(index);
         array.push_back(JsonValue::Object{
             {"role", boundedText(message.role, 32U)},
             {"content", boundedText(LlmPromptGuard{}.redactSecrets(message.content), 6000U)}});
@@ -271,7 +277,7 @@ conversationHistoryToJson(const std::vector<AgentConversationMessage>& history) 
     const auto count = std::min(plan.calls.size(), kMaximumPlanCallsInPrompt);
     calls.reserve(count);
     for (std::size_t index = 0U; index < count; ++index) {
-        const auto& call = plan.calls[index];
+        const auto& call = plan.calls.at(index);
         calls.push_back(JsonValue::Object{{"id", boundedText(call.id, 128U)},
                                           {"name", boundedText(call.name, 128U)},
                                           {"reason", boundedText(call.reason, 1024U)},
@@ -328,6 +334,8 @@ buildAgentNextStepMessages(const AgentRunRequest& request, const AgentRunResult&
         {"workspace_root", "REPAIRED_WORKSPACE"},
         {"permission_mode", request.permissionMode},
         {"audit_required", request.requireAudit},
+        {"workspace_change_required", request.requireWorkspaceChanges},
+        {"reaudit_required", request.requireReaudit},
         {"capabilities", capabilities},
         {"audit_context", compactAuditJson(request.auditResult)},
         {"tools", toolSpecsToJson(tools)},
@@ -676,7 +684,8 @@ Result<AgentDecision> LlmBrain::parseAgentDecision(const std::string& content) c
     if (action == "final" || action == "answer") {
         decision.kind = AgentDecisionKind::FinalAnswer;
         decision.finalAnswer = parsed.value().at("final_answer").asString();
-        if (decision.finalAnswer.empty() || decision.finalAnswer.size() > 256U * 1024U) {
+        if (decision.finalAnswer.empty() ||
+            decision.finalAnswer.size() > std::size_t{256U} * 1024U) {
             return Result<AgentDecision>::failure("Brain final 决策缺少 final_answer");
         }
         return Result<AgentDecision>::success(std::move(decision));

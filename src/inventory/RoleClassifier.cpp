@@ -23,7 +23,8 @@ AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
     if (asset.vendored) {
         return AssetRole::Vendored;
     }
-    if (ArchiveExtractor::isArchivePath(asset.relativePath) || asset.mime == "application/archive") {
+    if (ArchiveExtractor::isArchivePath(asset.relativePath) ||
+        asset.mime == "application/archive") {
         return AssetRole::Archive;
     }
     if (name == "cmakelists.txt" || name == "makefile" || name == "dockerfile" ||

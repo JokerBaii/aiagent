@@ -9,10 +9,9 @@ namespace {
 
 [[nodiscard]] bool excludedComponent(const std::string& component) {
     constexpr std::array<const char*, 18> excluded = {
-        ".git",        ".workspaces", "node_modules", "vendor",     "third_party",
-        "external",    "build",       "dist",         "out",        "target",
-        "generated",   "__pycache__", ".next",        "coverage",   "test",
-        "tests",       "mock",        "mocks",
+        ".git",  ".workspaces", "node_modules", "vendor", "third_party", "external",
+        "build", "dist",        "out",          "target", "generated",   "__pycache__",
+        ".next", "coverage",    "test",         "tests",  "mock",        "mocks",
     };
     for (const auto* value : excluded) {
         if (component == value) {

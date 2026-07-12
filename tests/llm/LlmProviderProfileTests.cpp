@@ -14,8 +14,8 @@ void runLlmProviderProfileTests() {
                     openAi.config.apiKeyPrefix == "Bearer ",
                 "OpenAI authentication should use a bearer header");
 
-    auto anthropic = resolver.resolve({{"ANTHROPIC_API_KEY", "anthropic-secret"},
-                                       {"OPENAI_API_KEY", "openai-secret"}});
+    auto anthropic = resolver.resolve(
+        {{"ANTHROPIC_API_KEY", "anthropic-secret"}, {"OPENAI_API_KEY", "openai-secret"}});
     requireTrue(anthropic.config.provider == "anthropic",
                 "the documented Anthropic credential should have deterministic priority");
     requireTrue(anthropic.config.endpoint == "https://api.anthropic.com/v1/messages",
@@ -24,8 +24,7 @@ void runLlmProviderProfileTests() {
                     anthropic.config.apiKeyPrefix.empty(),
                 "a standard Anthropic API key must use x-api-key without Bearer");
 
-    auto workloadToken =
-        resolver.resolve({{"ANTHROPIC_AUTH_TOKEN", "short-lived-token"}});
+    auto workloadToken = resolver.resolve({{"ANTHROPIC_AUTH_TOKEN", "short-lived-token"}});
     requireTrue(workloadToken.config.apiKeyHeader == "Authorization" &&
                     workloadToken.config.apiKeyPrefix == "Bearer ",
                 "an Anthropic workload token should use Authorization Bearer");
@@ -35,8 +34,7 @@ void runLlmProviderProfileTests() {
                                       {"DEEPSEEK_MODEL", "custom-model"}});
     requireTrue(deepSeek.config.provider == "deepseek" && deepSeek.customEndpoint,
                 "an explicit DeepSeek proxy should remain marked as custom");
-    requireTrue(deepSeek.config.endpoint ==
-                    "https://proxy.example/v1/chat/completions" &&
+    requireTrue(deepSeek.config.endpoint == "https://proxy.example/v1/chat/completions" &&
                     deepSeek.config.model == "custom-model",
                 "provider overrides should be applied only to their own profile");
 
@@ -46,22 +44,21 @@ void runLlmProviderProfileTests() {
 
     cc::AuditResult deterministic;
     deterministic.trustScore.totalScore = 40;
-    deterministic.findings.push_back({"RULE-1", cc::Severity::Blocker, "材料缺失", "缺材料",
-                                      {}, {}, "补充材料"});
+    deterministic.findings.push_back(
+        {"RULE-1", cc::Severity::Blocker, "材料缺失", "缺材料", {}, {}, "补充材料"});
     cc::AuditAdvisory proposed;
     proposed.suggestedScore = 180;
-    proposed.risks = {
-        {.title = "材料缺失",
-         .severity = cc::Severity::Blocker,
-         .reason = "项目不通过",
-         .ruleIdHint = "WRONG-RULE"},
-        {.title = "材料缺失",
-         .severity = cc::Severity::Info,
-         .reason = "风险很低",
-         .ruleIdHint = "RULE-1"},
-        {.title = "局部结论",
-         .severity = cc::Severity::Warning,
-         .reason = "项目并非无风险，不能通过"}};
+    proposed.risks = {{.title = "材料缺失",
+                       .severity = cc::Severity::Blocker,
+                       .reason = "项目不通过",
+                       .ruleIdHint = "WRONG-RULE"},
+                      {.title = "材料缺失",
+                       .severity = cc::Severity::Info,
+                       .reason = "风险很低",
+                       .ruleIdHint = "RULE-1"},
+                      {.title = "局部结论",
+                       .severity = cc::Severity::Warning,
+                       .reason = "项目并非无风险，不能通过"}};
     const auto reconciled = cc::AdvisoryReconciler{}.reconcile(proposed, deterministic);
     requireTrue(reconciled.suggestedScore == 100,
                 "defensive reconciliation must bound an invalid suggested score");

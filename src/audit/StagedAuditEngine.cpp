@@ -21,8 +21,8 @@
 #include "cc/text/TextExtractionService.hpp"
 
 #include <algorithm>
-#include <sstream>
 #include <set>
+#include <sstream>
 
 namespace cc {
 namespace {
@@ -42,15 +42,14 @@ void appendTextIntegrityFindings(AuditResult& result) {
         const bool requiredMaterial =
             asset != nullptr &&
             (asset->role == AssetRole::ProjectDeclaration ||
-             asset->role == AssetRole::BusinessPlan ||
-             asset->role == AssetRole::ResearchPaper ||
+             asset->role == AssetRole::BusinessPlan || asset->role == AssetRole::ResearchPaper ||
              asset->role == AssetRole::SocialPracticeProof);
         result.findings.push_back(
             {.ruleId = "TEXT_EXTRACTION_REVIEW_" + std::to_string(++index),
              .severity = requiredMaterial ? Severity::Blocker : Severity::Warning,
              .title = "材料文本无法可靠读取",
-             .reason = document.sourceFile.generic_string() + " 的抽取状态为 " +
-                       document.status + "，其内容不能作为高置信事实或证据。",
+             .reason = document.sourceFile.generic_string() + " 的抽取状态为 " + document.status +
+                       "，其内容不能作为高置信事实或证据。",
              .evidence = {document.sourceFile},
              .missingEvidence = {"可可靠读取且经人工确认的材料内容"},
              .fixSuggestion = "提供可复制文本的原始文档，或对扫描件完成 OCR 后人工复核。"});

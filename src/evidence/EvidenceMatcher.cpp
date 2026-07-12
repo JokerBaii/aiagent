@@ -107,8 +107,8 @@ namespace {
         return result;
     }
     for (auto iter = result.begin(); iter != result.end();) {
-        const bool likelyYear = iter->size() == 4U &&
-                                (iter->starts_with("19") || iter->starts_with("20"));
+        const bool likelyYear =
+            iter->size() == 4U && (iter->starts_with("19") || iter->starts_with("20"));
         if (likelyYear) {
             iter = result.erase(iter);
         } else {
@@ -120,8 +120,8 @@ namespace {
 
 [[nodiscard]] std::set<std::string> latinTokens(const std::string& text) {
     static const std::regex pattern{R"([A-Za-z][A-Za-z0-9_-]{2,})"};
-    static const std::set<std::string> ignored = {
-        "the", "and", "for", "with", "from", "this", "that", "tam", "sam", "som"};
+    static const std::set<std::string> ignored = {"the",  "and",  "for", "with", "from",
+                                                  "this", "that", "tam", "sam",  "som"};
     std::set<std::string> result;
     for (auto iter = std::sregex_iterator(text.begin(), text.end(), pattern);
          iter != std::sregex_iterator(); ++iter) {
@@ -135,9 +135,8 @@ namespace {
 
 [[nodiscard]] bool intersects(const std::set<std::string>& left,
                               const std::set<std::string>& right) {
-    return std::any_of(left.begin(), left.end(), [&](const auto& value) {
-        return right.contains(value);
-    });
+    return std::any_of(left.begin(), left.end(),
+                       [&](const auto& value) { return right.contains(value); });
 }
 
 [[nodiscard]] std::optional<std::string> partnerName(const std::string& claim) {
@@ -182,8 +181,8 @@ namespace {
 [[nodiscard]] bool contradicts(const ProjectClaim& claim, const std::string& content) {
     const auto lower = util::lowerAscii(content);
     if (!hasTypeMarker(claim.claimType, lower) ||
-        !containsAny(lower, {"未申请", "未授权", "未获得", "未签署", "未上线", "未部署",
-                             "未实现", "没有营收", "无营收", "数据不一致", "无法验证", "已取消"})) {
+        !containsAny(lower, {"未申请", "未授权", "未获得", "未签署", "未上线", "未部署", "未实现",
+                             "没有营收", "无营收", "数据不一致", "无法验证", "已取消"})) {
         return false;
     }
     const auto claimNumbers = semanticNumbers(claim.claimText);
@@ -215,20 +214,19 @@ namespace {
                containsAny(lower, {"订单编号", "合同编号", "银行流水", "发票号"});
     case ClaimType::CostReduction:
         return sharedNumber &&
-               (asset.role == AssetRole::ExperimentData || asset.role == AssetRole::ProofMaterial) &&
+               (asset.role == AssetRole::ExperimentData ||
+                asset.role == AssetRole::ProofMaterial) &&
                containsAny(lower, {"对照", "测算", "原始成本", "实际成本"});
     case ClaimType::Patent:
         return asset.role == AssetRole::PatentCopyright &&
                std::any_of(claimNumbers.begin(), claimNumbers.end(),
                            [](const auto& value) { return value.size() >= 6U; }) &&
-               sharedNumber &&
-               containsAny(lower, {"授权通知", "专利号", "申请号"});
+               sharedNumber && containsAny(lower, {"授权通知", "专利号", "申请号"});
     case ClaimType::Copyright:
         return asset.role == AssetRole::PatentCopyright &&
                std::any_of(claimNumbers.begin(), claimNumbers.end(),
                            [](const auto& value) { return value.size() >= 6U; }) &&
-               sharedNumber &&
-               containsAny(lower, {"登记号", "软件著作权证书"});
+               sharedNumber && containsAny(lower, {"登记号", "软件著作权证书"});
     case ClaimType::Partnership: {
         const auto partner = partnerName(claim.claimText);
         return asset.role == AssetRole::ProofMaterial && partner.has_value() &&
@@ -237,7 +235,8 @@ namespace {
     }
     case ClaimType::ResearchResult:
         return sharedNumber &&
-               (asset.role == AssetRole::ExperimentData || asset.role == AssetRole::ResearchPaper) &&
+               (asset.role == AssetRole::ExperimentData ||
+                asset.role == AssetRole::ResearchPaper) &&
                containsAny(lower, {"baseline", "评价指标", "对照实验", "原始数据"});
     case ClaimType::SocialImpact:
         return sharedNumber && asset.role == AssetRole::SocialPracticeProof &&
@@ -261,15 +260,14 @@ namespace {
     return found == corpus.end() ? nullptr : &*found;
 }
 
-[[nodiscard]] bool usableCandidate(const ProjectAsset& asset,
-                                   const std::vector<AssetRole>& roles) {
+[[nodiscard]] bool usableCandidate(const ProjectAsset& asset, const std::vector<AssetRole>& roles) {
     return std::find(roles.begin(), roles.end(), asset.role) != roles.end() && !asset.sensitive &&
            !asset.generated && !asset.vendored && !isExcludedTruthPath(asset.relativePath);
 }
 
-[[nodiscard]] std::vector<EvidenceMatch>
-matchEvidence(const std::vector<ProjectClaim>& claims, const ProjectInventory& inventory,
-              const std::vector<TextDocument>& corpus) {
+[[nodiscard]] std::vector<EvidenceMatch> matchEvidence(const std::vector<ProjectClaim>& claims,
+                                                       const ProjectInventory& inventory,
+                                                       const std::vector<TextDocument>& corpus) {
     constexpr std::size_t kMaxEvidenceFiles = 24U;
     std::vector<EvidenceMatch> matches;
     matches.reserve(claims.size());

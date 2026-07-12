@@ -14,40 +14,55 @@ namespace {
 constexpr std::size_t kMaxRules = 10000U;
 constexpr std::size_t kMaxFieldLength = 8192U;
 
-const std::set<std::string, std::less<>> kTracks{
-    "common",          "business_innovation", "software_project",
-    "engineering_product", "scientific_research", "social_practice",
-    "public_welfare",  "ecommerce",           "ai_application",
-    "comprehensive_innovation", "unknown"};
+const std::set<std::string, std::less<>> kTracks{"common",
+                                                 "business_innovation",
+                                                 "software_project",
+                                                 "engineering_product",
+                                                 "scientific_research",
+                                                 "social_practice",
+                                                 "public_welfare",
+                                                 "ecommerce",
+                                                 "ai_application",
+                                                 "comprehensive_innovation",
+                                                 "unknown"};
 
-const std::set<std::string, std::less<>> kConditionKeys{
-    "required_asset",              "required_assets",
-    "required_any_assets",         "missing_asset",
-    "missing_assets",              "minimum_asset_count",
-    "required_claim_evidence",     "required_cpir_fields",
-    "forbidden_roles",             "forbidden_sensitive_file",
-    "consistency_check",           "doc_code_support",
-    "business_model_completeness", "technical_route_completeness",
-    "research_reproducibility",    "social_impact_evidence",
-    "vendor_generated_ratio",      "max_ratio"};
+const std::set<std::string, std::less<>> kConditionKeys{"required_asset",
+                                                        "required_assets",
+                                                        "required_any_assets",
+                                                        "missing_asset",
+                                                        "missing_assets",
+                                                        "minimum_asset_count",
+                                                        "required_claim_evidence",
+                                                        "required_cpir_fields",
+                                                        "forbidden_roles",
+                                                        "forbidden_sensitive_file",
+                                                        "consistency_check",
+                                                        "doc_code_support",
+                                                        "business_model_completeness",
+                                                        "technical_route_completeness",
+                                                        "research_reproducibility",
+                                                        "social_impact_evidence",
+                                                        "vendor_generated_ratio",
+                                                        "max_ratio"};
 
-const std::set<std::string, std::less<>> kBooleanConditions{
-    "forbidden_sensitive_file",    "consistency_check",
-    "doc_code_support",            "business_model_completeness",
-    "technical_route_completeness", "research_reproducibility",
-    "social_impact_evidence",      "vendor_generated_ratio"};
+const std::set<std::string, std::less<>> kBooleanConditions{"forbidden_sensitive_file",
+                                                            "consistency_check",
+                                                            "doc_code_support",
+                                                            "business_model_completeness",
+                                                            "technical_route_completeness",
+                                                            "research_reproducibility",
+                                                            "social_impact_evidence",
+                                                            "vendor_generated_ratio"};
 
 const std::set<std::string, std::less<>> kClaims{
-    "usertraction", "marketscale", "technicalcapability", "businessmodel",
-    "revenue",      "costreduction", "patent",              "copyright",
-    "partnership",  "prototype",    "researchresult",      "socialimpact",
-    "deployment"};
+    "usertraction",   "marketscale",  "technicalcapability", "businessmodel", "revenue",
+    "costreduction",  "patent",       "copyright",           "partnership",   "prototype",
+    "researchresult", "socialimpact", "deployment"};
 
 const std::set<std::string, std::less<>> kCpirFields{
-    "project_name",         "target_user",          "pain_point",
-    "solution",             "product_or_service",   "technical_route",
-    "business_model",       "market_analysis",      "competitor_analysis",
-    "financial_projection", "team_structure",       "current_results",
+    "project_name",        "target_user",          "pain_point",     "solution",
+    "product_or_service",  "technical_route",      "business_model", "market_analysis",
+    "competitor_analysis", "financial_projection", "team_structure", "current_results",
     "social_value"};
 
 [[nodiscard]] bool validIdentifier(std::string_view value) {
@@ -104,8 +119,8 @@ template <typename Validator>
         }
         if (key == "minimum_asset_count") {
             const auto number = value.asNumber(-1.0);
-            if (!value.isNumber() || !std::isfinite(number) || number < 1.0 ||
-                number > 1000000.0 || std::floor(number) != number) {
+            if (!value.isNumber() || !std::isfinite(number) || number < 1.0 || number > 1000000.0 ||
+                std::floor(number) != number) {
                 return Result<void>::failure("minimum_asset_count 必须是 1..1000000 的整数: " +
                                              rule.ruleId);
             }
@@ -127,8 +142,8 @@ template <typename Validator>
             actionable = true;
             continue;
         }
-        if (key == "required_assets" || key == "required_any_assets" ||
-            key == "missing_assets" || key == "forbidden_roles") {
+        if (key == "required_assets" || key == "required_any_assets" || key == "missing_assets" ||
+            key == "forbidden_roles") {
             const auto checked = validateNonEmptyArray(value, key, validateRole);
             if (!checked.ok()) {
                 return Result<void>::failure(checked.error() + ": " + rule.ruleId);
@@ -139,8 +154,7 @@ template <typename Validator>
         if (key == "required_claim_evidence") {
             const auto checked = validateNonEmptyArray(
                 value, key, [](const JsonValue& item, const std::string& name) {
-                    if (!item.isString() ||
-                        !kClaims.contains(util::lowerAscii(item.asString()))) {
+                    if (!item.isString() || !kClaims.contains(util::lowerAscii(item.asString()))) {
                         return Result<void>::failure("条件 " + name + " 包含未知声明类型");
                     }
                     return Result<void>::success();

@@ -44,19 +44,18 @@ void runRulesTests() {
 
     cc::AuditRule invalidThreshold = ratioRule;
     invalidThreshold.ruleId = "TEST_INVALID_THRESHOLD";
-    invalidThreshold.condition =
-        cc::JsonValue::Object{{"minimum_asset_count", -1.0}};
+    invalidThreshold.condition = cc::JsonValue::Object{{"minimum_asset_count", -1.0}};
     requireTrue(!cc::RulePackValidator{}.validate({invalidThreshold}).ok(),
                 "negative asset thresholds must be rejected");
 
     auto aiRules = cc::RulePackLoader{}.loadDirectory(sourceDir() / "rules",
-                                                       cc::CompetitionType::AiApplication);
+                                                      cc::CompetitionType::AiApplication);
     requireTrue(aiRules.ok(), "AI track should load its compatible software rule pack");
     cc::CPIR aiProject;
     aiProject.competitionType = cc::CompetitionType::AiApplication;
     const auto aiFindings = cc::RuleEngine{}.evaluate(aiRules.value(), {}, aiProject, {}, {}, {});
-    requireTrue(std::any_of(aiFindings.begin(), aiFindings.end(), [](const cc::AuditFinding& item) {
-                    return item.ruleId == "SOFT_SOURCE_001";
-                }),
-                "software rules must execute for the AI track");
+    requireTrue(
+        std::any_of(aiFindings.begin(), aiFindings.end(),
+                    [](const cc::AuditFinding& item) { return item.ruleId == "SOFT_SOURCE_001"; }),
+        "software rules must execute for the AI track");
 }

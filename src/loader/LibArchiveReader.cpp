@@ -19,7 +19,7 @@
 namespace cc {
 namespace {
 
-constexpr std::size_t kReadBufferSize = 64U * 1024U;
+constexpr std::size_t kReadBufferSize = std::size_t{64U} * 1024U;
 
 struct ArchiveReadDeleter {
     void operator()(archive* handle) const {
@@ -61,6 +61,11 @@ class ExtractionRollback {
             std::filesystem::create_directories(root_, ignored);
         }
     }
+
+    ExtractionRollback(const ExtractionRollback&) = delete;
+    ExtractionRollback& operator=(const ExtractionRollback&) = delete;
+    ExtractionRollback(ExtractionRollback&&) = delete;
+    ExtractionRollback& operator=(ExtractionRollback&&) = delete;
 
     void arm() {
         armed_ = true;
@@ -246,6 +251,8 @@ class EntryPathIndex {
     return Result<void>::success();
 }
 
+// 参数按“目标/展示路径”和“压缩/展开计数”成对传入，调用点使用命名变量保持语义清晰。
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 [[nodiscard]] EntryWriteOutcome writeEntryData(
     archive* handle, const std::filesystem::path& target, const std::filesystem::path& displayPath,
     const ImportLimits& limits, std::uint64_t archiveBytes, std::uint64_t expandedBefore,
@@ -329,6 +336,7 @@ class EntryPathIndex {
     }
     return {.status = EntryWriteStatus::Complete, .bytesSeen = entryBytes, .error = {}};
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 [[nodiscard]] Result<void> skipEntryData(archive* handle, const std::string& fallback) {
     if (archive_read_data_skip(handle) != ARCHIVE_OK) {
@@ -337,6 +345,8 @@ class EntryPathIndex {
     return Result<void>::success();
 }
 
+// 三个计数分别表示压缩包大小、此前展开量和当前条目已读量，不能合并为同一概念。
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 [[nodiscard]] Result<std::uint64_t> consumeUnknownSizeEntry(archive* handle,
                                                             std::uint64_t archiveBytes,
                                                             std::uint64_t securityExpandedBefore,
@@ -364,6 +374,7 @@ class EntryPathIndex {
     }
     return Result<std::uint64_t>::success(entryBytes);
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)
 
 } // namespace
 

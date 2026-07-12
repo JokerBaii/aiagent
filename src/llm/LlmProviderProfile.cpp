@@ -23,9 +23,11 @@ struct NormalizedEndpoint {
     text.erase(text.begin(), std::find_if(text.begin(), text.end(), [&](char character) {
                    return !whitespace(static_cast<unsigned char>(character));
                }));
-    text.erase(std::find_if(text.rbegin(), text.rend(), [&](char character) {
-                   return !whitespace(static_cast<unsigned char>(character));
-               }).base(),
+    text.erase(std::find_if(text.rbegin(), text.rend(),
+                            [&](char character) {
+                                return !whitespace(static_cast<unsigned char>(character));
+                            })
+                   .base(),
                text.end());
     return text;
 }
@@ -68,9 +70,8 @@ struct NormalizedEndpoint {
 }
 
 [[nodiscard]] bool endsWithPathSegment(std::string_view path, std::string_view suffix) {
-    return path == suffix ||
-           (path.size() > suffix.size() && path.ends_with(suffix) &&
-            path[path.size() - suffix.size() - 1U] == '/');
+    return path == suffix || (path.size() > suffix.size() && path.ends_with(suffix) &&
+                              path[path.size() - suffix.size() - 1U] == '/');
 }
 
 [[nodiscard]] std::string stripTrailingSlashes(std::string path) {
@@ -103,13 +104,12 @@ struct NormalizedEndpoint {
     if (isDeepSeekHost(host) && !lower.starts_with("deepseek-")) {
         return Result<void>::failure("DeepSeek 官方 endpoint 只能配置 DeepSeek 模型");
     }
-    if (isOpenAiHost(host) &&
-        (lower.starts_with("claude-") || lower.starts_with("deepseek-"))) {
+    if (isOpenAiHost(host) && (lower.starts_with("claude-") || lower.starts_with("deepseek-"))) {
         return Result<void>::failure("OpenAI 官方 endpoint 与当前模型不一致");
     }
     if (provider == ProviderKind::Anthropic &&
-        (lower.starts_with("gpt-") || lower.starts_with("deepseek-") ||
-         lower.starts_with("o1") || lower.starts_with("o3") || lower.starts_with("o4"))) {
+        (lower.starts_with("gpt-") || lower.starts_with("deepseek-") || lower.starts_with("o1") ||
+         lower.starts_with("o3") || lower.starts_with("o4"))) {
         return Result<void>::failure("Anthropic Messages endpoint 与当前模型不一致");
     }
     return Result<void>::success();
@@ -145,9 +145,8 @@ normalizeEndpoint(std::string endpoint, std::string_view model,
     if (requiredProvider != nullptr) {
         if ((*requiredProvider == ProviderKind::Anthropic && chatCompletions) ||
             (*requiredProvider != ProviderKind::Anthropic && messages)) {
-            const auto expected = *requiredProvider == ProviderKind::Anthropic
-                                      ? "/messages"
-                                      : "/chat/completions";
+            const auto expected =
+                *requiredProvider == ProviderKind::Anthropic ? "/messages" : "/chat/completions";
             return Result<NormalizedEndpoint>::failure("当前 provider 的 endpoint 必须以 " +
                                                        std::string{expected} + " 结尾");
         }
@@ -155,8 +154,8 @@ normalizeEndpoint(std::string endpoint, std::string_view model,
     } else if (messages) {
         provider = ProviderKind::Anthropic;
     } else if (chatCompletions) {
-        provider = isDeepSeekHost(parsed.value().host) ? ProviderKind::DeepSeek
-                                                       : ProviderKind::OpenAi;
+        provider =
+            isDeepSeekHost(parsed.value().host) ? ProviderKind::DeepSeek : ProviderKind::OpenAi;
     } else if (isAnthropicHost(parsed.value().host)) {
         provider = ProviderKind::Anthropic;
     } else if (isDeepSeekHost(parsed.value().host)) {
@@ -176,12 +175,12 @@ normalizeEndpoint(std::string endpoint, std::string_view model,
         if (path == "/") {
             path.clear();
         }
-        const auto suffix = provider == ProviderKind::Anthropic
-                                ? (path.ends_with("/v1") ? "/messages" : "/v1/messages")
-                            : provider == ProviderKind::DeepSeek
-                                ? "/chat/completions"
-                                : (path.ends_with("/v1") ? "/chat/completions"
-                                                         : "/v1/chat/completions");
+        const auto suffix =
+            provider == ProviderKind::Anthropic
+                ? (path.ends_with("/v1") ? "/messages" : "/v1/messages")
+            : provider == ProviderKind::DeepSeek
+                ? "/chat/completions"
+                : (path.ends_with("/v1") ? "/chat/completions" : "/v1/chat/completions");
         path += suffix;
     }
 
@@ -205,9 +204,8 @@ normalizeEndpoint(std::string endpoint, std::string_view model,
     profile.config.endpoint = std::move(normalized.url);
     profile.config.model = trim(std::move(model));
     profile.config.apiKey = std::move(key);
-    profile.config.apiKeyHeader = normalized.provider == ProviderKind::Anthropic
-                                      ? "x-api-key"
-                                      : "Authorization";
+    profile.config.apiKeyHeader =
+        normalized.provider == ProviderKind::Anthropic ? "x-api-key" : "Authorization";
     profile.config.apiKeyPrefix = normalized.provider == ProviderKind::Anthropic ? "" : "Bearer ";
     profile.configured = !profile.config.apiKey.empty();
     profile.credentialSource = std::move(credentialSource);
@@ -226,10 +224,11 @@ normalizeEndpoint(std::string endpoint, std::string_view model,
     return profile;
 }
 
-[[nodiscard]] LlmProviderProfile environmentProfile(
-    const LlmProviderResolver::Environment& environment, ProviderKind provider, std::string key,
-    std::string credentialSource, std::string_view baseName, std::string_view modelName,
-    std::string defaultEndpoint, std::string defaultModel) {
+[[nodiscard]] LlmProviderProfile
+environmentProfile(const LlmProviderResolver::Environment& environment, ProviderKind provider,
+                   std::string key, std::string credentialSource, std::string_view baseName,
+                   std::string_view modelName, std::string defaultEndpoint,
+                   std::string defaultModel) {
     if (key.size() > 8192U || hasUnsafeText(key)) {
         return invalidProfile(std::string{credentialSource} +
                               " 配置无效: API key 过长或包含控制字符");
@@ -252,6 +251,10 @@ normalizeEndpoint(std::string endpoint, std::string_view model,
     }
     auto profile = profileFor(std::move(normalized.value()), std::move(model), std::move(key),
                               std::move(credentialSource));
+    if (profile.credentialSource == "ANTHROPIC_AUTH_TOKEN") {
+        profile.config.apiKeyHeader = "Authorization";
+        profile.config.apiKeyPrefix = "Bearer ";
+    }
     profile.configured = profile.config.apiKey.size() >= 8U;
     return profile;
 }
@@ -290,9 +293,9 @@ LlmProviderResolver::resolve(const LlmProviderResolver::Environment& environment
                               "https://api.deepseek.com/chat/completions", "deepseek-v4-flash");
 }
 
-Result<LlmProviderProfile>
-LlmProviderResolver::resolveUserProfile(std::string endpoint, std::string model,
-                                        std::string apiKey) const {
+Result<LlmProviderProfile> LlmProviderResolver::resolveUserProfile(std::string endpoint,
+                                                                   std::string model,
+                                                                   std::string apiKey) const {
     model = trim(std::move(model));
     apiKey = trim(std::move(apiKey));
     if (apiKey.size() > 8192U || hasUnsafeText(apiKey)) {
@@ -302,12 +305,13 @@ LlmProviderResolver::resolveUserProfile(std::string endpoint, std::string model,
     if (!normalized.ok()) {
         return Result<LlmProviderProfile>::failure(normalized.error());
     }
-    auto modelValidation = validateModel(normalized.value().provider, normalized.value().host, model);
+    auto modelValidation =
+        validateModel(normalized.value().provider, normalized.value().host, model);
     if (!modelValidation.ok()) {
         return Result<LlmProviderProfile>::failure(modelValidation.error());
     }
-    auto profile = profileFor(std::move(normalized.value()), std::move(model), std::move(apiKey),
-                              "user");
+    auto profile =
+        profileFor(std::move(normalized.value()), std::move(model), std::move(apiKey), "user");
     profile.configured = profile.config.apiKey.size() >= 8U;
     return Result<LlmProviderProfile>::success(std::move(profile));
 }
@@ -344,8 +348,7 @@ Result<void> LlmProviderResolver::validateConfig(const LlmConfig& config) const 
             return Result<void>::failure("Anthropic 认证必须使用 x-api-key，且不能添加 Bearer");
         }
     } else if (config.apiKeyHeader != "Authorization" || config.apiKeyPrefix != "Bearer ") {
-        return Result<void>::failure(
-            "OpenAI-compatible 认证必须使用 Authorization: Bearer");
+        return Result<void>::failure("OpenAI-compatible 认证必须使用 Authorization: Bearer");
     }
     return Result<void>::success();
 }

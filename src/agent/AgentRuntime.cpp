@@ -5,7 +5,9 @@
 
 #include "cc/agent/AgentRuntime.hpp"
 
-#include "cc/agent/PermissionGate.hpp"
+#include "cc/agent/AgentFilePolicy.hpp"
+#include "cc/agent/AgentPermissionPolicy.hpp"
+#include "cc/agent/AgentTraceSerializer.hpp"
 #include "cc/agent/StagedAuditPipeline.hpp"
 #include "cc/agent/ToolRegistry.hpp"
 #include "cc/agent/WorkspaceEditor.hpp"
@@ -33,6 +35,13 @@
 namespace cc {
 namespace {
 
+using agent_file_policy::hasSensitivePathComponent;
+using agent_file_policy::isReadableTextLike;
+using agent_file_policy::isSensitiveFile;
+using agent_file_policy::sanitizeUtf8;
+using agent_file_policy::textContainsSecretMarker;
+using agent_file_policy::truncateText;
+
 [[nodiscard]] bool requestCancelled(const AgentRunRequest& request) {
     return request.isCancelled && request.isCancelled();
 }
@@ -46,146 +55,13 @@ constexpr std::size_t kMaximumArchiveEntries = 200U;
 constexpr std::size_t kMaximumSearchFiles = 200U;
 constexpr std::size_t kMaximumSearchMatches = 100U;
 constexpr std::size_t kMaximumTraversalEntries = 10000U;
-constexpr std::size_t kSensitiveSampleLimit = 32U * 1024U;
 
 [[nodiscard]] std::string pathText(const std::filesystem::path& path) {
     return path.generic_string();
 }
 
-[[nodiscard]] std::size_t utf8PrefixLength(std::string_view value, std::size_t limit) {
-    auto length = std::min(value.size(), limit);
-    while (length > 0U && length < value.size() &&
-           (static_cast<unsigned char>(value[length]) & 0xC0U) == 0x80U) {
-        --length;
-    }
-    return length;
-}
-
-[[nodiscard]] std::string sanitizeUtf8(std::string_view value) {
-    std::string clean;
-    clean.reserve(value.size());
-    for (std::size_t index = 0U; index < value.size();) {
-        const auto lead = static_cast<unsigned char>(value[index]);
-        std::size_t width = 0U;
-        if (lead <= 0x7FU) {
-            width = 1U;
-        } else if (lead >= 0xC2U && lead <= 0xDFU) {
-            width = 2U;
-        } else if (lead >= 0xE0U && lead <= 0xEFU) {
-            width = 3U;
-        } else if (lead >= 0xF0U && lead <= 0xF4U) {
-            width = 4U;
-        }
-        bool valid = width != 0U && index + width <= value.size();
-        for (std::size_t offset = 1U; valid && offset < width; ++offset) {
-            const auto continuation = static_cast<unsigned char>(value[index + offset]);
-            valid = (continuation & 0xC0U) == 0x80U;
-        }
-        if (valid && width == 3U) {
-            const auto second = static_cast<unsigned char>(value[index + 1U]);
-            valid = !((lead == 0xE0U && second < 0xA0U) ||
-                      (lead == 0xEDU && second >= 0xA0U));
-        }
-        if (valid && width == 4U) {
-            const auto second = static_cast<unsigned char>(value[index + 1U]);
-            valid = !((lead == 0xF0U && second < 0x90U) ||
-                      (lead == 0xF4U && second >= 0x90U));
-        }
-        if (!valid) {
-            clean.push_back('?');
-            ++index;
-            continue;
-        }
-        clean.append(value.substr(index, width));
-        index += width;
-    }
-    return clean;
-}
-
-[[nodiscard]] std::string truncateText(const std::string& value, std::size_t limit) {
-    if (value.size() <= limit) {
-        return sanitizeUtf8(value);
-    }
-    return sanitizeUtf8(value.substr(0U, utf8PrefixLength(value, limit))) + "\n...[已截断]";
-}
-
 [[nodiscard]] std::string extensionLower(const std::filesystem::path& path) {
     return util::lowerAscii(path.extension().generic_string());
-}
-
-[[nodiscard]] bool hasTextLikeExtension(const std::filesystem::path& path) {
-    const auto ext = extensionLower(path);
-    return ext.empty() || isLikelyTextExtension(ext) || isCodeExtension(ext);
-}
-
-[[nodiscard]] bool sampleLooksBinary(const std::filesystem::path& path) {
-    const auto sample = util::readFileLimited(path, 8192U);
-    if (sample.empty()) {
-        return false;
-    }
-    std::size_t suspicious = 0U;
-    for (const auto byte : sample) {
-        const auto value = static_cast<unsigned char>(byte);
-        if (value == 0U) {
-            return true;
-        }
-        if (value < 0x09U || (value > 0x0DU && value < 0x20U)) {
-            ++suspicious;
-        }
-    }
-    return suspicious * 20U > sample.size();
-}
-
-[[nodiscard]] bool isReadableTextLike(const std::filesystem::path& path) {
-    std::error_code ec;
-    if (!hasTextLikeExtension(path) || !std::filesystem::is_regular_file(path, ec)) {
-        return false;
-    }
-    return !sampleLooksBinary(path);
-}
-
-[[nodiscard]] bool hasSensitivePathComponent(const std::filesystem::path& path) {
-    for (const auto& component : path) {
-        const auto name = util::lowerAscii(component.generic_string());
-        const std::filesystem::path componentPath{name};
-        const auto extension = componentPath.extension().generic_string();
-        if (name.rfind(".env", 0U) == 0U || name == ".npmrc" || name == ".pypirc" ||
-            name == ".netrc" || name == "id_rsa" || name == "id_ed25519" ||
-            name == "credentials" || name == "credentials.json" ||
-            name == "service-account.json" || extension == ".pem" || extension == ".key" ||
-            extension == ".p12" || extension == ".pfx" ||
-            util::contains(name, "credential") || util::contains(name, "private-key") ||
-            util::contains(name, "private_key") || util::contains(name, "secret") ||
-            util::contains(name, "access-token") || util::contains(name, "access_token")) {
-            return true;
-        }
-    }
-    return false;
-}
-
-[[nodiscard]] bool textContainsSecretMarker(std::string sample) {
-    sample = util::lowerAscii(std::move(sample));
-    static constexpr std::string_view markers[] = {
-        "-----begin private key", "-----begin rsa private key", "-----begin openssh private key",
-        "client_secret",         "api_key=",                    "api-key:",
-        "apikey=",               "access_token",                "refresh_token",
-        "authorization: bearer", "aws_secret_access_key",       "password=",
-        "\"password\":",       "\"secret\":"};
-    return std::any_of(std::begin(markers), std::end(markers), [&](std::string_view marker) {
-        return sample.find(marker) != std::string::npos;
-    });
-}
-
-[[nodiscard]] bool contentLooksSensitive(const std::filesystem::path& path) {
-    std::error_code ec;
-    if (!std::filesystem::is_regular_file(path, ec)) {
-        return false;
-    }
-    return textContainsSecretMarker(util::readFileLimited(path, kSensitiveSampleLimit));
-}
-
-[[nodiscard]] bool isSensitiveFile(const std::filesystem::path& path) {
-    return hasSensitivePathComponent(path) || contentLooksSensitive(path);
 }
 
 [[nodiscard]] std::string projectRootLabel() {
@@ -194,10 +70,6 @@ constexpr std::size_t kSensitiveSampleLimit = 32U * 1024U;
 
 [[nodiscard]] std::string workspacePathLabel(const std::filesystem::path& relative) {
     return "workspace://" + relative.generic_string();
-}
-
-[[nodiscard]] std::string projectPathLabel(const std::filesystem::path& relative) {
-    return "project://" + relative.generic_string();
 }
 
 [[nodiscard]] std::size_t boundedInteger(const JsonValue& input, const std::string& key,
@@ -286,13 +158,8 @@ constexpr std::size_t kSensitiveSampleLimit = 32U * 1024U;
                          .input = std::move(input)};
 }
 
-[[nodiscard]] std::string permissionDeniedText(ToolPermission permission) {
-    return "权限门控拒绝工具调用，需要权限: " + toString(permission);
-}
-
 [[nodiscard]] bool hasRiskFlag(const ProjectAsset& asset, std::string_view flag) {
-    return std::find(asset.riskFlags.begin(), asset.riskFlags.end(), flag) !=
-           asset.riskFlags.end();
+    return std::find(asset.riskFlags.begin(), asset.riskFlags.end(), flag) != asset.riskFlags.end();
 }
 
 [[nodiscard]] bool contentDeferred(const ProjectAsset& asset) {
@@ -353,11 +220,11 @@ constexpr std::size_t kSensitiveSampleLimit = 32U * 1024U;
         return nullptr;
     }
     const auto relative = requestedRelativePath(request, input);
-    const auto found = std::find_if(
-        request.auditResult->inventory.assets.begin(), request.auditResult->inventory.assets.end(),
-        [&](const ProjectAsset& asset) {
-            return asset.relativePath.lexically_normal() == relative;
-        });
+    const auto found =
+        std::find_if(request.auditResult->inventory.assets.begin(),
+                     request.auditResult->inventory.assets.end(), [&](const ProjectAsset& asset) {
+                         return asset.relativePath.lexically_normal() == relative;
+                     });
     return found == request.auditResult->inventory.assets.end() ? nullptr : &(*found);
 }
 
@@ -405,13 +272,11 @@ resolveDeferredOriginalFile(const AgentRunRequest& request, const ProjectAsset& 
                 "用户所选单文件是符号链接，不能作为延迟内容读取");
         }
         if (asset.relativePath.lexically_normal() != context.originalRoot.filename()) {
-            return Result<std::filesystem::path>::failure(
-                "延迟清单项与用户所选单文件不一致");
+            return Result<std::filesystem::path>::failure("延迟清单项与用户所选单文件不一致");
         }
         auto normalized = PathGuard::normalize(context.originalRoot);
         if (!normalized.ok()) {
-            return Result<std::filesystem::path>::failure(
-                "无法安全定位用户所选的延迟单文件");
+            return Result<std::filesystem::path>::failure("无法安全定位用户所选的延迟单文件");
         }
         return normalized;
     }
@@ -426,8 +291,7 @@ resolveDeferredOriginalFile(const AgentRunRequest& request, const ProjectAsset& 
     const auto target = context.originalRoot / relative;
     if (!PathGuard::isInsideRoot(context.originalRoot, target) ||
         hasSymlinkComponent(context.originalRoot, relative)) {
-        return Result<std::filesystem::path>::failure(
-            "延迟文件路径包含符号链接或越过用户所选目录");
+        return Result<std::filesystem::path>::failure("延迟文件路径包含符号链接或越过用户所选目录");
     }
     if (!std::filesystem::is_regular_file(target, ec)) {
         return Result<std::filesystem::path>::failure("延迟文件的原始来源已不存在或不是普通文件");
@@ -450,11 +314,25 @@ resolveDeferredOriginalFile(const AgentRunRequest& request, const ProjectAsset& 
     return source.ok();
 }
 
+[[nodiscard]] const TextDocument* extractedProjectDocument(const AgentRunRequest& request,
+                                                           const std::filesystem::path& relative) {
+    if (request.auditResult == nullptr) {
+        return nullptr;
+    }
+    const auto document =
+        std::find_if(request.auditResult->corpus.begin(), request.auditResult->corpus.end(),
+                     [&](const TextDocument& item) { return item.sourceFile == relative; });
+    return document == request.auditResult->corpus.end() ? nullptr : &(*document);
+}
+
 [[nodiscard]] JsonValue requestAssetJson(const AgentRunRequest& request,
                                          const ProjectAsset& asset) {
     auto value = assetJson(asset);
     value.asObject().insert_or_assign("on_demand_text_candidate",
                                       onDemandTextCandidate(request, asset));
+    value.asObject().insert_or_assign("extracted_document_available",
+                                      extractedProjectDocument(request, asset.relativePath) !=
+                                          nullptr);
     return value;
 }
 
@@ -480,48 +358,6 @@ resolveDeferredOriginalFile(const AgentRunRequest& request, const ProjectAsset& 
     const auto iter = std::find_if(specs.begin(), specs.end(),
                                    [&](const AgentToolSpec& spec) { return spec.name == name; });
     return iter == specs.end() ? nullptr : &(*iter);
-}
-
-[[nodiscard]] JsonValue observationJson(const AgentObservation& observation) {
-    return JsonValue::Object{{"call_id", observation.callId},
-                             {"tool_name", observation.toolName},
-                             {"ok", observation.ok},
-                             {"summary", observation.summary},
-                             {"output", observation.output}};
-}
-
-[[nodiscard]] JsonValue callJson(const AgentToolCall& callItem) {
-    return JsonValue::Object{{"id", callItem.id},
-                             {"name", callItem.name},
-                             {"reason", callItem.reason},
-                             {"input", callItem.input}};
-}
-
-[[nodiscard]] JsonValue traceJson(const AgentPlan& plan,
-                                  const std::vector<AgentObservation>& observations,
-                                  const std::vector<AgentEvent>& events,
-                                  const std::string& finalAnswer) {
-    JsonValue::Array callArray;
-    for (const auto& item : plan.calls) {
-        callArray.push_back(callJson(item));
-    }
-    JsonValue::Array observationArray;
-    for (const auto& observation : observations) {
-        observationArray.push_back(observationJson(observation));
-    }
-    JsonValue::Array eventArray;
-    for (const auto& item : events) {
-        eventArray.push_back(JsonValue::Object{{"kind", toString(item.kind)},
-                                               {"role", item.role},
-                                               {"text", item.text},
-                                               {"context", item.context},
-                                               {"payload", item.payload}});
-    }
-    return JsonValue::Object{
-        {"plan", JsonValue::Object{{"summary", plan.summary}, {"calls", JsonValue{callArray}}}},
-        {"observations", JsonValue{observationArray}},
-        {"events", JsonValue{eventArray}},
-        {"final_answer", finalAnswer}};
 }
 
 [[nodiscard]] std::string auditSummary(const AuditResult& result) {
@@ -587,7 +423,7 @@ finalAnswerFromObservations(const AgentRunRequest& request,
 [[nodiscard]] AgentEvent planEvent(const AgentPlan& plan, const std::string& planner) {
     JsonValue::Array calls;
     for (const auto& item : plan.calls) {
-        calls.push_back(callJson(item));
+        calls.push_back(agentToolCallJson(item));
     }
     return AgentEvent{.kind = AgentEventKind::Plan,
                       .role = "计划",
@@ -601,7 +437,7 @@ finalAnswerFromObservations(const AgentRunRequest& request,
                       .role = "工具",
                       .text = observation.summary,
                       .context = observation.toolName,
-                      .payload = observationJson(observation)};
+                      .payload = agentObservationJson(observation)};
 }
 
 [[nodiscard]] AgentEvent assistantEvent(const std::string& finalAnswer) {
@@ -672,12 +508,14 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
     }
     if (request.auditResult != nullptr) {
         return Result<AgentToolExecution>::success(AgentToolExecution{
-            .observations = {AgentObservation{.callId = callItem.id,
-                                              .toolName = callItem.name,
-                                              .ok = false,
-                                              .summary = "当前会话已有审计结果，无需重复运行；请读取摘要或继续核查文件",
-                                              .output = JsonValue::Object{}}},
-            .auditResult = std::nullopt});
+            .observations = {AgentObservation{
+                .callId = callItem.id,
+                .toolName = callItem.name,
+                .ok = false,
+                .summary = "当前会话已有审计结果，无需重复运行；请读取摘要或继续核查文件",
+                .output = JsonValue::Object{}}},
+            .auditResult = std::nullopt,
+            .auditDiff = std::nullopt});
     }
     if (request.projectRoot.empty()) {
         return Result<AgentToolExecution>::success(AgentToolExecution{
@@ -686,7 +524,8 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                               .ok = false,
                                               .summary = "未提供可审计的项目路径",
                                               .output = JsonValue::Object{}}},
-            .auditResult = std::nullopt});
+            .auditResult = std::nullopt,
+            .auditDiff = std::nullopt});
     }
 
     StagedAuditPipeline pipeline;
@@ -738,13 +577,13 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
     observations.push_back(std::move(completed));
     return Result<AgentToolExecution>::success(
         AgentToolExecution{.observations = std::move(observations),
-                           .auditResult = std::move(result.value())});
+                           .auditResult = std::move(result.value()),
+                           .auditDiff = std::nullopt});
 }
 
 [[nodiscard]] Result<AgentObservation> runListProjectFiles(const AgentRunRequest& request,
                                                            const AgentToolCall& callItem) {
-    const auto maxFiles =
-        boundedInteger(callItem.input, "max_files", 80U, kMaximumListFiles);
+    const auto maxFiles = boundedInteger(callItem.input, "max_files", 80U, kMaximumListFiles);
     if (request.auditResult != nullptr) {
         JsonValue::Array files;
         std::size_t omittedSensitive = 0U;
@@ -768,12 +607,11 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
             .callId = callItem.id,
             .toolName = callItem.name,
             .ok = true,
-            .summary = "已从审计清单列出可安全暴露的项目文件 " +
-                       std::to_string(files.size()) + " 个" +
-                       (deferredCount == 0U
-                            ? std::string{}
-                            : "，其中清单保留 " + std::to_string(deferredCount) +
-                                  " 个仅元数据或按需读取的文件") +
+            .summary = "已从审计清单列出可安全暴露的项目文件 " + std::to_string(files.size()) +
+                       " 个" +
+                       (deferredCount == 0U ? std::string{}
+                                            : "，其中清单保留 " + std::to_string(deferredCount) +
+                                                  " 个仅元数据或按需读取的文件") +
                        (omittedSensitive == 0U
                             ? std::string{}
                             : "；" + std::to_string(omittedSensitive) + " 个敏感文件已隐藏"),
@@ -810,14 +648,14 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
         auto asset = detectProjectAsset(request, root);
         asset.relativePath = root.filename();
         files.push_back(assetJson(asset));
-        return Result<AgentObservation>::success(AgentObservation{
-            .callId = callItem.id,
-            .toolName = callItem.name,
-            .ok = true,
-            .summary = "当前输入是单个项目文件，已读取文件元数据",
-            .output = JsonValue::Object{{"root", projectRootLabel()},
-                                        {"omitted_sensitive_count", 0},
-                                        {"files", JsonValue{files}}}});
+        return Result<AgentObservation>::success(
+            AgentObservation{.callId = callItem.id,
+                             .toolName = callItem.name,
+                             .ok = true,
+                             .summary = "当前输入是单个项目文件，已读取文件元数据",
+                             .output = JsonValue::Object{{"root", projectRootLabel()},
+                                                         {"omitted_sensitive_count", 0},
+                                                         {"files", JsonValue{files}}}});
     }
 
     if (!std::filesystem::is_directory(root, ec)) {
@@ -865,13 +703,12 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
         .summary = "已枚举可安全暴露的项目文件 " + std::to_string(files.size()) + " 个" +
                    (omittedSensitive == 0U
                         ? std::string{}
-                        : "，另有 " + std::to_string(omittedSensitive) +
-                              " 个敏感文件已隐藏"),
-        .output = JsonValue::Object{{"root", projectRootLabel()},
-                                    {"omitted_sensitive_count",
-                                     static_cast<double>(omittedSensitive)},
-                                    {"truncated", traversalTruncated || files.size() >= maxFiles},
-                                    {"files", JsonValue{files}}}});
+                        : "，另有 " + std::to_string(omittedSensitive) + " 个敏感文件已隐藏"),
+        .output =
+            JsonValue::Object{{"root", projectRootLabel()},
+                              {"omitted_sensitive_count", static_cast<double>(omittedSensitive)},
+                              {"truncated", traversalTruncated || files.size() >= maxFiles},
+                              {"files", JsonValue{files}}}});
 }
 
 [[nodiscard]] Result<AgentObservation> runInspectProjectFile(const AgentRunRequest& request,
@@ -901,8 +738,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
             if (source.ok()) {
                 if (isSensitiveFile(source.value())) {
                     return Result<AgentObservation>::success(rejectedObservation(
-                        callItem,
-                        "该文件命中敏感信息策略，未向智能体暴露文件名、元数据或内容"));
+                        callItem, "该文件命中敏感信息策略，未向智能体暴露文件名、元数据或内容"));
                 }
                 const auto detected = FormatDetector{}.detect(
                     originalDetectionRoot(request.auditResult->context), source.value());
@@ -917,8 +753,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                     {"path", manifestAsset->relativePath.generic_string()},
                     {"asset", requestAssetJson(request, *manifestAsset)},
                     {"content_deferred", true},
-                    {"on_demand_text_candidate",
-                     onDemandTextCandidate(request, *manifestAsset)},
+                    {"on_demand_text_candidate", onDemandTextCandidate(request, *manifestAsset)},
                     {"can_read_text", canReadText},
                     {"can_inspect_archive", false},
                     {"suggested_tool", canReadText ? "read_text_file" : "list_project_files"}}});
@@ -932,21 +767,25 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
     }
     const auto asset = detectProjectAsset(request, path.value());
     const bool canReadText = confirmedTextAsset(asset);
+    const bool canReadExtractedDocument =
+        extractedProjectDocument(request, asset.relativePath) != nullptr;
     const bool canInspectArchive = ArchiveExtractor::isArchivePath(path.value());
-    const auto suggested = canReadText         ? "read_text_file"
-                           : canInspectArchive ? "inspect_archive"
-                                               : "list_project_files";
-    return Result<AgentObservation>::success(
-        AgentObservation{.callId = callItem.id,
-                         .toolName = callItem.name,
-                         .ok = true,
-                         .summary = "已检查文件格式: " + pathText(asset.relativePath),
-                         .output = JsonValue::Object{{"path", pathText(asset.relativePath)},
-                                                     {"asset", assetJson(asset)},
-                                                     {"content_deferred", false},
-                                                     {"can_read_text", canReadText},
-                                                     {"can_inspect_archive", canInspectArchive},
-                                                     {"suggested_tool", suggested}}});
+    const auto suggested = canReadText                ? "read_text_file"
+                           : canReadExtractedDocument ? "read_extracted_document"
+                           : canInspectArchive        ? "inspect_archive"
+                                                      : "list_project_files";
+    return Result<AgentObservation>::success(AgentObservation{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = "已检查文件格式: " + pathText(asset.relativePath),
+        .output = JsonValue::Object{{"path", pathText(asset.relativePath)},
+                                    {"asset", assetJson(asset)},
+                                    {"content_deferred", false},
+                                    {"can_read_text", canReadText},
+                                    {"can_read_extracted_document", canReadExtractedDocument},
+                                    {"can_inspect_archive", canInspectArchive},
+                                    {"suggested_tool", suggested}}});
 }
 
 [[nodiscard]] Result<AgentObservation> runReadTextFile(const AgentRunRequest& request,
@@ -1008,14 +847,13 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
 
     auto source = resolveDeferredOriginalFile(request, *manifestAsset);
     if (!source.ok()) {
-        return Result<AgentObservation>::success(
-            AgentObservation{.callId = callItem.id,
-                             .toolName = callItem.name,
-                             .ok = false,
-                             .summary = source.error(),
-                             .output = JsonValue::Object{{"asset", requestAssetJson(
-                                                                      request, *manifestAsset)},
-                                                         {"content_deferred", true}}});
+        return Result<AgentObservation>::success(AgentObservation{
+            .callId = callItem.id,
+            .toolName = callItem.name,
+            .ok = false,
+            .summary = source.error(),
+            .output = JsonValue::Object{{"asset", requestAssetJson(request, *manifestAsset)},
+                                        {"content_deferred", true}}});
     }
     if (isSensitiveFile(source.value())) {
         return Result<AgentObservation>::success(rejectedObservation(
@@ -1049,8 +887,8 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                     {"content", content}}});
 }
 
-[[nodiscard]] Result<AgentObservation>
-runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& callItem) {
+[[nodiscard]] Result<AgentObservation> runReadExtractedDocument(const AgentRunRequest& request,
+                                                                const AgentToolCall& callItem) {
     if (request.auditResult == nullptr) {
         return Result<AgentObservation>::success(
             rejectedObservation(callItem, "请先运行项目审计，再读取文档抽取结果"));
@@ -1061,26 +899,28 @@ runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& ca
         return Result<AgentObservation>::success(
             rejectedObservation(callItem, "文档路径未通过项目边界或敏感信息策略"));
     }
-    const auto document = std::find_if(
-        request.auditResult->corpus.begin(), request.auditResult->corpus.end(),
-        [&](const TextDocument& item) { return item.sourceFile == relative; });
-    if (document == request.auditResult->corpus.end()) {
+    const auto* document = extractedProjectDocument(request, relative);
+    if (document == nullptr) {
         return Result<AgentObservation>::success(
             rejectedObservation(callItem, "审计语料中没有该文档的可用抽取结果"));
     }
     const auto limit = boundedInteger(callItem.input, "max_bytes", 24000U, kMaximumReadLimit);
-    const bool needsReview = document->status.starts_with("NEED_REVIEW") ||
-                             document->status == "EMPTY_OR_UNREADABLE";
+    const bool needsReview =
+        document->status.starts_with("NEED_REVIEW") || document->status == "EMPTY_OR_UNREADABLE";
+    const auto* asset = findAuditAsset(request, callItem.input);
     return Result<AgentObservation>::success(AgentObservation{
         .callId = callItem.id,
         .toolName = callItem.name,
         .ok = true,
-        .summary = needsReview
-                       ? "文档抽取不完整，内容仅供人工复核，不能作为高置信事实"
-                       : "已读取审计管线抽取的文档文本",
-        .output = JsonValue::Object{{"path", relative.generic_string()},
-                                    {"status", document->status},
-                                    {"content", truncateText(document->text, limit)}}});
+        .summary = needsReview ? "已读取真实项目文件，但其中部分内容未能完整提取，需要人工复核"
+                               : "已读取真实项目中的办公/PDF 文件内容",
+        .output = JsonValue::Object{
+            {"path", relative.generic_string()},
+            {"asset", asset == nullptr ? JsonValue::Object{} : requestAssetJson(request, *asset)},
+            {"source", "project_file"},
+            {"extracted_from_project_file", true},
+            {"status", document->status},
+            {"content", truncateText(document->text, limit)}}});
 }
 
 [[nodiscard]] JsonValue archiveEntryJson(const std::filesystem::path& relativePath, bool directory,
@@ -1118,8 +958,8 @@ runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& ca
                                                                   .output = JsonValue::Object{}});
     }
     if (isSensitiveFile(path.value())) {
-        return Result<AgentObservation>::success(rejectedObservation(
-            callItem, "该压缩包命中敏感信息策略，已拒绝枚举其内容"));
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "该压缩包命中敏感信息策略，已拒绝枚举其内容"));
     }
     const auto asset = detectProjectAsset(request, path.value());
     if (!ArchiveExtractor::isArchivePath(path.value())) {
@@ -1139,8 +979,8 @@ runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& ca
             .output = JsonValue::Object{{"asset", assetJson(asset)}, {"supported", false}}});
     }
 
-    const auto maxEntries = boundedInteger(callItem.input, "max_entries", 120U,
-                                           kMaximumArchiveEntries);
+    const auto maxEntries =
+        boundedInteger(callItem.input, "max_entries", 120U, kMaximumArchiveEntries);
     JsonValue::Array entries;
     bool safeToExtract = true;
     bool truncated = false;
@@ -1177,14 +1017,14 @@ runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& ca
             .toolName = callItem.name,
             .ok = true,
             .summary = "已枚举 zip 包条目 " + std::to_string(listed.value().size()) + " 个",
-            .output = JsonValue::Object{{"path", pathText(asset.relativePath)},
-                                        {"asset", assetJson(asset)},
-                                        {"supported", true},
-                                        {"safe_to_extract", safeToExtract},
-                                        {"omitted_sensitive_count",
-                                         static_cast<double>(omittedSensitive)},
-                                        {"truncated", truncated},
-                                        {"entries", JsonValue{entries}}}});
+            .output = JsonValue::Object{
+                {"path", pathText(asset.relativePath)},
+                {"asset", assetJson(asset)},
+                {"supported", true},
+                {"safe_to_extract", safeToExtract},
+                {"omitted_sensitive_count", static_cast<double>(omittedSensitive)},
+                {"truncated", truncated},
+                {"entries", JsonValue{entries}}}});
     }
 
     auto listed = LibArchiveReader{}.list(path.value());
@@ -1216,14 +1056,14 @@ runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& ca
         .toolName = callItem.name,
         .ok = true,
         .summary = "已枚举压缩包条目 " + std::to_string(listed.value().size()) + " 个",
-        .output = JsonValue::Object{{"path", pathText(asset.relativePath)},
-                                    {"asset", assetJson(asset)},
-                                    {"supported", true},
-                                    {"safe_to_extract", safeToExtract},
-                                    {"omitted_sensitive_count",
-                                     static_cast<double>(omittedSensitive)},
-                                    {"truncated", truncated},
-                                    {"entries", JsonValue{entries}}}});
+        .output =
+            JsonValue::Object{{"path", pathText(asset.relativePath)},
+                              {"asset", assetJson(asset)},
+                              {"supported", true},
+                              {"safe_to_extract", safeToExtract},
+                              {"omitted_sensitive_count", static_cast<double>(omittedSensitive)},
+                              {"truncated", truncated},
+                              {"entries", JsonValue{entries}}}});
 }
 
 [[nodiscard]] Result<AgentObservation> runSearchProjectText(const AgentRunRequest& request,
@@ -1239,8 +1079,7 @@ runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& ca
                                                                   .output = JsonValue::Object{}});
     }
 
-    const auto maxFiles =
-        boundedInteger(callItem.input, "max_files", 80U, kMaximumSearchFiles);
+    const auto maxFiles = boundedInteger(callItem.input, "max_files", 80U, kMaximumSearchFiles);
     const auto maxMatches =
         boundedInteger(callItem.input, "max_matches", 40U, kMaximumSearchMatches);
     const auto caseSensitive = callItem.input.at("case_sensitive").asBool(false);
@@ -1350,15 +1189,14 @@ runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& ca
         .ok = true,
         .summary = "已搜索项目文本，扫描 " + std::to_string(scannedFiles) + " 个文件，命中 " +
                    std::to_string(matches.size()) + " 行",
-        .output = JsonValue::Object{{"root", projectRootLabel()},
-                                    {"query", query},
-                                    {"scanned_files", static_cast<int>(scannedFiles)},
-                                    {"omitted_sensitive_count",
-                                     static_cast<double>(omittedSensitive)},
-                                    {"truncated", visitedEntries >= kMaximumTraversalEntries ||
-                                                      scannedFiles >= maxFiles ||
-                                                      matches.size() >= maxMatches},
-                                    {"matches", JsonValue{matches}}}});
+        .output = JsonValue::Object{
+            {"root", projectRootLabel()},
+            {"query", query},
+            {"scanned_files", static_cast<int>(scannedFiles)},
+            {"omitted_sensitive_count", static_cast<double>(omittedSensitive)},
+            {"truncated", visitedEntries >= kMaximumTraversalEntries || scannedFiles >= maxFiles ||
+                              matches.size() >= maxMatches},
+            {"matches", JsonValue{matches}}}});
 }
 
 [[nodiscard]] Result<AgentObservation> runDraftMarkdownRevision(const AgentRunRequest& request,
@@ -1387,8 +1225,8 @@ runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& ca
     const auto replacement = callItem.input.at("replacement_markdown").asString();
     const auto revised = replacement.empty() ? normalizeMarkdown(original) : replacement;
     if (textContainsSecretMarker(revised)) {
-        return Result<AgentObservation>::success(rejectedObservation(
-            callItem, "修订内容包含疑似凭据或密钥片段，已拒绝写入工作区"));
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "修订内容包含疑似凭据或密钥片段，已拒绝写入工作区"));
     }
     const auto workspace = writableRoot(request);
     const auto relative = callItem.input.at("path").asString();
@@ -1425,8 +1263,8 @@ runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& ca
     const auto content = callItem.input.at("content").asString();
     const auto relative = std::filesystem::path{callItem.input.at("path").asString()};
     if (hasSensitivePathComponent(relative) || textContainsSecretMarker(content)) {
-        return Result<AgentObservation>::success(rejectedObservation(
-            callItem, "目标路径或内容包含疑似凭据/密钥片段，已拒绝写入工作区"));
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "目标路径或内容包含疑似凭据/密钥片段，已拒绝写入工作区"));
     }
     auto written = util::writeTextFile(path.value(), content);
     if (!written.ok()) {
@@ -1444,8 +1282,8 @@ runReadExtractedDocument(const AgentRunRequest& request, const AgentToolCall& ca
                                     {"preview", truncateText(content, kPreviewLimit)}}});
 }
 
-[[nodiscard]] Result<AgentObservation>
-runPrepareRepairedWorkspace(const AgentRunRequest& request, const AgentToolCall& callItem) {
+[[nodiscard]] Result<AgentObservation> runPrepareRepairedWorkspace(const AgentRunRequest& request,
+                                                                   const AgentToolCall& callItem) {
     const auto prepared = WorkspaceEditor{}.prepare(request.projectRoot, request.workspaceRoot);
     if (!prepared.ok()) {
         return Result<AgentObservation>::success(rejectedObservation(callItem, prepared.error()));
@@ -1458,10 +1296,10 @@ runPrepareRepairedWorkspace(const AgentRunRequest& request, const AgentToolCall&
         .output = JsonValue::Object{{"repaired_root", "workspace://repaired-project/"}}});
 }
 
-[[nodiscard]] Result<AgentObservation>
-runApplyRepairedTextEdit(const AgentRunRequest& request, const AgentToolCall& callItem) {
-    const auto expectedOccurrences = boundedInteger(callItem.input, "expected_occurrences", 1U,
-                                                     100U);
+[[nodiscard]] Result<AgentObservation> runApplyRepairedTextEdit(const AgentRunRequest& request,
+                                                                const AgentToolCall& callItem) {
+    const auto expectedOccurrences =
+        boundedInteger(callItem.input, "expected_occurrences", 1U, 100U);
     const auto edited = WorkspaceEditor{}.applyTextEdit(
         request.projectRoot, request.workspaceRoot, callItem.input.at("path").asString(),
         callItem.input.at("expected_text").asString(),
@@ -1475,15 +1313,15 @@ runApplyRepairedTextEdit(const AgentRunRequest& request, const AgentToolCall& ca
         .ok = true,
         .summary = "已在 repaired project 精确修改 " +
                    edited.value().relativePath.generic_string() + "，并更新统一 diff",
-        .output = JsonValue::Object{
-            {"path", edited.value().relativePath.generic_string()},
-            {"patch", "workspace://changes.patch"},
-            {"diff", truncateText(edited.value().diff, 12000U)},
-            {"preview", truncateText(edited.value().preview, kPreviewLimit)}}});
+        .output =
+            JsonValue::Object{{"path", edited.value().relativePath.generic_string()},
+                              {"patch", "workspace://changes.patch"},
+                              {"diff", truncateText(edited.value().diff, 12000U)},
+                              {"preview", truncateText(edited.value().preview, kPreviewLimit)}}});
 }
 
-[[nodiscard]] Result<AgentObservation>
-runCreateRepairedTextFile(const AgentRunRequest& request, const AgentToolCall& callItem) {
+[[nodiscard]] Result<AgentObservation> runCreateRepairedTextFile(const AgentRunRequest& request,
+                                                                 const AgentToolCall& callItem) {
     const auto created = WorkspaceEditor{}.createTextFile(
         request.projectRoot, request.workspaceRoot, callItem.input.at("path").asString(),
         callItem.input.at("content").asString());
@@ -1496,15 +1334,15 @@ runCreateRepairedTextFile(const AgentRunRequest& request, const AgentToolCall& c
         .ok = true,
         .summary = "已在 repaired project 新建 " + created.value().relativePath.generic_string() +
                    "，并更新统一 diff",
-        .output = JsonValue::Object{
-            {"path", created.value().relativePath.generic_string()},
-            {"patch", "workspace://changes.patch"},
-            {"diff", truncateText(created.value().diff, 12000U)},
-            {"preview", truncateText(created.value().preview, kPreviewLimit)}}});
+        .output =
+            JsonValue::Object{{"path", created.value().relativePath.generic_string()},
+                              {"patch", "workspace://changes.patch"},
+                              {"diff", truncateText(created.value().diff, 12000U)},
+                              {"preview", truncateText(created.value().preview, kPreviewLimit)}}});
 }
 
-[[nodiscard]] Result<AgentObservation>
-runReadRepairedTextFile(const AgentRunRequest& request, const AgentToolCall& callItem) {
+[[nodiscard]] Result<AgentObservation> runReadRepairedTextFile(const AgentRunRequest& request,
+                                                               const AgentToolCall& callItem) {
     const auto limit = boundedInteger(callItem.input, "max_bytes", 24000U, kMaximumReadLimit);
     const auto content = WorkspaceEditor{}.readTextFile(
         request.projectRoot, request.workspaceRoot, callItem.input.at("path").asString(), limit);
@@ -1520,18 +1358,17 @@ runReadRepairedTextFile(const AgentRunRequest& request, const AgentToolCall& cal
                                     {"content", truncateText(content.value(), limit)}}});
 }
 
-[[nodiscard]] Result<AgentObservation>
-runListWorkspaceChanges(const AgentRunRequest& request, const AgentToolCall& callItem) {
+[[nodiscard]] Result<AgentObservation> runListWorkspaceChanges(const AgentRunRequest& request,
+                                                               const AgentToolCall& callItem) {
     const auto changes = WorkspaceEditor{}.changes(request.projectRoot, request.workspaceRoot);
     if (!changes.ok()) {
         return Result<AgentObservation>::success(rejectedObservation(callItem, changes.error()));
     }
     JsonValue::Array items;
     for (const auto& change : changes.value()) {
-        items.emplace_back(JsonValue::Object{
-            {"path", change.relativePath.generic_string()},
-            {"kind", change.kind},
-            {"diff_preview", truncateText(change.diff, 4000U)}});
+        items.emplace_back(JsonValue::Object{{"path", change.relativePath.generic_string()},
+                                             {"kind", change.kind},
+                                             {"diff_preview", truncateText(change.diff, 4000U)}});
     }
     return Result<AgentObservation>::success(AgentObservation{
         .callId = callItem.id,
@@ -1542,22 +1379,24 @@ runListWorkspaceChanges(const AgentRunRequest& request, const AgentToolCall& cal
                                     {"patch", "workspace://changes.patch"}}});
 }
 
-[[nodiscard]] Result<AgentToolExecution>
-runReAuditRepairedProject(const AgentRunRequest& request, const AgentToolCall& callItem) {
+[[nodiscard]] Result<AgentToolExecution> runReAuditRepairedProject(const AgentRunRequest& request,
+                                                                   const AgentToolCall& callItem) {
     if (request.auditResult == nullptr) {
         return Result<AgentToolExecution>::success(AgentToolExecution{
-            .observations = {rejectedObservation(callItem,
-                                                 "二次审计需要修复前的确定性审计结果")}});
+            .observations = {rejectedObservation(callItem, "二次审计需要修复前的确定性审计结果")},
+            .auditResult = std::nullopt,
+            .auditDiff = std::nullopt});
     }
     const auto changes = WorkspaceEditor{}.changes(request.projectRoot, request.workspaceRoot);
     if (!changes.ok() || changes.value().empty()) {
         return Result<AgentToolExecution>::success(AgentToolExecution{
             .observations = {rejectedObservation(
-                callItem, changes.ok() ? "repaired project 尚无变更" : changes.error())}});
+                callItem, changes.ok() ? "repaired project 尚无变更" : changes.error())},
+            .auditResult = std::nullopt,
+            .auditDiff = std::nullopt});
     }
-    const auto* baseline = request.baselineAuditResult == nullptr
-                               ? request.auditResult
-                               : request.baselineAuditResult;
+    const auto* baseline =
+        request.baselineAuditResult == nullptr ? request.auditResult : request.baselineAuditResult;
     auto updated = WorkspaceEditor{}.reAudit(request.projectRoot, request.workspaceRoot,
                                              request.auditOptions, &baseline->context);
     if (!updated.ok()) {
@@ -1573,7 +1412,8 @@ runReAuditRepairedProject(const AgentRunRequest& request, const AgentToolCall& c
     updated.value().repairPlan.diffText = patch;
     updated.value().repairPlan.markdown +=
         "\n\n## repaired-project 实际变更\n\n"
-        "真实统一补丁保存在 `changes.patch`。修改文件均标记为待人工确认草稿，不会作为独立证据抬高评分。\n";
+        "真实统一补丁保存在 "
+        "`changes.patch`。修改文件均标记为待人工确认草稿，不会作为独立证据抬高评分。\n";
     auto diff = DiffVerifier{}.diffResults(*baseline, updated.value());
     if (!diff.ok()) {
         return Result<AgentToolExecution>::failure(diff.error());
@@ -1583,14 +1423,14 @@ runReAuditRepairedProject(const AgentRunRequest& request, const AgentToolCall& c
         .toolName = callItem.name,
         .ok = true,
         .summary = diff.value().summary,
-        .output = JsonValue::Object{{"summary", diff.value().summary},
-                                    {"old_score", diff.value().oldScore},
-                                    {"new_score", diff.value().newScore},
-                                    {"audit_diff", auditDiffToJson(diff.value())},
-                                    {"patch", "workspace://changes.patch"},
-                                    {"patch_bytes", static_cast<double>(patch.size())},
-                                    {"changed_file_count",
-                                     static_cast<double>(changes.value().size())}}};
+        .output =
+            JsonValue::Object{{"summary", diff.value().summary},
+                              {"old_score", diff.value().oldScore},
+                              {"new_score", diff.value().newScore},
+                              {"audit_diff", auditDiffToJson(diff.value())},
+                              {"patch", "workspace://changes.patch"},
+                              {"patch_bytes", static_cast<double>(patch.size())},
+                              {"changed_file_count", static_cast<double>(changes.value().size())}}};
     return Result<AgentToolExecution>::success(
         AgentToolExecution{.observations = {std::move(observation)},
                            .auditResult = std::move(updated.value()),
@@ -1627,30 +1467,6 @@ using ToolRunner = Result<AgentObservation> (*)(const AgentRunRequest&, const Ag
 
 } // namespace
 
-std::string toString(AgentEventKind kind) {
-    switch (kind) {
-    case AgentEventKind::Plan:
-        return "plan";
-    case AgentEventKind::Tool:
-        return "tool";
-    case AgentEventKind::Assistant:
-        return "assistant";
-    case AgentEventKind::System:
-        return "system";
-    }
-    return "system";
-}
-
-std::string toString(AgentDecisionKind kind) {
-    switch (kind) {
-    case AgentDecisionKind::ToolCall:
-        return "tool_call";
-    case AgentDecisionKind::FinalAnswer:
-        return "final_answer";
-    }
-    return "tool_call";
-}
-
 std::string agentCommandHelpText() {
     return "可用命令：/audit 运行缺点评审；/agent <任务> 或 /task <任务> 提交智能体任务；"
            "/optimize [目标] 在 repaired project 中修改并二次审计；/status 查看会话状态；"
@@ -1658,32 +1474,14 @@ std::string agentCommandHelpText() {
            "权限模式和高风险边界在设置中管理；普通输入会作为常规问答或项目评审任务处理。";
 }
 
-JsonValue agentRunTraceJson(const AgentRunResult& result) {
-    return traceJson(result.plan, result.observations, result.events, result.finalAnswer);
-}
-
-void setAgentFinalAnswer(AgentRunResult& result, std::string finalAnswer, std::string context) {
-    result.finalAnswer = std::move(finalAnswer);
-    for (auto& event : result.events) {
-        if (event.kind == AgentEventKind::Assistant) {
-            event.text = result.finalAnswer;
-            event.context = context;
-            event.payload = JsonValue::Object{};
-            result.trace = agentRunTraceJson(result);
-            return;
-        }
-    }
-    result.events.push_back(AgentEvent{.kind = AgentEventKind::Assistant,
-                                       .role = "智能体",
-                                       .text = result.finalAnswer,
-                                       .context = std::move(context),
-                                       .payload = JsonValue::Object{}});
-    result.trace = agentRunTraceJson(result);
-}
-
 Result<AgentRunResult> AgentRuntime::runLocal(const AgentRunRequest& request) const {
     if (requestCancelled(request)) {
         return Result<AgentRunResult>::failure("智能体任务已取消");
+    }
+    if (request.requireWorkspaceChanges || request.requireReaudit) {
+        return Result<AgentRunResult>::failure(
+            "项目完善需要已授权的智能辅助服务来阅读并生成具体修改；本地规则检查只能给出问题和修改清"
+            "单，不能假装已经完成修改");
     }
     AgentPlan plan;
     plan.summary = "本地受控探索：未授权 LLM 时只收集可复核上下文，不冒充模型做语义决策。"
@@ -1728,19 +1526,20 @@ Result<AgentRunResult> AgentRuntime::runLocal(const AgentRunRequest& request) co
 
     const auto finalAnswer = finalAnswerFromObservations(request, observations);
     auto events = buildEvents(plan, "本地智能体", observations, finalAnswer);
-    auto trace = traceJson(plan, observations, events, finalAnswer);
-    return Result<AgentRunResult>::success(AgentRunResult{.plan = std::move(plan),
-                                                          .observations = std::move(observations),
-                                                          .events = std::move(events),
-                                                          .finalAnswer = finalAnswer,
-                                                          .trace = std::move(trace),
-                                                          .auditResult = std::nullopt});
+    AgentRunResult result{.plan = std::move(plan),
+                          .observations = std::move(observations),
+                          .events = std::move(events),
+                          .finalAnswer = finalAnswer,
+                          .trace = JsonValue::Object{},
+                          .auditResult = std::nullopt,
+                          .auditDiff = std::nullopt};
+    result.trace = agentRunTraceJson(result);
+    return Result<AgentRunResult>::success(std::move(result));
 }
 
-Result<AgentToolExecution>
-AgentRuntime::runToolExecution(const AgentRunRequest& request,
-                               const AgentToolCall& callItem,
-                               AgentObservationObserver observe) const {
+Result<AgentToolExecution> AgentRuntime::runToolExecution(const AgentRunRequest& request,
+                                                          const AgentToolCall& callItem,
+                                                          AgentObservationObserver observe) const {
     if (requestCancelled(request)) {
         return Result<AgentToolExecution>::failure("智能体任务已取消");
     }
@@ -1754,15 +1553,17 @@ AgentRuntime::runToolExecution(const AgentRunRequest& request,
                 .ok = false,
                 .summary = "未注册或当前不允许 Brain 直接驱动的工具: " + callItem.name,
                 .output = JsonValue::Object{}}},
-            .auditResult = std::nullopt});
+            .auditResult = std::nullopt,
+            .auditDiff = std::nullopt});
     }
 
     auto validInput = ToolRegistry{}.validateInteractiveInput(callItem.name, callItem.input);
     if (!validInput.ok()) {
-        return Result<AgentToolExecution>::success(AgentToolExecution{
-            .observations = {rejectedObservation(
-                callItem, "工具输入校验失败: " + validInput.error())},
-            .auditResult = std::nullopt});
+        return Result<AgentToolExecution>::success(
+            AgentToolExecution{.observations = {rejectedObservation(
+                                   callItem, "工具输入校验失败: " + validInput.error())},
+                               .auditResult = std::nullopt,
+                               .auditDiff = std::nullopt});
     }
 
     if (request.requireAudit && request.auditResult == nullptr &&
@@ -1774,43 +1575,21 @@ AgentRuntime::runToolExecution(const AgentRunRequest& request,
                 .ok = false,
                 .summary = "首次项目审查必须先调用 run_project_audit 建立隔离副本并取得规则结果",
                 .output = JsonValue::Object{{"required_tool", "run_project_audit"}}}},
-            .auditResult = std::nullopt});
+            .auditResult = std::nullopt,
+            .auditDiff = std::nullopt});
     }
 
-    PermissionGate gate;
-    if (request.allowWriteWorkspace) {
-        gate.allow(ToolPermission::WriteWorkspace);
-    } else {
-        gate.deny(ToolPermission::WriteWorkspace);
-    }
-    if (request.allowReadExternal) {
-        gate.allow(ToolPermission::ReadExternalFiles);
-    }
-    if (request.allowModifyOriginal) {
-        gate.allow(ToolPermission::ModifyOriginalProject);
-    }
-    if (request.allowExecuteCommand) {
-        gate.allow(ToolPermission::ExecuteCommand);
-    }
-    if (request.allowNetwork) {
-        gate.allow(ToolPermission::NetworkAccess);
-    } else {
-        gate.deny(ToolPermission::NetworkAccess);
-    }
-    if (request.allowLlm) {
-        gate.allow(ToolPermission::LLMAccess);
-    } else {
-        gate.deny(ToolPermission::LLMAccess);
-    }
-    if (!gate.isAllowed(toolSpec->permission)) {
+    const auto authorized = AgentPermissionPolicy{}.authorize(request, toolSpec->permission);
+    if (!authorized.ok()) {
         return Result<AgentToolExecution>::success(AgentToolExecution{
             .observations = {AgentObservation{
                 .callId = callItem.id,
                 .toolName = callItem.name,
                 .ok = false,
-                .summary = permissionDeniedText(toolSpec->permission),
+                .summary = authorized.error(),
                 .output = JsonValue::Object{{"permission", toString(toolSpec->permission)}}}},
-            .auditResult = std::nullopt});
+            .auditResult = std::nullopt,
+            .auditDiff = std::nullopt});
     }
 
     if (callItem.name == "run_project_audit") {
@@ -1828,13 +1607,15 @@ AgentRuntime::runToolExecution(const AgentRunRequest& request,
 
     const auto runner = findRunner(callItem.name);
     if (runner == nullptr) {
-        return Result<AgentToolExecution>::success(AgentToolExecution{
-            .observations = {AgentObservation{.callId = callItem.id,
-                                              .toolName = callItem.name,
-                                              .ok = false,
-                                              .summary = "工具尚未接入 AgentRuntime: " + callItem.name,
-                                              .output = JsonValue::Object{}}},
-            .auditResult = std::nullopt});
+        return Result<AgentToolExecution>::success(
+            AgentToolExecution{.observations = {AgentObservation{
+                                   .callId = callItem.id,
+                                   .toolName = callItem.name,
+                                   .ok = false,
+                                   .summary = "工具尚未接入 AgentRuntime: " + callItem.name,
+                                   .output = JsonValue::Object{}}},
+                               .auditResult = std::nullopt,
+                               .auditDiff = std::nullopt});
     }
     auto observed = runner(request, callItem);
     if (!observed.ok()) {
@@ -1845,7 +1626,8 @@ AgentRuntime::runToolExecution(const AgentRunRequest& request,
     }
     return Result<AgentToolExecution>::success(
         AgentToolExecution{.observations = {std::move(observed.value())},
-                           .auditResult = std::nullopt});
+                           .auditResult = std::nullopt,
+                           .auditDiff = std::nullopt});
 }
 
 Result<AgentObservation> AgentRuntime::runTool(const AgentRunRequest& request,
@@ -1857,8 +1639,7 @@ Result<AgentObservation> AgentRuntime::runTool(const AgentRunRequest& request,
     if (execution.value().observations.empty()) {
         return Result<AgentObservation>::failure("工具执行没有返回观察结果: " + callItem.name);
     }
-    return Result<AgentObservation>::success(
-        std::move(execution.value().observations.back()));
+    return Result<AgentObservation>::success(std::move(execution.value().observations.back()));
 }
 
 } // namespace cc

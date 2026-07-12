@@ -59,6 +59,34 @@ namespace {
     return value == maskedSecret();
 }
 
+[[nodiscard]] QString friendlyFailure(const std::string& error, const QString& action) {
+    const auto detail = QString::fromStdString(error);
+    const auto lower = detail.toLower();
+    if (lower.contains("没有返回 json") || lower.contains("invalid json") ||
+        (lower.contains("parse") && lower.contains("json"))) {
+        return QStringLiteral("%1没有完成：智能助手返回的内容格式不正确。请直接重试；如果反复出现，"
+                              "请在设置中更换模型或检查服务地址。")
+            .arg(action);
+    }
+    if (lower.contains("timeout") || lower.contains("timed out")) {
+        return QStringLiteral("%1没有完成：连接智能助手超时。请检查网络后重试。").arg(action);
+    }
+    if (lower.contains("401") || lower.contains("403") || lower.contains("unauthorized") ||
+        lower.contains("api key")) {
+        return QStringLiteral(
+                   "%1没有完成：智能助手的访问凭证无效。请打开设置，检查服务地址、模型和密钥。")
+            .arg(action);
+    }
+    if (lower.contains("connect") || lower.contains("network") || lower.contains("ssl") ||
+        lower.contains("https")) {
+        return QStringLiteral("%1没有完成：目前无法连接智能助手。你的项目文件没有被修改，请检查网络"
+                              "或服务地址后重试。")
+            .arg(action);
+    }
+    return QStringLiteral("%1没有完成。你的原始材料没有被修改，可以重试或查看设置。原因：%2")
+        .arg(action, detail);
+}
+
 [[nodiscard]] std::size_t auditStageCount() {
     return cc::StagedAuditPipeline::stages().size();
 }
@@ -85,7 +113,7 @@ namespace {
         return "运行项目规则审计";
     }
     if (name == "inventory_project") {
-        return "整理项目材料";
+        return "整理项目文件";
     }
     if (name == "extract_text") {
         return "读取可审计文本";
@@ -127,7 +155,7 @@ namespace {
         return "识别文件类型";
     }
     if (name == "read_text_file") {
-        return "阅读项目材料";
+        return "读取项目文件";
     }
     if (name == "read_extracted_document") {
         return "阅读抽取文档";
@@ -213,8 +241,7 @@ namespace {
         const auto limit = std::min<std::size_t>(result.fixTasks.size(), 6U);
         for (std::size_t index = 0U; index < limit; ++index) {
             const auto& task = result.fixTasks.at(index);
-            const auto priority = task.priority == "P0"
-                                      ? QStringLiteral("立即处理")
+            const auto priority = task.priority == "P0"   ? QStringLiteral("立即处理")
                                   : task.priority == "P1" ? QStringLiteral("尽快处理")
                                                           : stringText(task.priority);
             lines << QStringLiteral("%1. [%2] %3：%4")
@@ -276,13 +303,13 @@ void appendParentRuleCandidates(std::vector<std::filesystem::path>& candidates,
 }
 
 void persistAuditPackage(cc::AuditResult& result) {
-    const auto initialized = cc::ProjectMemory{}.init(
-        result.context.workspaceRoot, result.cpir.competitionType);
+    const auto initialized =
+        cc::ProjectMemory{}.init(result.context.workspaceRoot, result.cpir.competitionType);
     if (!initialized.ok()) {
         result.context.warnings.push_back("项目约束未能持久化: " + initialized.error());
     }
-    const auto saved = cc::AuditSessionStore{}.save(
-        result, result.context.workspaceRoot / "audit.json");
+    const auto saved =
+        cc::AuditSessionStore{}.save(result, result.context.workspaceRoot / "audit.json");
     if (!saved.ok()) {
         result.context.warnings.push_back("审计结果未能持久化: " + saved.error());
     }
@@ -294,10 +321,9 @@ CompileController::CompileController(QObject* parent) : QObject(parent) {
     activeSessionId_ = QString::fromStdString(cc::util::makeSessionId());
     cc::LlmProviderResolver::Environment environment;
     constexpr const char* names[]{
-        "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_MODEL",   "OPENAI_API_KEY",       "OPENAI_BASE_URL",
-        "OPENAI_MODEL",      "DEEPSEEK_API_KEY",     "DEEPSEEK_AUTH_TOKEN",
-        "DEEPSEEK_BASE_URL", "DEEPSEEK_MODEL"};
+        "ANTHROPIC_API_KEY",   "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+        "OPENAI_API_KEY",      "OPENAI_BASE_URL",      "OPENAI_MODEL",       "DEEPSEEK_API_KEY",
+        "DEEPSEEK_AUTH_TOKEN", "DEEPSEEK_BASE_URL",    "DEEPSEEK_MODEL"};
     for (const auto* name : names) {
         const auto* configured = std::getenv(name);
         if (configured != nullptr) {
@@ -312,7 +338,6 @@ CompileController::CompileController(QObject* parent) : QObject(parent) {
     llmApiKeyHeader_ = QString::fromStdString(profile.config.apiKeyHeader);
     llmApiKeyPrefix_ = QString::fromStdString(profile.config.apiKeyPrefix);
     llmApproved_ = false;
-
 }
 
 QString CompileController::projectPath() const {
@@ -393,7 +418,8 @@ QVariantMap CompileController::projectContext() const {
 }
 
 QVariantList CompileController::sessionHistory() const {
-    return workbench::sessionHistory(result_.get(), conversation_, normalizedInputPath(projectPath_));
+    return workbench::sessionHistory(result_.get(), conversation_,
+                                     normalizedInputPath(projectPath_));
 }
 
 QVariantList CompileController::toolCards() const {
@@ -647,11 +673,10 @@ void CompileController::resetActiveSession(bool addGreeting) {
     selectedFilePreview_.clear();
     conversation_.clear();
     activeSessionId_ = QString::fromStdString(cc::util::makeSessionId());
-    status_ = "已开始新任务，等待添加项目材料";
+    status_ = "已开始新任务，等待添加项目文件";
     if (addGreeting) {
-        conversation_.push_back(
-            {"系统", "已开始新任务。请添加项目文件夹、材料包或单份成果文件。", "会话",
-             "system", QString{}, true});
+        conversation_.push_back({"系统", "已开始新任务。请添加完整项目文件夹、项目压缩包或单个项目文件。",
+                                 "会话", "system", QString{}, true});
     }
 }
 
@@ -682,8 +707,7 @@ void CompileController::selectProject(const QString& urlOrPath) {
         emit sessionChanged();
         return;
     }
-    if (!projectPath_.trimmed().isEmpty() &&
-        normalizedInputPath(projectPath_).trimmed() != path) {
+    if (!projectPath_.trimmed().isEmpty() && normalizedInputPath(projectPath_).trimmed() != path) {
         archiveCurrentSession();
         resetActiveSession(false);
     }
@@ -702,8 +726,8 @@ void CompileController::selectProject(const QString& urlOrPath) {
     const auto selectedName = QFileInfo(path).fileName();
     conversation_.push_back(
         {"用户",
-         QStringLiteral("已添加项目：%1").arg(selectedName.isEmpty() ? "项目材料" : selectedName),
-         QFileInfo(path).isDir() ? "项目文件夹" : "项目材料", "user", QString{}, true});
+         QStringLiteral("已添加项目：%1").arg(selectedName.isEmpty() ? "项目文件" : selectedName),
+         QFileInfo(path).isDir() ? "项目文件夹" : "项目文件", "user", QString{}, true});
     const bool brainReady = llmApproved_ && !llmApiKey_.isEmpty();
     status_ = brainReady ? "大模型审计助手正在分析项目" : "正在启动本地规则审计";
     emit statusChanged();
@@ -718,7 +742,7 @@ void CompileController::selectProject(const QString& urlOrPath) {
     if (brainReady) {
         startDeferredAgentConversation(
             "请审查当前项目。先调用 run_project_audit 获取确定性规则、证据匹配和评分结果，"
-            "再根据审计观察判断是否需要继续读取材料，最后回答主要缺点和下一步。",
+            "再根据检查结果继续读取真实源码、配置或办公文件，最后回答主要缺点和下一步。",
             "项目导入", false);
         return;
     }
@@ -727,8 +751,8 @@ void CompileController::selectProject(const QString& urlOrPath) {
 
 void CompileController::newSession() {
     if (agentRunning_ || advisoryRunning_) {
-        conversation_.push_back({"系统", "当前审计仍在运行，完成后才能开始新任务。",
-                                 "会话", "system", QString{}, false});
+        conversation_.push_back({"系统", "当前审计仍在运行，完成后才能开始新任务。", "会话",
+                                 "system", QString{}, false});
         emit sessionChanged();
         return;
     }
@@ -746,8 +770,8 @@ QVariantList CompileController::sessionList() const {
         item["sessionId"] = id;
         if (result != nullptr) {
             item["title"] = QString::fromStdString(result->context.projectName.empty()
-                                                        ? result->context.sessionId
-                                                        : result->context.projectName);
+                                                       ? result->context.sessionId
+                                                       : result->context.projectName);
             item["subtitle"] = QStringLiteral("评分 %1 · 必须处理 %2")
                                    .arg(result->trustScore.totalScore)
                                    .arg(workbench::blockerCount(*result));
@@ -773,14 +797,12 @@ QVariantList CompileController::sessionList() const {
 }
 
 void CompileController::activateSession(const QString& sessionId) {
-    if (agentRunning_ || advisoryRunning_ || sessionId.isEmpty() ||
-        sessionId == activeSessionId_) {
+    if (agentRunning_ || advisoryRunning_ || sessionId.isEmpty() || sessionId == activeSessionId_) {
         return;
     }
-    const auto selected = std::find_if(savedSessions_.begin(), savedSessions_.end(),
-                                       [&](const SavedSession& item) {
-                                           return item.id == sessionId;
-                                       });
+    const auto selected =
+        std::find_if(savedSessions_.begin(), savedSessions_.end(),
+                     [&](const SavedSession& item) { return item.id == sessionId; });
     if (selected == savedSessions_.end()) {
         return;
     }
@@ -892,54 +914,53 @@ void CompileController::runAdvisory() {
     auto auditSnapshot = result_;
     const auto sessionId = activeSessionId_;
     const QPointer<CompileController> guard{this};
-    auto* worker = QThread::create(
-        [guard, config = std::move(config), auditSnapshot, sessionId, cancellation]() mutable {
-            auto proposed = cc::LlmBrain{}.requestAuditAdvisory(config, *auditSnapshot);
-            auto outcome = std::make_shared<cc::Result<cc::ReconciledAdvisory>>(
-                proposed.ok()
-                    ? cc::Result<cc::ReconciledAdvisory>::success(
-                          cc::AdvisoryReconciler{}.reconcile(proposed.value(), *auditSnapshot))
-                    : cc::Result<cc::ReconciledAdvisory>::failure(proposed.error()));
-            if (guard.isNull()) {
-                return;
-            }
-            QMetaObject::invokeMethod(
-                guard,
-                [guard, outcome, sessionId, cancellation]() mutable {
-                    if (guard.isNull() || cancellation->load() ||
-                        guard->activeSessionId_ != sessionId ||
-                        guard->activeCancellation_ != cancellation) {
-                        return;
-                    }
-                    guard->activeCancellation_.reset();
-                    guard->advisoryRunning_ = false;
-                    if (!outcome->ok()) {
-                        guard->status_ = QString::fromStdString(outcome->error());
+    auto* worker = QThread::create([guard, config = std::move(config), auditSnapshot, sessionId,
+                                    cancellation]() mutable {
+        auto proposed = cc::LlmBrain{}.requestAuditAdvisory(config, *auditSnapshot);
+        auto outcome = std::make_shared<cc::Result<cc::ReconciledAdvisory>>(
+            proposed.ok()
+                ? cc::Result<cc::ReconciledAdvisory>::success(
+                      cc::AdvisoryReconciler{}.reconcile(proposed.value(), *auditSnapshot))
+                : cc::Result<cc::ReconciledAdvisory>::failure(proposed.error()));
+        if (guard.isNull()) {
+            return;
+        }
+        QMetaObject::invokeMethod(
+            guard,
+            [guard, outcome, sessionId, cancellation]() mutable {
+                if (guard.isNull() || cancellation->load() ||
+                    guard->activeSessionId_ != sessionId ||
+                    guard->activeCancellation_ != cancellation) {
+                    return;
+                }
+                guard->activeCancellation_.reset();
+                guard->advisoryRunning_ = false;
+                if (!outcome->ok()) {
+                    guard->status_ = QString::fromStdString(outcome->error());
+                    guard->conversation_.push_back(
+                        {"系统", guard->status_, "研判失败", "system", QString{}, false});
+                } else {
+                    guard->advisory_ = std::move(outcome->value());
+                    guard->status_ = "混合研判完成";
+                    guard->conversation_.push_back(
+                        {"智能体", QString::fromStdString(guard->advisory_->summary), "混合研判",
+                         "assistant", QString{}, guard->advisory_->conflictingCount == 0});
+                    for (const auto& item : guard->advisory_->items) {
+                        const bool ok = item.verdict != cc::AdvisoryVerdict::Conflicting;
                         guard->conversation_.push_back(
-                            {"系统", guard->status_, "研判失败", "system", QString{}, false});
-                    } else {
-                        guard->advisory_ = std::move(outcome->value());
-                        guard->status_ = "混合研判完成";
-                        guard->conversation_.push_back(
-                            {"智能体", QString::fromStdString(guard->advisory_->summary),
-                             "混合研判", "assistant", QString{},
-                             guard->advisory_->conflictingCount == 0});
-                        for (const auto& item : guard->advisory_->items) {
-                            const bool ok = item.verdict != cc::AdvisoryVerdict::Conflicting;
-                            guard->conversation_.push_back(
-                                {"工具", QString::fromStdString(item.advisory.title),
-                                 QString::fromStdString(cc::toString(item.verdict)), "tool",
-                                 QString::fromStdString(item.reconciliation), ok});
-                        }
+                            {"工具", QString::fromStdString(item.advisory.title),
+                             QString::fromStdString(cc::toString(item.verdict)), "tool",
+                             QString::fromStdString(item.reconciliation), ok});
                     }
-                    emit guard->statusChanged();
-                    emit guard->advisoryChanged();
-                    emit guard->workspaceChanged();
-                    emit guard->sessionChanged();
-                    guard->flushQueuedComposerMessage();
-                },
-                Qt::QueuedConnection);
-        });
+                }
+                emit guard->statusChanged();
+                emit guard->advisoryChanged();
+                emit guard->workspaceChanged();
+                emit guard->sessionChanged();
+                guard->flushQueuedComposerMessage();
+            },
+            Qt::QueuedConnection);
+    });
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     worker->start();
 }
@@ -987,11 +1008,9 @@ void CompileController::runGeneralAssistant(const QString& message, const QStrin
          .content = "你是竞赛项目可信评审平台中的常规问答助手。回答要清楚、直接；涉及项目评审时"
                     "提醒用户拖入项目以便结合规则和证据，不要伪造材料或评分。"}};
     if (!compactedContext_.isEmpty()) {
-        messages.push_back(
-            {.role = "system", .content = compactedContext_.toStdString()});
+        messages.push_back({.role = "system", .content = compactedContext_.toStdString()});
     }
-    const auto historyStart =
-        conversation_.size() > 12U ? conversation_.size() - 12U : 0U;
+    const auto historyStart = conversation_.size() > 12U ? conversation_.size() - 12U : 0U;
     for (std::size_t index = historyStart; index < conversation_.size(); ++index) {
         const auto& item = conversation_.at(index);
         const auto kind = item.kind.trimmed().toLower();
@@ -1013,9 +1032,9 @@ void CompileController::runGeneralAssistant(const QString& message, const QStrin
 
     const auto sessionId = activeSessionId_;
     const QPointer<CompileController> guard{this};
-    auto* worker = QThread::create(
-        [guard, config = std::move(config), messages = std::move(messages), sessionId,
-         cancellation]() mutable {
+    auto* worker =
+        QThread::create([guard, config = std::move(config), messages = std::move(messages),
+                         sessionId, cancellation]() mutable {
             auto response = std::make_shared<cc::Result<cc::LlmResponse>>(
                 cc::LlmBrain{}.complete(config, messages));
             if (guard.isNull()) {
@@ -1057,10 +1076,9 @@ void CompileController::runAudit() {
         return;
     }
     if (normalizedInputPath(projectPath_).trimmed().isEmpty()) {
-        status_ = "请先添加项目材料";
+        status_ = "请先添加项目文件";
         conversation_.push_back(
-            {"智能体", "先添加项目文件夹、材料包或单份成果文件，我再开始审计。",
-             "等待材料"});
+            {"智能体", "先添加完整项目文件夹、项目压缩包或单个项目文件，我再开始检查。", "等待项目"});
         emit statusChanged();
         emit sessionChanged();
         return;
@@ -1099,38 +1117,14 @@ void CompileController::runAudit() {
     const QPointer<CompileController> guard{this};
     auto* worker = QThread::create(
         [guard, path = normalizedPath.toStdString(), options, sessionId, cancellation]() mutable {
-        if (cancellation->load()) {
-            return;
-        }
-        cc::StagedAuditPipeline pipeline;
-        auto begun = pipeline.begin(path, options);
-        if (!begun.ok()) {
-            auto failure = std::make_shared<cc::Result<cc::AuditResult>>(
-                cc::Result<cc::AuditResult>::failure(begun.error()));
-            if (!guard.isNull()) {
-                QMetaObject::invokeMethod(
-                    guard,
-                    [guard, failure, sessionId, cancellation]() mutable {
-                        if (!guard.isNull() && !cancellation->load() &&
-                            guard->activeSessionId_ == sessionId &&
-                            guard->activeCancellation_ == cancellation) {
-                            guard->completeAuditRun(std::move(*failure));
-                        }
-                    },
-                    Qt::QueuedConnection);
-            }
-            return;
-        }
-
-        std::size_t stageIndex = 0U;
-        while (pipeline.hasNext()) {
             if (cancellation->load()) {
                 return;
             }
-            auto observed = pipeline.advance();
-            if (!observed.ok()) {
+            cc::StagedAuditPipeline pipeline;
+            auto begun = pipeline.begin(path, options);
+            if (!begun.ok()) {
                 auto failure = std::make_shared<cc::Result<cc::AuditResult>>(
-                    cc::Result<cc::AuditResult>::failure(observed.error()));
+                    cc::Result<cc::AuditResult>::failure(begun.error()));
                 if (!guard.isNull()) {
                     QMetaObject::invokeMethod(
                         guard,
@@ -1145,39 +1139,63 @@ void CompileController::runAudit() {
                 }
                 return;
             }
-            auto sharedObservation = std::make_shared<cc::AgentObservation>(observed.value());
+
+            std::size_t stageIndex = 0U;
+            while (pipeline.hasNext()) {
+                if (cancellation->load()) {
+                    return;
+                }
+                auto observed = pipeline.advance();
+                if (!observed.ok()) {
+                    auto failure = std::make_shared<cc::Result<cc::AuditResult>>(
+                        cc::Result<cc::AuditResult>::failure(observed.error()));
+                    if (!guard.isNull()) {
+                        QMetaObject::invokeMethod(
+                            guard,
+                            [guard, failure, sessionId, cancellation]() mutable {
+                                if (!guard.isNull() && !cancellation->load() &&
+                                    guard->activeSessionId_ == sessionId &&
+                                    guard->activeCancellation_ == cancellation) {
+                                    guard->completeAuditRun(std::move(*failure));
+                                }
+                            },
+                            Qt::QueuedConnection);
+                    }
+                    return;
+                }
+                auto sharedObservation = std::make_shared<cc::AgentObservation>(observed.value());
+                if (!guard.isNull()) {
+                    QMetaObject::invokeMethod(
+                        guard,
+                        [guard, sharedObservation, stageIndex, sessionId, cancellation]() {
+                            if (!guard.isNull() && !cancellation->load() &&
+                                guard->activeSessionId_ == sessionId &&
+                                guard->activeCancellation_ == cancellation) {
+                                guard->applyAuditStage(stageIndex, *sharedObservation);
+                            }
+                        },
+                        Qt::QueuedConnection);
+                }
+                ++stageIndex;
+            }
+            auto finished = pipeline.finish();
+            if (finished.ok()) {
+                persistAuditPackage(finished.value());
+            }
+            auto outcome = std::make_shared<cc::Result<cc::AuditResult>>(std::move(finished));
             if (!guard.isNull()) {
                 QMetaObject::invokeMethod(
                     guard,
-                    [guard, sharedObservation, stageIndex, sessionId, cancellation]() {
+                    [guard, outcome, sessionId, cancellation]() mutable {
                         if (!guard.isNull() && !cancellation->load() &&
                             guard->activeSessionId_ == sessionId &&
                             guard->activeCancellation_ == cancellation) {
-                            guard->applyAuditStage(stageIndex, *sharedObservation);
+                            guard->completeAuditRun(std::move(*outcome));
                         }
                     },
                     Qt::QueuedConnection);
             }
-            ++stageIndex;
-        }
-        auto finished = pipeline.finish();
-        if (finished.ok()) {
-            persistAuditPackage(finished.value());
-        }
-        auto outcome = std::make_shared<cc::Result<cc::AuditResult>>(std::move(finished));
-        if (!guard.isNull()) {
-            QMetaObject::invokeMethod(
-                guard,
-                [guard, outcome, sessionId, cancellation]() mutable {
-                    if (!guard.isNull() && !cancellation->load() &&
-                        guard->activeSessionId_ == sessionId &&
-                        guard->activeCancellation_ == cancellation) {
-                        guard->completeAuditRun(std::move(*outcome));
-                    }
-                },
-                Qt::QueuedConnection);
-        }
-    });
+        });
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     worker->start();
 }
@@ -1202,7 +1220,7 @@ void CompileController::completeAuditRun(cc::Result<cc::AuditResult> result) {
     if (!result.ok()) {
         agentRunning_ = false;
         currentAgentAction_ = "审计失败";
-        status_ = QString::fromStdString(result.error());
+        status_ = friendlyFailure(result.error(), "项目检查");
         conversation_.push_back({"系统", status_, "审计失败", "system", QString{}, false});
         emit statusChanged();
         emit agentStateChanged();
@@ -1217,16 +1235,15 @@ void CompileController::completeAuditRun(cc::Result<cc::AuditResult> result) {
     completedAuditSteps_ = static_cast<int>(auditStageCount());
     currentAgentAction_ = "审计完成";
     status_ = result_->context.warnings.empty()
-                  ? "缺点评审完成，可查看产物或在 Code 模式修复副本"
-                  : "缺点评审完成，但有导入或持久化警告需要查看";
+                  ? "检查完成：先处理红色的“必须处理”，再查看黄色的“需要关注”"
+                  : "检查完成：部分材料未能完整读取，请查看右侧提示";
     conversation_.push_back(
         {"工具", "已完成材料整理、证据匹配、规则检查和评分。",
          QStringLiteral("会话 %1").arg(stringText(result_->context.sessionId))});
     conversation_.push_back(
         {"智能体", defectReportText(*result_), "缺点评审报告", "assistant", QString{}, true});
-    conversation_.push_back(
-        {"产物", "打开可信评分、材料、证据、风险和修复任务。", "完整审计结果",
-         "artifact", QString{}, true, "dashboard"});
+    conversation_.push_back({"产物", "打开可信评分、材料、证据、风险和修复任务。", "完整审计结果",
+                             "artifact", QString{}, true, "dashboard"});
     if (!result_->context.warnings.empty()) {
         QStringList warnings;
         constexpr std::size_t kDisplayedWarnings = 6U;
@@ -1299,8 +1316,8 @@ void CompileController::runDiff() {
                     guard->auditDiff_ = std::move(outcome->value());
                     guard->status_ = "二次审计差分完成";
                     guard->conversation_.push_back(
-                        {"工具", "已基于两份审计数据包生成二次审计差分。", "差分完成",
-                         "tool", QString::fromStdString(guard->auditDiff_->summary), true});
+                        {"工具", "已基于两份审计数据包生成二次审计差分。", "差分完成", "tool",
+                         QString::fromStdString(guard->auditDiff_->summary), true});
                     emit guard->auditDiffChanged();
                 }
                 emit guard->statusChanged();
@@ -1339,7 +1356,7 @@ QString CompileController::sessionStatusText() const {
     QStringList lines;
     const auto normalized = normalizedInputPath(projectPath_).trimmed();
     lines << QStringLiteral("权限模式：%1").arg(accessModeLabel());
-    lines << QStringLiteral("项目材料：%1").arg(normalized.isEmpty() ? "未选择" : normalized);
+    lines << QStringLiteral("项目文件：%1").arg(normalized.isEmpty() ? "未选择" : normalized);
     lines << QStringLiteral("LLM Brain：%1")
                  .arg(llmApproved_ && !llmApiKey_.isEmpty() ? "已授权" : "本地受控");
     lines << QStringLiteral("当前状态：%1").arg(status_);
@@ -1419,14 +1436,14 @@ void CompileController::previewAgentPlan(const QString& message, const QString& 
 
 void CompileController::approvePendingPlan() {
     if (agentRunning_ || advisoryRunning_) {
-        conversation_.push_back({"系统", "当前任务仍在运行，请稍后再执行计划。",
-                                 "计划", "system", QString{}, false});
+        conversation_.push_back(
+            {"系统", "当前任务仍在运行，请稍后再执行计划。", "计划", "system", QString{}, false});
         emit sessionChanged();
         return;
     }
     if (pendingPlanGoal_.isEmpty()) {
-        conversation_.push_back({"系统", "当前没有等待执行的计划。",
-                                 "计划", "system", QString{}, false});
+        conversation_.push_back(
+            {"系统", "当前没有等待执行的计划。", "计划", "system", QString{}, false});
         emit sessionChanged();
         return;
     }
@@ -1442,29 +1459,26 @@ void CompileController::approvePendingPlan() {
 
 void CompileController::rewindLastTurn() {
     if (agentRunning_ || advisoryRunning_) {
-        conversation_.push_back({"系统", "当前任务仍在运行，完成后才能回退。",
-                                 "会话", "system", QString{}, false});
+        conversation_.push_back(
+            {"系统", "当前任务仍在运行，完成后才能回退。", "会话", "system", QString{}, false});
         emit sessionChanged();
         return;
     }
 
-    const auto userTurn = std::find_if(
-        conversation_.rbegin(), conversation_.rend(),
-        [](const workbench::SessionMessage& message) {
-            return message.kind == "user" || message.role == "用户";
-        });
+    const auto userTurn = std::find_if(conversation_.rbegin(), conversation_.rend(),
+                                       [](const workbench::SessionMessage& message) {
+                                           return message.kind == "user" || message.role == "用户";
+                                       });
     if (userTurn == conversation_.rend()) {
-        conversation_.push_back({"系统", "没有可回退的对话。",
-                                 "会话", "system", QString{}, false});
+        conversation_.push_back({"系统", "没有可回退的对话。", "会话", "system", QString{}, false});
         emit sessionChanged();
         return;
     }
 
     const auto eraseStart = std::prev(userTurn.base());
     if (eraseStart->context == "项目导入") {
-        conversation_.push_back(
-            {"系统", "项目导入记录不能通过回退删除；请点击“新任务”重新开始。",
-             "会话", "system", QString{}, false});
+        conversation_.push_back({"系统", "项目导入记录不能通过回退删除；请点击“新任务”重新开始。",
+                                 "会话", "system", QString{}, false});
         emit sessionChanged();
         return;
     }
@@ -1492,11 +1506,11 @@ void CompileController::previewProjectFile(const QString& relativePath) {
     }
 
     const auto requested = std::filesystem::path(relativePath.toStdString()).lexically_normal();
-    const auto asset = std::find_if(
-        result_->inventory.assets.begin(), result_->inventory.assets.end(),
-        [&requested](const cc::ProjectAsset& candidate) {
-            return candidate.relativePath.lexically_normal() == requested;
-        });
+    const auto asset =
+        std::find_if(result_->inventory.assets.begin(), result_->inventory.assets.end(),
+                     [&requested](const cc::ProjectAsset& candidate) {
+                         return candidate.relativePath.lexically_normal() == requested;
+                     });
     if (asset == result_->inventory.assets.end()) {
         selectedFilePreview_.clear();
         selectedFilePreview_["error"] = "文件不在当前审计资产清单中。";
@@ -1506,12 +1520,11 @@ void CompileController::previewProjectFile(const QString& relativePath) {
 
     QString content;
     QString extractionStatus = asset->auditable ? "可审计" : "仅显示文件信息";
-    const auto document = std::find_if(
-        result_->corpus.begin(), result_->corpus.end(),
-        [&asset](const cc::TextDocument& candidate) {
-            return candidate.sourceFile.lexically_normal() ==
-                   asset->relativePath.lexically_normal();
-        });
+    const auto document = std::find_if(result_->corpus.begin(), result_->corpus.end(),
+                                       [&asset](const cc::TextDocument& candidate) {
+                                           return candidate.sourceFile.lexically_normal() ==
+                                                  asset->relativePath.lexically_normal();
+                                       });
     if (document != result_->corpus.end()) {
         content = QString::fromStdString(document->text);
         extractionStatus = QString::fromStdString(document->status);
@@ -1519,9 +1532,8 @@ void CompileController::previewProjectFile(const QString& relativePath) {
         content = QString::fromStdString(cc::util::readFileLimited(asset->absolutePath, 48000U));
     }
     if (content.trimmed().isEmpty()) {
-        content = asset->auditable
-                      ? "该文件没有提取出可显示文本，可能是扫描件或二进制格式。"
-                      : "该文件不适合直接文本预览；审计仍会保留格式、角色和风险信息。";
+        content = asset->auditable ? "该文件没有提取出可显示文本，可能是扫描件或二进制格式。"
+                                   : "该文件不适合直接文本预览；审计仍会保留格式、角色和风险信息。";
     }
 
     selectedFilePreview_.clear();
@@ -1566,7 +1578,7 @@ void CompileController::runAgentConversation(const QString& message, const QStri
         cancellation = std::make_shared<std::atomic_bool>(false);
         activeCancellation_ = cancellation;
     }
-    auto request = makeAgentRequest(message);
+    auto request = makeAgentRequest(message, context);
     request.isCancelled = [cancellation]() { return cancellation->load(); };
     if (request.projectRoot.empty() && result_ == nullptr) {
         runGeneralAssistant(message, context, appendUserMessage);
@@ -1606,53 +1618,50 @@ void CompileController::runAgentConversation(const QString& message, const QStri
         const QPointer<CompileController> guard{this};
         const auto sessionId = activeSessionId_;
         brainWorkerRunning_ = true;
-        auto* worker = QThread::create(
-            [guard, brainConfig = std::move(brainConfig),
-             requestCopy = std::move(requestCopy), auditSnapshot, baselineSnapshot, sessionId,
-             cancellation]() mutable {
-                const auto streamEvent = [guard, sessionId,
-                                          cancellation](const cc::AgentEvent& event) {
-                    if (cancellation->load()) {
-                        return;
-                    }
-                    auto sharedEvent = std::make_shared<cc::AgentEvent>(event);
-                    if (guard.isNull()) {
-                        return;
-                    }
-                    QMetaObject::invokeMethod(
-                        guard,
-                        [guard, sharedEvent, sessionId, cancellation]() {
-                            if (!guard.isNull() && !cancellation->load() &&
-                                guard->activeSessionId_ == sessionId &&
-                                guard->activeCancellation_ == cancellation) {
-                                guard->appendAgentEvent(*sharedEvent);
-                            }
-                        },
-                        Qt::QueuedConnection);
-                };
-                auto run = cc::BrainAgentLoop{}.run(brainConfig, requestCopy, streamEvent);
-                if (run.ok() && run.value().auditResult.has_value()) {
-                    persistAuditPackage(run.value().auditResult.value());
+        auto* worker = QThread::create([guard, brainConfig = std::move(brainConfig),
+                                        requestCopy = std::move(requestCopy), auditSnapshot,
+                                        baselineSnapshot, sessionId, cancellation]() mutable {
+            const auto streamEvent = [guard, sessionId, cancellation](const cc::AgentEvent& event) {
+                if (cancellation->load()) {
+                    return;
                 }
-                auto outcome =
-                    std::make_shared<cc::Result<cc::AgentRunResult>>(std::move(run));
+                auto sharedEvent = std::make_shared<cc::AgentEvent>(event);
                 if (guard.isNull()) {
                     return;
                 }
                 QMetaObject::invokeMethod(
                     guard,
-                    [guard, outcome, sessionId, cancellation]() mutable {
-                        if (guard.isNull() || cancellation->load() ||
-                            guard->activeSessionId_ != sessionId ||
-                            guard->activeCancellation_ != cancellation) {
-                            return;
+                    [guard, sharedEvent, sessionId, cancellation]() {
+                        if (!guard.isNull() && !cancellation->load() &&
+                            guard->activeSessionId_ == sessionId &&
+                            guard->activeCancellation_ == cancellation) {
+                            guard->appendAgentEvent(*sharedEvent);
                         }
-                        guard->brainWorkerRunning_ = false;
-                        guard->applyAgentRunResult(std::move(*outcome), "LLM Brain", false);
-                        guard->finishDeferredAgentConversation();
                     },
                     Qt::QueuedConnection);
-            });
+            };
+            auto run = cc::BrainAgentLoop{}.run(brainConfig, requestCopy, streamEvent);
+            if (run.ok() && run.value().auditResult.has_value()) {
+                persistAuditPackage(run.value().auditResult.value());
+            }
+            auto outcome = std::make_shared<cc::Result<cc::AgentRunResult>>(std::move(run));
+            if (guard.isNull()) {
+                return;
+            }
+            QMetaObject::invokeMethod(
+                guard,
+                [guard, outcome, sessionId, cancellation]() mutable {
+                    if (guard.isNull() || cancellation->load() ||
+                        guard->activeSessionId_ != sessionId ||
+                        guard->activeCancellation_ != cancellation) {
+                        return;
+                    }
+                    guard->brainWorkerRunning_ = false;
+                    guard->applyAgentRunResult(std::move(*outcome), "LLM Brain", false);
+                    guard->finishDeferredAgentConversation();
+                },
+                Qt::QueuedConnection);
+        });
         connect(worker, &QThread::finished, worker, &QObject::deleteLater);
         worker->start();
         return;
@@ -1668,41 +1677,38 @@ void CompileController::runAgentConversation(const QString& message, const QStri
     const QPointer<CompileController> guard{this};
     const auto sessionId = activeSessionId_;
     brainWorkerRunning_ = true;
-    auto* worker = QThread::create(
-        [guard, requestCopy = std::move(requestCopy), auditSnapshot, baselineSnapshot, sessionId,
-         cancellation]() mutable {
-            auto run = cc::AgentRuntime{}.runLocal(requestCopy);
-            if (run.ok() && run.value().auditResult.has_value()) {
-                persistAuditPackage(run.value().auditResult.value());
-            }
-            auto outcome =
-                std::make_shared<cc::Result<cc::AgentRunResult>>(std::move(run));
-            if (guard.isNull()) {
-                return;
-            }
-            QMetaObject::invokeMethod(
-                guard,
-                [guard, outcome, sessionId, cancellation]() mutable {
-                    if (guard.isNull() || cancellation->load() ||
-                        guard->activeSessionId_ != sessionId ||
-                        guard->activeCancellation_ != cancellation) {
-                        return;
-                    }
-                    guard->brainWorkerRunning_ = false;
-                    guard->applyAgentRunResult(std::move(*outcome), "本地诊断");
-                    guard->finishDeferredAgentConversation();
-                },
-                Qt::QueuedConnection);
-        });
+    auto* worker = QThread::create([guard, requestCopy = std::move(requestCopy), auditSnapshot,
+                                    baselineSnapshot, sessionId, cancellation]() mutable {
+        auto run = cc::AgentRuntime{}.runLocal(requestCopy);
+        if (run.ok() && run.value().auditResult.has_value()) {
+            persistAuditPackage(run.value().auditResult.value());
+        }
+        auto outcome = std::make_shared<cc::Result<cc::AgentRunResult>>(std::move(run));
+        if (guard.isNull()) {
+            return;
+        }
+        QMetaObject::invokeMethod(
+            guard,
+            [guard, outcome, sessionId, cancellation]() mutable {
+                if (guard.isNull() || cancellation->load() ||
+                    guard->activeSessionId_ != sessionId ||
+                    guard->activeCancellation_ != cancellation) {
+                    return;
+                }
+                guard->brainWorkerRunning_ = false;
+                guard->applyAgentRunResult(std::move(*outcome), "本地诊断");
+                guard->finishDeferredAgentConversation();
+            },
+            Qt::QueuedConnection);
+    });
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     worker->start();
 }
 
 void CompileController::appendAgentEvent(const cc::AgentEvent& event) {
     workbench::SessionMessage message;
-    message.ok = event.kind == cc::AgentEventKind::Tool
-                     ? event.payload.at("ok").asBool(false)
-                     : true;
+    message.ok =
+        event.kind == cc::AgentEventKind::Tool ? event.payload.at("ok").asBool(false) : true;
 
     if (event.kind == cc::AgentEventKind::Plan) {
         const auto toolName = event.payload.at("call").at("name").asString();
@@ -1720,8 +1726,8 @@ void CompileController::appendAgentEvent(const cc::AgentEvent& event) {
         const auto detail = output.at("detail").asString();
         message.role = "审计工具";
         message.kind = "tool";
-        message.text = title.empty() ? QString::fromStdString(event.text)
-                                     : QString::fromStdString(title);
+        message.text =
+            title.empty() ? QString::fromStdString(event.text) : QString::fromStdString(title);
         message.detail = QString::fromStdString(detail);
         if (toolName == "run_project_audit") {
             message.text = "项目规则审计完成";
@@ -1754,16 +1760,13 @@ void CompileController::appendAgentEvent(const cc::AgentEvent& event) {
 void CompileController::applyAgentRunResult(cc::Result<cc::AgentRunResult> run,
                                             const QString& planner, bool appendEvents) {
     if (!run.ok()) {
-        status_ = planner == "LLM Brain"
-                      ? QStringLiteral("LLM 工具循环失败：%1").arg(
-                            QString::fromStdString(run.error()))
-                      : QString::fromStdString(run.error());
+        status_ = friendlyFailure(run.error(), planner == "LLM Brain" ? "智能分析" : "当前操作");
         conversation_.push_back(
             {"系统",
              planner == "LLM Brain"
-                 ? status_ + "\n本轮已停止，没有静默切换成本地回答；请检查配置或网络后重试。"
+                 ? status_ + "\n你可以点击发送再次尝试；已经生成的本地规则检查结果仍然有效。"
                  : status_,
-             "智能体失败", "system", QString{}, false});
+             "操作未完成", "system", QString{}, false});
         emit statusChanged();
         emit sessionChanged();
         return;
@@ -1782,8 +1785,7 @@ void CompileController::applyAgentRunResult(cc::Result<cc::AgentRunResult> run,
         auditDiff_ = std::move(run.value().auditDiff.value());
     }
     if (producedAudit) {
-        result_ = std::make_shared<cc::AuditResult>(
-            std::move(run.value().auditResult.value()));
+        result_ = std::make_shared<cc::AuditResult>(std::move(run.value().auditResult.value()));
         if (!producedDiff || baselineResult_ == nullptr) {
             baselineResult_ = result_;
         }
@@ -1795,12 +1797,11 @@ void CompileController::applyAgentRunResult(cc::Result<cc::AgentRunResult> run,
         }
         completedAuditSteps_ = static_cast<int>(auditStageCount());
         activeAuditStep_ = -1;
-        currentAgentAction_ = producedDiff ? "修复副本二次审计完成" : "项目材料审计完成";
+        currentAgentAction_ = producedDiff ? "修改后复查完成" : "项目文件检查完成";
     }
-    status_ = producedAudit
-                  ? (producedDiff ? "修复副本二次审计完成" : "项目材料审计完成")
-                  : planner == "LLM Brain" ? "大模型审计助手已完成分析"
-                                           : "仅完成本地上下文诊断";
+    status_ = producedAudit ? (producedDiff ? "修改后复查完成" : "项目文件检查完成")
+              : planner == "LLM Brain" ? "大模型审计助手已完成分析"
+                                       : "仅完成本地上下文诊断";
     emit statusChanged();
     if (producedAudit) {
         emit resultChanged();
@@ -1832,8 +1833,7 @@ void CompileController::startDeferredAgentConversation(const QString& message,
             emit statusChanged();
             return;
         }
-        pendingComposerMessages_.push_back(
-            {trimmed, context, accessMode_, appendUserMessage});
+        pendingComposerMessages_.push_back({trimmed, context, accessMode_, appendUserMessage});
         status_ = QStringLiteral("已加入发送队列（%1）")
                       .arg(static_cast<int>(pendingComposerMessages_.size()));
         emit statusChanged();
@@ -1902,9 +1902,8 @@ void CompileController::cancelCurrentJob() {
     currentAgentAction_.clear();
     pendingComposerMessages_.clear();
     status_ = "已停止当前任务";
-    conversation_.push_back(
-        {"系统", "已停止当前任务，后台返回的过期结果不会写入会话。", "任务停止",
-         "system", QString{}, true});
+    conversation_.push_back({"系统", "已停止当前任务，后台返回的过期结果不会写入会话。", "任务停止",
+                             "system", QString{}, true});
     emit statusChanged();
     emit agentStateChanged();
     emit advisoryChanged();
@@ -1923,13 +1922,17 @@ void CompileController::flushQueuedComposerMessage() {
     startDeferredAgentConversation(next.message, next.context, next.appendUserMessage);
 }
 
-cc::AgentRunRequest CompileController::makeAgentRequest(const QString& goal) const {
+cc::AgentRunRequest CompileController::makeAgentRequest(const QString& goal,
+                                                        const QString& context) const {
     cc::AgentRunRequest request;
     request.userGoal = goal.toStdString();
     request.auditResult = result_.get();
     request.baselineAuditResult = baselineResult_.get();
     request.auditOptions.rulesDir = resolveRulesDir(projectPath_);
     request.permissionMode = accessMode_.toStdString();
+    const bool optimizeWorkflow = context == "/optimize";
+    request.requireWorkspaceChanges = optimizeWorkflow;
+    request.requireReaudit = optimizeWorkflow;
     const bool brainReady = llmApproved_ && !llmApiKey_.isEmpty();
     request.allowNetwork = brainReady;
     request.allowLlm = brainReady;
@@ -2030,55 +2033,49 @@ void CompileController::exportReport(const QString& outputPath, bool jsonFormat)
     auto diffSnapshot = auditDiff_;
     const auto sessionId = activeSessionId_;
     const QPointer<CompileController> guard{this};
-    auto* worker = QThread::create(
-        [guard, auditSnapshot, diffSnapshot = std::move(diffSnapshot), normalized, jsonFormat,
-         sessionId, cancellation]() mutable {
-            cc::Result<void> written = cancellation->load()
-                                           ? cc::Result<void>::failure("报告导出已取消")
-                                           : jsonFormat
-                                                 ? cc::JsonReporter{}.write(
-                                                       *auditSnapshot, normalized.toStdString(),
-                                                       diffSnapshot.has_value()
-                                                           ? &(*diffSnapshot)
-                                                           : nullptr)
-                                                 : cc::MarkdownReporter{}.write(
-                                                       *auditSnapshot, normalized.toStdString(),
-                                                       diffSnapshot.has_value()
-                                                           ? &(*diffSnapshot)
-                                                           : nullptr);
-            auto outcome = std::make_shared<cc::Result<void>>(std::move(written));
-            if (guard.isNull()) {
-                return;
-            }
-            QMetaObject::invokeMethod(
-                guard,
-                [guard, outcome, normalized, jsonFormat, sessionId, cancellation]() mutable {
-                    if (guard.isNull() || cancellation->load() ||
-                        guard->activeSessionId_ != sessionId ||
-                        guard->activeCancellation_ != cancellation) {
-                        return;
-                    }
-                    guard->activeCancellation_.reset();
-                    guard->agentRunning_ = false;
-                    guard->currentAgentAction_.clear();
-                    if (!outcome->ok()) {
-                        guard->status_ = QString::fromStdString(outcome->error());
-                    } else {
-                        const auto format = jsonFormat ? QStringLiteral("JSON 审计包")
-                                                       : QStringLiteral("Markdown 报告");
-                        guard->status_ = format + "已导出";
-                        guard->conversation_.push_back(
-                            {"产物", QStringLiteral("%1已导出到：%2").arg(format, normalized),
-                             "报告已导出", "artifact", QString{}, true, "report"});
-                    }
-                    emit guard->statusChanged();
-                    emit guard->agentStateChanged();
-                    emit guard->workspaceChanged();
-                    emit guard->sessionChanged();
-                    guard->flushQueuedComposerMessage();
-                },
-                Qt::QueuedConnection);
-        });
+    auto* worker = QThread::create([guard, auditSnapshot, diffSnapshot = std::move(diffSnapshot),
+                                    normalized, jsonFormat, sessionId, cancellation]() mutable {
+        cc::Result<void> written =
+            cancellation->load() ? cc::Result<void>::failure("报告导出已取消")
+            : jsonFormat
+                ? cc::JsonReporter{}.write(*auditSnapshot, normalized.toStdString(),
+                                           diffSnapshot.has_value() ? &(*diffSnapshot) : nullptr)
+                : cc::MarkdownReporter{}.write(*auditSnapshot, normalized.toStdString(),
+                                               diffSnapshot.has_value() ? &(*diffSnapshot)
+                                                                        : nullptr);
+        auto outcome = std::make_shared<cc::Result<void>>(std::move(written));
+        if (guard.isNull()) {
+            return;
+        }
+        QMetaObject::invokeMethod(
+            guard,
+            [guard, outcome, normalized, jsonFormat, sessionId, cancellation]() mutable {
+                if (guard.isNull() || cancellation->load() ||
+                    guard->activeSessionId_ != sessionId ||
+                    guard->activeCancellation_ != cancellation) {
+                    return;
+                }
+                guard->activeCancellation_.reset();
+                guard->agentRunning_ = false;
+                guard->currentAgentAction_.clear();
+                if (!outcome->ok()) {
+                    guard->status_ = QString::fromStdString(outcome->error());
+                } else {
+                    const auto format = jsonFormat ? QStringLiteral("JSON 审计包")
+                                                   : QStringLiteral("Markdown 报告");
+                    guard->status_ = format + "已导出";
+                    guard->conversation_.push_back(
+                        {"产物", QStringLiteral("%1已导出到：%2").arg(format, normalized),
+                         "报告已导出", "artifact", QString{}, true, "report"});
+                }
+                emit guard->statusChanged();
+                emit guard->agentStateChanged();
+                emit guard->workspaceChanged();
+                emit guard->sessionChanged();
+                guard->flushQueuedComposerMessage();
+            },
+            Qt::QueuedConnection);
+    });
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     worker->start();
 }
@@ -2181,8 +2178,8 @@ void CompileController::submitMessage(const QString& message) {
         {
             std::vector<workbench::SessionMessage> recent;
             constexpr std::size_t kRetainedConversationMessages = 6U;
-            for (auto item = conversation_.rbegin(); item != conversation_.rend() &&
-                                                     recent.size() < kRetainedConversationMessages;
+            for (auto item = conversation_.rbegin();
+                 item != conversation_.rend() && recent.size() < kRetainedConversationMessages;
                  ++item) {
                 if (item->kind == "user" || item->kind == "assistant") {
                     recent.push_back(*item);
@@ -2211,10 +2208,12 @@ void CompileController::submitMessage(const QString& message) {
         emit sessionChanged();
         return;
     case cc::AgentCommandKind::RunModePrefixedTask: {
-        const auto mode = QString::fromStdString(command.context).remove(0, 1);
+        const auto commandContext = QString::fromStdString(command.context);
+        const auto mode = commandContext == "/optimize" ? QStringLiteral("code")
+                                                        : QString{commandContext}.remove(0, 1);
         setAccessMode(mode);
-        startDeferredAgentConversation(QString::fromStdString(command.prompt),
-                                       QString::fromStdString(command.context), true);
+        startDeferredAgentConversation(QString::fromStdString(command.prompt), commandContext,
+                                       true);
         return;
     }
     case cc::AgentCommandKind::RunAgentTask:

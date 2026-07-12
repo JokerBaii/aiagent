@@ -21,8 +21,8 @@ Item {
             spacing: 12
 
             SectionTitle {
-                title: "大模型审计助手"
-                subtitle: "模型逐步选择工具，本地运行时执行"
+                title: "智能辅助检查（可选）"
+                subtitle: "本地规则检查无需配置；这里只用于补充解释和阅读建议"
             }
 
             Card {
@@ -31,7 +31,7 @@ Item {
                     anchors.fill: parent
                     spacing: 12
 
-                    Text { text: "Endpoint"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
+                    Text { text: "服务地址"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
                     FieldInput {
                         Layout.fillWidth: true
                         text: root.compiler.llmEndpoint
@@ -39,7 +39,7 @@ Item {
                         onTextEdited: root.compiler.llmEndpoint = text
                     }
 
-                    Text { text: "Model"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
+                    Text { text: "模型名称"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
                     FieldInput {
                         Layout.fillWidth: true
                         text: root.compiler.llmModel
@@ -47,12 +47,12 @@ Item {
                         onTextEdited: root.compiler.llmModel = text
                     }
 
-                    Text { text: "API Key"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
+                    Text { text: "访问密钥"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
                     FieldInput {
                         Layout.fillWidth: true
                         echoMode: TextInput.Password
                         text: root.compiler.llmApiKey
-                        placeholderText: "LLM API Key（不会写入报告）"
+                        placeholderText: "仅保存在本次运行内，不会写入报告"
                         onActiveFocusChanged: if (activeFocus && text === "********") text = ""
                         onTextEdited: root.compiler.llmApiKey = text
                     }
@@ -74,7 +74,7 @@ Item {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: "允许本次联网并调用大模型运行工具循环；工具执行仍受权限、路径和审计记录约束。"
+                                text: "允许本次联网使用智能辅助服务。原始项目不会被修改，最终分数仍以本地规则检查为准。"
                                 color: Theme.textPrimary
                                 font.pixelSize: Theme.fontSm
                                 wrapMode: Text.WordWrap
@@ -82,7 +82,7 @@ Item {
                         }
                     }
 
-                    Text { text: "Task"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
+                    Text { text: "希望它帮你做什么"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm; font.bold: true }
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 116

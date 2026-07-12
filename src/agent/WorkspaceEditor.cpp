@@ -1,5 +1,7 @@
 #include "cc/agent/WorkspaceEditor.hpp"
 
+#include "cc/agent/AgentFilePolicy.hpp"
+
 #include "cc/audit/AuditEngine.hpp"
 #include "cc/core/JsonValue.hpp"
 #include "cc/inventory/FormatDetector.hpp"
@@ -46,9 +48,8 @@ constexpr std::size_t kMaximumPatchBytes = 16U * 1024U * 1024U;
 safeRelativePath(const std::filesystem::path& relativePath) {
     const auto text = relativePath.generic_string();
     if (!PathGuard::isSafeArchiveEntry(text) || text.size() > 4096U ||
-        std::any_of(text.begin(), text.end(), [](unsigned char ch) {
-            return ch < 0x20U || ch == 0x7FU;
-        })) {
+        std::any_of(text.begin(), text.end(),
+                    [](unsigned char ch) { return ch < 0x20U || ch == 0x7FU; })) {
         return Result<std::filesystem::path>::failure("工作区相对路径无效");
     }
     return Result<std::filesystem::path>::success(relativePath.lexically_normal());
@@ -68,17 +69,6 @@ safeRelativePath(const std::filesystem::path& relativePath) {
     return !text.empty() && controls * 20U > text.size();
 }
 
-[[nodiscard]] bool containsSecret(std::string text) {
-    text = util::lowerAscii(std::move(text));
-    constexpr std::string_view markers[]{
-        "-----begin private key", "-----begin rsa private key", "client_secret",
-        "api_key=",               "apikey=",                    "access_token",
-        "refresh_token",          "aws_secret_access_key",      "password="};
-    return std::any_of(std::begin(markers), std::end(markers), [&](std::string_view marker) {
-        return text.find(marker) != std::string::npos;
-    });
-}
-
 [[nodiscard]] Result<void> validateTextContent(const std::string& content) {
     if (content.size() > kMaximumEditableBytes) {
         return Result<void>::failure("文本修改超过 1 MiB 上限");
@@ -86,7 +76,7 @@ safeRelativePath(const std::filesystem::path& relativePath) {
     if (textLooksBinary(content)) {
         return Result<void>::failure("修改内容包含二进制控制字节");
     }
-    if (containsSecret(content)) {
+    if (agent_file_policy::textContainsSecretMarker(content)) {
         return Result<void>::failure("修改内容包含疑似凭据或密钥");
     }
     return Result<void>::success();
@@ -191,8 +181,8 @@ safeRelativePath(const std::filesystem::path& relativePath) {
             return Result<void>::failure("repaired project 目标越过工作区边界");
         }
         std::filesystem::create_directories(target.parent_path(), error);
-        std::filesystem::copy_file(iterator->path(), target,
-                                   std::filesystem::copy_options::none, error);
+        std::filesystem::copy_file(iterator->path(), target, std::filesystem::copy_options::none,
+                                   error);
         if (error) {
             return Result<void>::failure("复制 repaired project 文件失败: " + error.message());
         }
@@ -250,8 +240,7 @@ void appendLines(std::ostringstream& output, char prefix, const std::string& tex
 }
 
 [[nodiscard]] std::string fullFileDiff(const std::filesystem::path& relative,
-                                       const std::string* oldText,
-                                       const std::string* newText) {
+                                       const std::string* oldText, const std::string* newText) {
     const auto oldCount = oldText == nullptr ? 0U : lines(*oldText).size();
     const auto newCount = newText == nullptr ? 0U : lines(*newText).size();
     const auto aPath = quoteGitPath(std::filesystem::path{"a"} / relative);
@@ -286,8 +275,7 @@ readManifest(const std::filesystem::path& workspaceRoot) {
     const auto parsed = parseJson(content);
     if (!parsed.ok() || !parsed.value().isArray() ||
         parsed.value().asArray().size() > kMaximumChangedFiles) {
-        return Result<std::vector<std::filesystem::path>>::failure(
-            "工作区变更清单损坏或超过上限");
+        return Result<std::vector<std::filesystem::path>>::failure("工作区变更清单损坏或超过上限");
     }
     std::vector<std::filesystem::path> result;
     for (const auto& item : parsed.value().asArray()) {
@@ -376,8 +364,7 @@ snapshotMetadata(const std::filesystem::path& workspaceRoot) {
                  : Result<void>::success();
 }
 
-[[nodiscard]] Result<std::string>
-combinedPatch(const std::vector<WorkspaceChange>& changes) {
+[[nodiscard]] Result<std::string> combinedPatch(const std::vector<WorkspaceChange>& changes) {
     std::string combined;
     for (const auto& change : changes) {
         if (change.diff.size() > kMaximumPatchBytes - combined.size()) {
@@ -445,18 +432,15 @@ WorkspaceEditor::prepare(const std::filesystem::path& projectRoot,
             return Result<std::filesystem::path>::success(destination);
         }
         return Result<std::filesystem::path>::failure("提交 repaired project 失败: " +
-                                                       error.message());
+                                                      error.message());
     }
     return Result<std::filesystem::path>::success(destination);
 }
 
-Result<WorkspaceEditResult>
-WorkspaceEditor::applyTextEdit(const std::filesystem::path& projectRoot,
-                               const std::filesystem::path& workspaceRoot,
-                               const std::filesystem::path& relativePath,
-                               const std::string& expectedText,
-                               const std::string& replacementText,
-                               std::size_t expectedOccurrences) const {
+Result<WorkspaceEditResult> WorkspaceEditor::applyTextEdit(
+    const std::filesystem::path& projectRoot, const std::filesystem::path& workspaceRoot,
+    const std::filesystem::path& relativePath, const std::string& expectedText,
+    const std::string& replacementText, std::size_t expectedOccurrences) const {
     const auto relative = safeRelativePath(relativePath);
     if (!relative.ok()) {
         return Result<WorkspaceEditResult>::failure(relative.error());
@@ -490,9 +474,9 @@ WorkspaceEditor::applyTextEdit(const std::filesystem::path& projectRoot,
     }
     const auto actualOccurrences = occurrenceCount(oldText, expectedText);
     if (actualOccurrences != expectedOccurrences) {
-        return Result<WorkspaceEditResult>::failure(
-            "精确编辑锚点命中数不符：期望 " + std::to_string(expectedOccurrences) +
-            "，实际 " + std::to_string(actualOccurrences));
+        return Result<WorkspaceEditResult>::failure("精确编辑锚点命中数不符：期望 " +
+                                                    std::to_string(expectedOccurrences) +
+                                                    "，实际 " + std::to_string(actualOccurrences));
     }
     const auto removedBytes = expectedText.size() * actualOccurrences;
     const auto addedBytes = replacementText.size() * actualOccurrences;
@@ -552,11 +536,9 @@ WorkspaceEditor::applyTextEdit(const std::filesystem::path& projectRoot,
          .preview = preview(newText)});
 }
 
-Result<WorkspaceEditResult>
-WorkspaceEditor::createTextFile(const std::filesystem::path& projectRoot,
-                                const std::filesystem::path& workspaceRoot,
-                                const std::filesystem::path& relativePath,
-                                const std::string& content) const {
+Result<WorkspaceEditResult> WorkspaceEditor::createTextFile(
+    const std::filesystem::path& projectRoot, const std::filesystem::path& workspaceRoot,
+    const std::filesystem::path& relativePath, const std::string& content) const {
     const auto relative = safeRelativePath(relativePath);
     if (!relative.ok()) {
         return Result<WorkspaceEditResult>::failure(relative.error());
@@ -630,11 +612,10 @@ WorkspaceEditor::createTextFile(const std::filesystem::path& projectRoot,
          .preview = preview(content)});
 }
 
-Result<std::string>
-WorkspaceEditor::readTextFile(const std::filesystem::path& projectRoot,
-                              const std::filesystem::path& workspaceRoot,
-                              const std::filesystem::path& relativePath,
-                              std::size_t maxBytes) const {
+Result<std::string> WorkspaceEditor::readTextFile(const std::filesystem::path& projectRoot,
+                                                  const std::filesystem::path& workspaceRoot,
+                                                  const std::filesystem::path& relativePath,
+                                                  std::size_t maxBytes) const {
     const auto relative = safeRelativePath(relativePath);
     if (!relative.ok()) {
         return Result<std::string>::failure(relative.error());
@@ -675,10 +656,10 @@ WorkspaceEditor::changes(const std::filesystem::path& projectRoot,
         if (!hasOld && !hasNew) {
             continue;
         }
-        const auto oldText = hasOld ? util::readFileLimited(oldFile, kMaximumEditableBytes + 1U)
-                                    : std::string{};
-        const auto newText = hasNew ? util::readFileLimited(newFile, kMaximumEditableBytes + 1U)
-                                    : std::string{};
+        const auto oldText =
+            hasOld ? util::readFileLimited(oldFile, kMaximumEditableBytes + 1U) : std::string{};
+        const auto newText =
+            hasNew ? util::readFileLimited(newFile, kMaximumEditableBytes + 1U) : std::string{};
         if ((hasOld && oldText.size() > kMaximumEditableBytes) ||
             (hasNew && newText.size() > kMaximumEditableBytes)) {
             return Result<std::vector<WorkspaceChange>>::failure(
@@ -712,17 +693,16 @@ Result<AuditResult> WorkspaceEditor::reAudit(const std::filesystem::path& projec
     effectiveOptions.unverifiedFiles.insert(effectiveOptions.unverifiedFiles.end(),
                                             manifest.value().begin(), manifest.value().end());
     std::sort(effectiveOptions.unverifiedFiles.begin(), effectiveOptions.unverifiedFiles.end());
-    effectiveOptions.unverifiedFiles.erase(
-        std::unique(effectiveOptions.unverifiedFiles.begin(),
-                    effectiveOptions.unverifiedFiles.end()),
-        effectiveOptions.unverifiedFiles.end());
+    effectiveOptions.unverifiedFiles.erase(std::unique(effectiveOptions.unverifiedFiles.begin(),
+                                                       effectiveOptions.unverifiedFiles.end()),
+                                           effectiveOptions.unverifiedFiles.end());
 
     ProjectContext context = baselineContext == nullptr ? ProjectContext{} : *baselineContext;
     context.originalRoot = baselineContext == nullptr ? projectRoot : baselineContext->originalRoot;
     context.inputRoot = prepared.value();
     if (baselineContext == nullptr) {
-        context.workspaceRoot = workspaceRoot.filename() == "agent" ? workspaceRoot.parent_path()
-                                                                     : workspaceRoot;
+        context.workspaceRoot =
+            workspaceRoot.filename() == "agent" ? workspaceRoot.parent_path() : workspaceRoot;
     }
     context.sessionId = "repaired-" + util::makeSessionId();
     if (context.projectName.empty()) {

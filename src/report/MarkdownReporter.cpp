@@ -49,7 +49,7 @@ std::string MarkdownReporter::render(const AuditResult& result, const AuditDiff*
         result.findings.begin(), result.findings.end(),
         [](const AuditFinding& finding) { return finding.severity == Severity::Blocker; });
     const auto p0Tasks = std::count_if(result.fixTasks.begin(), result.fixTasks.end(),
-                                      [](const FixTask& task) { return task.priority == "P0"; });
+                                       [](const FixTask& task) { return task.priority == "P0"; });
     output << "- 规则阻断项：" << ruleBlockers << "\n";
     output << "- 必须处理任务：" << p0Tasks << "\n\n";
 
@@ -167,8 +167,7 @@ std::string MarkdownReporter::render(const AuditResult& result, const AuditDiff*
     return output.str();
 }
 
-Result<void> MarkdownReporter::write(const AuditResult& result,
-                                     const std::filesystem::path& output,
+Result<void> MarkdownReporter::write(const AuditResult& result, const std::filesystem::path& output,
                                      const AuditDiff* diff) const {
     return util::writeTextFile(output, render(result, diff));
 }

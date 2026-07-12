@@ -28,15 +28,15 @@ template <std::size_t Size>
 
 bool GeneratedVendoredDetector::isGenerated(const std::filesystem::path& path) const {
     constexpr std::array<const char*, 10> names = {
-        "build", "dist", "out", "target", ".next", "coverage", "__pycache__",
-        "generated", ".cache", ".pytest_cache",
+        "build",    "dist",        "out",       "target", ".next",
+        "coverage", "__pycache__", "generated", ".cache", ".pytest_cache",
     };
     return hasComponent(path, names);
 }
 
 bool GeneratedVendoredDetector::isVendored(const std::filesystem::path& path) const {
     constexpr std::array<const char*, 9> names = {
-        "node_modules", "vendor", "third_party", "external", ".venv",
+        "node_modules", "vendor", "third_party",   "external",         ".venv",
         "venv",         ".tox",   "site-packages", "bower_components",
     };
     return hasComponent(path, names);

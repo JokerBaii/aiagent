@@ -17,7 +17,7 @@ ApplicationWindow {
     minimumWidth: 1100
     minimumHeight: 700
     visible: true
-    title: "大学生项目材料审计平台"
+    title: "大学生项目审计与完善平台"
     color: Theme.window
     font.family: Theme.fontFamily
 
@@ -53,7 +53,7 @@ ApplicationWindow {
     readonly property var panelTabs: [
         { key: "files", label: "文件", icon: "file" },
         { key: "preview", label: "上下文", icon: "think" },
-        { key: "artifacts", label: "产物", icon: "skills" }
+        { key: "artifacts", label: "检查结果", icon: "skills" }
     ]
     readonly property var colorChoices: [
         { key: "black", label: "Black", color: "#333333" },
@@ -78,10 +78,10 @@ ApplicationWindow {
         { key: "mono", label: "等宽字体" }
     ]
     readonly property var accessModeChoices: [
-        { key: "ask", label: "Ask", hint: "常规问答与安全读取" },
-        { key: "plan", label: "Plan", hint: "只生成计划，不执行工具" },
-        { key: "code", label: "Code", hint: "写入受控工作区产物" },
-        { key: "bypass", label: "Bypass", hint: "扩展授权读取，仍保护原项目" }
+        { key: "ask", label: "仅查看", hint: "回答问题和读取已导入的材料" },
+        { key: "plan", label: "先列计划", hint: "只说明准备怎么做，不修改文件" },
+        { key: "code", label: "允许生成修改稿", hint: "只在安全副本中创建文件，不改原项目" },
+        { key: "bypass", label: "扩展读取", hint: "允许读取你另外指定的位置，仍不改原项目" }
     ]
 
     property bool settingsOpen: false
@@ -139,7 +139,7 @@ ApplicationWindow {
 
     FileDialog {
         id: materialFileDialog
-        title: "添加项目材料或材料包"
+        title: "添加项目文件或项目压缩包"
         nameFilters: [
             "文档与数据 (*.pdf *.docx *.pptx *.xlsx *.doc *.ppt *.xls *.rtf *.odt *.odp *.ods *.md *.markdown *.txt *.rst *.adoc *.json *.jsonl *.yaml *.yml *.csv *.tsv *.xml *.html *.htm *.toml *.ini *.cfg *.conf *.sql)",
             "源码与配置 (*.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.hxx *.py *.js *.mjs *.cjs *.ts *.tsx *.jsx *.vue *.svelte *.qml *.java *.kt *.kts *.go *.rs *.swift *.cs *.php *.rb *.lua *.r *.scala *.dart *.sh *.bash *.zsh *.ps1 *.bat *.cmd *.cmake *.gradle)",
@@ -364,7 +364,7 @@ ApplicationWindow {
                         anchors.fill: parent
                         visible: sessionList.count === 0
                         text: "还没有任务"
-                        hint: "选择文件夹或材料包后开始。"
+                        hint: "选择完整项目文件夹、项目压缩包或单个项目文件后开始。"
                     }
                 }
 
@@ -737,7 +737,7 @@ ApplicationWindow {
                                 anchors.fill: parent
                                 visible: fileList.count === 0
                                 text: compiler.projectContext.originalRoot ? "等待审计扫描文件" : "未选择项目"
-                                hint: "左侧添加文件夹或材料包后运行审计。"
+                                hint: "左侧添加真实项目文件夹、压缩包或文件后运行检查。"
                             }
                         }
                     }
@@ -994,7 +994,7 @@ ApplicationWindow {
                                 Layout.leftMargin: 14
                                 Layout.rightMargin: 14
                                 Layout.topMargin: 14
-                                title: "审计产物"
+                                title: "检查结果"
                                 subtitle: "打开总览、证据、风险、任务、差分或报告。"
                             }
                             Repeater {
@@ -1073,7 +1073,7 @@ ApplicationWindow {
                                 Layout.leftMargin: 14
                                 Layout.rightMargin: 14
                                 Layout.fillWidth: true
-                                text: "快捷键 Ctrl+Shift+A 可随时打开产物面板。"
+                                text: "快捷键 Ctrl+Shift+A 可随时打开检查结果。"
                                 color: Theme.textTertiary
                                 font.pixelSize: Theme.fontXs
                                 wrapMode: Text.WordWrap
@@ -1153,7 +1153,7 @@ ApplicationWindow {
                         width: settingsScroll.availableWidth
                         spacing: 18
 
-                SectionTitle { title: "大模型审计助手" }
+                SectionTitle { title: "智能辅助服务（可选）"; subtitle: "不配置也能使用完整的本地规则检查" }
                 FieldInput {
                     Layout.fillWidth: true
                     text: compiler.llmEndpoint
@@ -1170,7 +1170,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     echoMode: TextInput.Password
                     text: compiler.llmApiKey
-                    placeholderText: "DeepSeek / OpenAI-compatible API Key"
+                    placeholderText: "访问密钥（仅在本次运行中使用）"
                     onActiveFocusChanged: if (activeFocus && text === "********") text = ""
                     onTextEdited: compiler.llmApiKey = text
                 }
@@ -1192,7 +1192,7 @@ ApplicationWindow {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: "配置 API Key 后，大模型会调用规则工具并解释项目材料审计结果。"
+                            text: "开启后会联网帮助解释检查结果。原始材料不会被修改，最终分数仍由本地规则计算。"
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fontSm
                             wrapMode: Text.WordWrap

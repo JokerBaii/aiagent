@@ -29,9 +29,9 @@ struct SessionMessage {
     SessionMessage(QString roleValue, QString textValue, QString contextValue = {},
                    QString kindValue = {}, QString detailValue = {}, bool okValue = true,
                    QString targetValue = {})
-        : role{std::move(roleValue)}, text{std::move(textValue)},
-          context{std::move(contextValue)}, kind{std::move(kindValue)},
-          detail{std::move(detailValue)}, target{std::move(targetValue)}, ok{okValue} {}
+        : role{std::move(roleValue)}, text{std::move(textValue)}, context{std::move(contextValue)},
+          kind{std::move(kindValue)}, detail{std::move(detailValue)},
+          target{std::move(targetValue)}, ok{okValue} {}
 
     QString role;
     QString text;

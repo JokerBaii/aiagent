@@ -96,8 +96,7 @@ TrustScore TrustScoreCalculator::calculate(const ProjectInventory& inventory,
               reason);
     }
     for (const auto& issue : issues) {
-        apply(issue.issueId, severityPenalty(issue.severity), "项目逻辑自洽性",
-              issue.description);
+        apply(issue.issueId, severityPenalty(issue.severity), "项目逻辑自洽性", issue.description);
     }
     const auto generatedFinding =
         std::any_of(findings.begin(), findings.end(), [](const AuditFinding& finding) {

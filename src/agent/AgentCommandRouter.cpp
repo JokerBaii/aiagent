@@ -100,7 +100,7 @@ Result<AgentCommand> AgentCommandRouter::route(const std::string& input) const {
         return Result<AgentCommand>::success(
             AgentCommand{.kind = AgentCommandKind::RunModePrefixedTask,
                          .prompt = std::move(goal),
-                         .context = "/code"});
+                         .context = "/optimize"});
     }
     if (command == "help") {
         return Result<AgentCommand>::success(

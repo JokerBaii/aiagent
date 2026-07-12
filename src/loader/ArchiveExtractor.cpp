@@ -37,8 +37,8 @@ constexpr std::size_t kArchiveProbeBytes = 512U;
 [[nodiscard]] ArchiveFormat extensionFormat(const std::filesystem::path& path) {
     const auto extension = util::lowerAscii(path.extension().string());
     const auto filename = util::lowerAscii(path.filename().string());
-    if (extension == ".zip" || extension == ".apk" || extension == ".jar" ||
-        extension == ".war" || extension == ".ear" || extension == ".whl") {
+    if (extension == ".zip" || extension == ".apk" || extension == ".jar" || extension == ".war" ||
+        extension == ".ear" || extension == ".whl") {
         return ArchiveFormat::Zip;
     }
     if (extension == ".gz" || extension == ".tgz" || filename.ends_with(".tar.gz")) {
@@ -108,11 +108,15 @@ Result<ProjectContext> ArchiveExtractor::extract(const ArchiveImportRequest& req
     if (!detected.ok()) {
         return Result<ProjectContext>::failure(detected.error());
     }
-    if (!detected.value().archive ||
-        detected.value().reader == ArchiveReaderKind::MetadataOnly ||
+    if (!detected.value().archive || detected.value().reader == ArchiveReaderKind::MetadataOnly ||
         detected.value().reader == ArchiveReaderKind::None) {
         return Result<ProjectContext>::failure("当前版本不支持该压缩格式: " +
                                                util::pathString(archivePath));
+    }
+    if (!detected.value().signatureMatched) {
+        return Result<ProjectContext>::failure(
+            "文件扩展名表示受支持的压缩包，但文件头不匹配，文件可能已损坏或扩展名错误: " +
+            util::pathString(archivePath));
     }
     if (!std::filesystem::exists(archivePath) || !std::filesystem::is_regular_file(archivePath)) {
         return Result<ProjectContext>::failure("压缩包不存在或不可读: " +
@@ -140,8 +144,8 @@ Result<ProjectContext> ArchiveExtractor::extract(const ArchiveImportRequest& req
     context.workspaceRoot = workspaceRoot;
     context.sessionId = workspaceRoot.filename().string();
     context.projectName = archivePath.stem().string();
-    context.unpackStatus = detected.value().format == ArchiveFormat::Zip ? "ZIP_EXTRACTED"
-                                                                         : "ARCHIVE_EXTRACTED";
+    context.unpackStatus =
+        detected.value().format == ArchiveFormat::Zip ? "ZIP_EXTRACTED" : "ARCHIVE_EXTRACTED";
     context.archiveInput = true;
     context.inputFiles = std::move(extracted.value().files);
     context.deferredFiles = std::move(extracted.value().deferredFiles);
@@ -161,8 +165,8 @@ ArchiveProbe ArchiveExtractor::probeHeader(std::span<const unsigned char> header
         format = ArchiveFormat::SevenZip;
     } else if (startsWith(header, {0xfdU, '7', 'z', 'X', 'Z', 0x00U})) {
         format = ArchiveFormat::Xz;
-    } else if (header.size() >= 4U && startsWith(header, {'B', 'Z', 'h'}) &&
-               header[3] >= '1' && header[3] <= '9') {
+    } else if (header.size() >= 4U && startsWith(header, {'B', 'Z', 'h'}) && header[3] >= '1' &&
+               header[3] <= '9') {
         format = ArchiveFormat::Bzip2;
     } else if (startsWith(header, {0x28U, 0xb5U, 0x2fU, 0xfdU})) {
         format = ArchiveFormat::Zstd;
@@ -221,8 +225,7 @@ Result<ArchiveProbe> ArchiveExtractor::probe(const std::filesystem::path& path) 
         {.archive = true,
          .signatureMatched = false,
          .format = format,
-         .reader = supported ? ArchiveReaderKind::LibArchive
-                             : ArchiveReaderKind::MetadataOnly});
+         .reader = supported ? ArchiveReaderKind::LibArchive : ArchiveReaderKind::MetadataOnly});
 }
 
 std::string ArchiveExtractor::formatName(ArchiveFormat format) {
@@ -265,13 +268,12 @@ bool ArchiveExtractor::isSupportedArchivePath(const std::filesystem::path& path)
     const auto extension = util::lowerAscii(path.extension().string());
     const auto filename = util::lowerAscii(path.filename().string());
     return extension == ".zip" || extension == ".tar" || extension == ".gz" ||
-           extension == ".tgz" || extension == ".7z" || extension == ".bz2" ||
-           extension == ".xz" || extension == ".zst" || extension == ".cpio" ||
-           extension == ".ar" || extension == ".deb" || extension == ".apk" ||
-           extension == ".jar" || extension == ".war" || extension == ".ear" ||
-           extension == ".whl" || filename.ends_with(".tar.gz") ||
-           filename.ends_with(".tar.bz2") || filename.ends_with(".tar.xz") ||
-           filename.ends_with(".tar.zst");
+           extension == ".tgz" || extension == ".7z" || extension == ".bz2" || extension == ".xz" ||
+           extension == ".zst" || extension == ".cpio" || extension == ".ar" ||
+           extension == ".deb" || extension == ".apk" || extension == ".jar" ||
+           extension == ".war" || extension == ".ear" || extension == ".whl" ||
+           filename.ends_with(".tar.gz") || filename.ends_with(".tar.bz2") ||
+           filename.ends_with(".tar.xz") || filename.ends_with(".tar.zst");
 }
 
 } // namespace cc

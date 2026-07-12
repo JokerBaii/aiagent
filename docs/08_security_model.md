@@ -88,7 +88,7 @@ ModifyOriginalProject
 ExecuteCommand
 ```
 
-NetworkAccess 和 LLMAccess 默认允许；但 LLM 请求仍必须同时具备运行时授权标志和 API key，缺少 key 时不得向外部模型 endpoint 发起请求。
+NetworkAccess 和 LLMAccess 默认拒绝。LLM 请求必须同时具备当前任务的运行时授权和有效 API key，缺少任一条件都不得向外部模型服务发起请求。
 
 ## 5. 高风险动作
 

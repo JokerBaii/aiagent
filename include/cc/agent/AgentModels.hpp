@@ -120,6 +120,10 @@ struct AgentRunRequest {
     std::vector<AgentConversationMessage> conversationHistory;
     std::string permissionMode{"ask"};
     bool requireAudit{false};
+    /** 优化工作流只有产生 repaired project 的真实变更后才允许收束。 */
+    bool requireWorkspaceChanges{false};
+    /** 优化工作流只有完成修改后确定性复审并生成 AuditDiff 后才允许收束。 */
+    bool requireReaudit{false};
     bool allowWriteWorkspace{false};
     bool allowReadExternal{false};
     bool allowModifyOriginal{false};

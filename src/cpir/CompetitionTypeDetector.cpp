@@ -126,10 +126,14 @@ CompetitionTypeDetector::detectDetailed(const ProjectInventory& inventory,
 
     Scores scores;
     constexpr std::array<CompetitionType, 9> types = {
-        CompetitionType::BusinessInnovation, CompetitionType::SoftwareProject,
-        CompetitionType::EngineeringProduct, CompetitionType::ScientificResearch,
-        CompetitionType::SocialPractice, CompetitionType::PublicWelfare,
-        CompetitionType::Ecommerce, CompetitionType::AiApplication,
+        CompetitionType::BusinessInnovation,
+        CompetitionType::SoftwareProject,
+        CompetitionType::EngineeringProduct,
+        CompetitionType::ScientificResearch,
+        CompetitionType::SocialPractice,
+        CompetitionType::PublicWelfare,
+        CompetitionType::Ecommerce,
+        CompetitionType::AiApplication,
         CompetitionType::ComprehensiveInnovation,
     };
     for (const auto type : types) {
@@ -149,20 +153,19 @@ CompetitionTypeDetector::detectDetailed(const ProjectInventory& inventory,
     const auto best = ranked.front();
     const auto second = ranked.size() > 1U ? ranked[1U].second : 0;
     if (best.second < 3 || (best.second == second && best.second < 6)) {
-        return CompetitionTypeResult{
-            .type = CompetitionType::Unknown,
-            .confidence = 0.0,
-            .reason = "可信材料的赛道特征不足或存在并列，需要人工确认"};
+        return CompetitionTypeResult{.type = CompetitionType::Unknown,
+                                     .confidence = 0.0,
+                                     .reason = "可信材料的赛道特征不足或存在并列，需要人工确认"};
     }
 
     const auto margin = std::max(best.second - second, 0);
-    const auto confidence = std::clamp(0.55 + static_cast<double>(std::min(best.second, 10)) *
-                                                 0.03 +
-                                           static_cast<double>(margin) * 0.02,
-                                       0.55, 0.90);
+    const auto confidence =
+        std::clamp(0.55 + static_cast<double>(std::min(best.second, 10)) * 0.03 +
+                       static_cast<double>(margin) * 0.02,
+                   0.55, 0.90);
     std::ostringstream reason;
-    reason << "可信材料对“" << toString(best.first) << "”的特征得分为 "
-           << best.second << "，次高得分为 " << second;
+    reason << "可信材料对“" << toString(best.first) << "”的特征得分为 " << best.second
+           << "，次高得分为 " << second;
     return CompetitionTypeResult{
         .type = best.first, .confidence = confidence, .reason = reason.str()};
 }

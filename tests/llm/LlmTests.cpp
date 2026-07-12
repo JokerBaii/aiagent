@@ -334,6 +334,85 @@ void runLlmTests() {
     requireTrue(streamedEvents.size() > cc::StagedAuditPipeline::stages().size(),
                 "stream should include plan, every audit stage, summary and final answer");
 
+    cc::AgentRunRequest optimizeRequest = auditLoopRequest;
+    optimizeRequest.userGoal = "完善项目说明并重新检查";
+    optimizeRequest.allowWriteWorkspace = true;
+    optimizeRequest.requireWorkspaceChanges = true;
+    optimizeRequest.requireReaudit = true;
+    int optimizeStep = 0;
+    auto optimizedLoop = cc::BrainAgentLoop{}.runWithDecisionProvider(
+        optimizeRequest,
+        [&](const cc::AgentRunRequest&, const cc::AgentRunResult&,
+            const std::vector<cc::AgentToolSpec>&) {
+            ++optimizeStep;
+            cc::AgentDecision decision;
+            decision.kind = cc::AgentDecisionKind::ToolCall;
+            decision.summary = "继续完成受控优化闭环";
+            decision.call.id = "optimize_" + std::to_string(optimizeStep);
+            decision.call.reason = "测试真实修改与复审";
+            decision.call.input = cc::JsonValue::Object{};
+            if (optimizeStep == 1) {
+                decision.call.name = "run_project_audit";
+            } else if (optimizeStep == 2) {
+                decision.call.name = "prepare_repaired_workspace";
+            } else if (optimizeStep == 3) {
+                decision.kind = cc::AgentDecisionKind::FinalAnswer;
+                decision.finalAnswer = "尚未修改但试图提前结束";
+            } else if (optimizeStep == 4) {
+                decision.call.name = "apply_repaired_text_edit";
+                decision.call.input =
+                    cc::JsonValue::Object{{"path", "README.md"},
+                                          {"expected_text", "# 项目说明\n"},
+                                          {"replacement_text", "# 项目说明\n\n## 盲目修改\n"},
+                                          {"expected_occurrences", 1}};
+            } else if (optimizeStep == 5) {
+                decision.call.name = "read_text_file";
+                decision.call.input =
+                    cc::JsonValue::Object{{"path", "README.md"}, {"max_bytes", 4000}};
+            } else if (optimizeStep == 6) {
+                decision.call.name = "apply_repaired_text_edit";
+                decision.call.input =
+                    cc::JsonValue::Object{{"path", "README.md"},
+                                          {"expected_text", "# 项目说明\n"},
+                                          {"replacement_text", "# 项目说明\n\n## 参赛材料说明\n"},
+                                          {"expected_occurrences", 1}};
+            } else if (optimizeStep == 7) {
+                decision.kind = cc::AgentDecisionKind::FinalAnswer;
+                decision.finalAnswer = "已修改但试图跳过复审";
+            } else if (optimizeStep == 8) {
+                decision.call.name = "re_audit_repaired_project";
+            } else {
+                decision.kind = cc::AgentDecisionKind::FinalAnswer;
+                decision.finalAnswer = "已完成真实修改和修改后复审。";
+            }
+            return cc::Result<cc::AgentDecision>::success(std::move(decision));
+        },
+        10U);
+    requireTrue(optimizedLoop.ok(), "optimization loop should complete the enforced workflow");
+    requireTrue(optimizedLoop.value().auditDiff.has_value(),
+                "optimization loop should return a typed before/after audit diff");
+    requireTrue(optimizeStep == 9,
+                "early final answers must be rejected until both edit and re-audit complete");
+
+    int repeatedSteps = 0;
+    auto repeatedLoop = cc::BrainAgentLoop{}.runWithDecisionProvider(
+        auditLoopRequest,
+        [&](const cc::AgentRunRequest&, const cc::AgentRunResult&,
+            const std::vector<cc::AgentToolSpec>&) {
+            ++repeatedSteps;
+            return cc::Result<cc::AgentDecision>::success(cc::AgentDecision{
+                .kind = cc::AgentDecisionKind::ToolCall,
+                .summary = "重复调用",
+                .call = cc::AgentToolCall{.id = "repeat_" + std::to_string(repeatedSteps),
+                                          .name = "run_project_audit",
+                                          .reason = "重复",
+                                          .input = cc::JsonValue::Object{}},
+                .finalAnswer = {}});
+        },
+        6U);
+    requireTrue(!repeatedLoop.ok() && repeatedSteps == 3,
+                "three identical decisions should stop instead of burning the whole step budget");
+
     // 混合研判：解析 LLM 研判 JSON，再用确定性结果校验。
     const std::string advisoryJson =
         R"({"suggested_score":90,"overall_judgement":"整体不错","risks":[)"

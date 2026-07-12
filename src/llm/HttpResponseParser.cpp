@@ -156,7 +156,8 @@ parseHeaders(const std::string& headerText) {
                 const auto trailer = std::string_view{body}.substr(offset, trailerEnd - offset);
                 const auto colon = trailer.find(':');
                 if (trailer.front() == ' ' || trailer.front() == '\t' ||
-                    colon == std::string_view::npos || !validHeaderName(trailer.substr(0U, colon)) ||
+                    colon == std::string_view::npos ||
+                    !validHeaderName(trailer.substr(0U, colon)) ||
                     !validHeaderValue(trailer.substr(colon + 1U))) {
                     return Result<ChunkDecodeResult>::failure("HTTP chunked 响应 trailer 非法");
                 }

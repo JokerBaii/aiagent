@@ -6,6 +6,8 @@
 #include "../TestSupport.hpp"
 #include "../ZipFixture.hpp"
 #include "cc/agent/AgentCommandRouter.hpp"
+#include "cc/agent/AgentFilePolicy.hpp"
+#include "cc/agent/AgentPermissionPolicy.hpp"
 #include "cc/agent/AgentRuntime.hpp"
 #include "cc/agent/AuditSessionStore.hpp"
 #include "cc/agent/PermissionGate.hpp"
@@ -19,6 +21,12 @@
 #include <algorithm>
 
 void runAgentTests() {
+    const std::string invalidUtf8{"ok\xFFtext", 7U};
+    requireTrue(cc::agent_file_policy::sanitizeUtf8(invalidUtf8) == "ok?text",
+                "agent file policy should sanitize invalid UTF-8 before JSON output");
+    requireTrue(cc::agent_file_policy::truncateText("中文材料", 4U) == "中\n...[已截断]",
+                "agent file policy should truncate on a UTF-8 boundary");
+
     cc::PermissionGate gate;
     requireTrue(gate.isAllowed(cc::ToolPermission::ReadProjectFiles), "read should be allowed");
     requireTrue(!gate.isAllowed(cc::ToolPermission::WriteWorkspace),
@@ -27,6 +35,20 @@ void runAgentTests() {
                 "network should be denied by default");
     requireTrue(!gate.isAllowed(cc::ToolPermission::LLMAccess),
                 "llm access should be denied by default");
+    cc::AgentRunRequest permissionRequest;
+    requireTrue(!cc::AgentPermissionPolicy{}
+                     .authorize(permissionRequest, cc::ToolPermission::WriteWorkspace)
+                     .ok(),
+                "request capability snapshot should deny workspace writes by default");
+    permissionRequest.allowWriteWorkspace = true;
+    requireTrue(cc::AgentPermissionPolicy{}
+                    .authorize(permissionRequest, cc::ToolPermission::WriteWorkspace)
+                    .ok(),
+                "request capability snapshot should explicitly allow workspace writes");
+    cc::AgentRunRequest localOptimizeRequest;
+    localOptimizeRequest.requireWorkspaceChanges = true;
+    requireTrue(!cc::AgentRuntime{}.runLocal(localOptimizeRequest).ok(),
+                "local diagnostic mode must not pretend to complete an optimization workflow");
     requireTrue(!cc::ToolRegistry{}.interactiveToolSpecs().empty(),
                 "interactive agent tools should be registered");
     auto auditCommand = cc::AgentCommandRouter{}.route("/audit");
@@ -43,7 +65,7 @@ void runAgentTests() {
     requireTrue(explicitOptimization.ok() &&
                     explicitOptimization.value().kind ==
                         cc::AgentCommandKind::RunModePrefixedTask &&
-                    explicitOptimization.value().context == "/code",
+                    explicitOptimization.value().context == "/optimize",
                 "only the explicit optimize command should enter the repaired write flow");
     auto askMode = cc::AgentCommandRouter{}.route("/ask");
     requireTrue(askMode.ok() && askMode.value().kind == cc::AgentCommandKind::SetPermissionMode &&
@@ -76,6 +98,12 @@ void runAgentTests() {
                 "agent fixture markdown should be written");
     requireTrue(cc::util::writeTextFile(agentRoot / "main.cpp", "int main() { return 0; }\n").ok(),
                 "agent fixture source should be written");
+    const auto officeFile = contest_test::writeStoredZipFixture(
+        agentRoot / "项目说明.docx",
+        {{"word/document.xml", "<w:document><w:body><w:p><w:r><w:t>真实办公文件中的项目目标</w:t>"
+                               "</w:r></w:p></w:body></w:document>"}});
+    requireTrue(std::filesystem::is_regular_file(officeFile),
+                "agent fixture office project file should be written");
     cc::AgentRunRequest request;
     request.userGoal = "请修一修 Markdown 文档";
     request.projectRoot = agentRoot;
@@ -131,15 +159,14 @@ void runAgentTests() {
         "deferred source remains readable on demand\n" + std::string(256U, 'x');
     requireTrue(cc::util::writeTextFile(deferredRoot / "large.notesblob", deferredText).ok(),
                 "deferred text fixture should be written");
+    requireTrue(cc::util::writeTextFile(deferredRoot / "large.bin", std::string(256U, '\0')).ok(),
+                "deferred binary fixture should be written");
     requireTrue(
-        cc::util::writeTextFile(deferredRoot / "large.bin", std::string(256U, '\0')).ok(),
-        "deferred binary fixture should be written");
-    requireTrue(cc::util::writeTextFile(
-                    deferredRoot / "auth.txt",
-                    "api_key=sk-this-is-a-real-looking-test-secret-123456789\n" +
-                        std::string(256U, 's'))
-                    .ok(),
-                "deferred sensitive fixture should be written");
+        cc::util::writeTextFile(deferredRoot / "auth.txt",
+                                "api_key=sk-this-is-a-real-looking-test-secret-123456789\n" +
+                                    std::string(256U, 's'))
+            .ok(),
+        "deferred sensitive fixture should be written");
     requireTrue(cc::util::writeTextFile(deferredRoot / "small.txt", "small\n").ok(),
                 "copied text fixture should be written");
 
@@ -169,15 +196,16 @@ void runAgentTests() {
     requireTrue(deferredListed.ok() && deferredListed.value().ok,
                 "agent should list files from the typed audit inventory");
     const auto& deferredFiles = deferredListed.value().output.at("files").asArray();
-    const auto deferredListedAsset = std::find_if(
-        deferredFiles.begin(), deferredFiles.end(), [](const cc::JsonValue& item) {
+    const auto deferredListedAsset =
+        std::find_if(deferredFiles.begin(), deferredFiles.end(), [](const cc::JsonValue& item) {
             return item.at("path").asString() == "large.notesblob";
         });
-    requireTrue(deferredListedAsset != deferredFiles.end() &&
-                    deferredListedAsset->at("content_deferred").asBool(false) &&
-                    !deferredListedAsset->at("text_readable").asBool(true) &&
-                    deferredListedAsset->at("on_demand_text_candidate").asBool(false),
-                "metadata-only files must remain visible with an explicit on-demand candidate flag");
+    requireTrue(
+        deferredListedAsset != deferredFiles.end() &&
+            deferredListedAsset->at("content_deferred").asBool(false) &&
+            !deferredListedAsset->at("text_readable").asBool(true) &&
+            deferredListedAsset->at("on_demand_text_candidate").asBool(false),
+        "metadata-only files must remain visible with an explicit on-demand candidate flag");
     requireTrue(std::none_of(deferredFiles.begin(), deferredFiles.end(),
                              [](const cc::JsonValue& item) {
                                  return item.at("path").asString() == "auth.txt";
@@ -209,17 +237,16 @@ void runAgentTests() {
     readDeferredCall.id = "read_deferred";
     readDeferredCall.name = "read_text_file";
     readDeferredCall.reason = "read a bounded prefix from the selected source directory";
-    readDeferredCall.input =
-        cc::JsonValue::Object{{"path", "large.notesblob"}, {"max_bytes", 48}};
+    readDeferredCall.input = cc::JsonValue::Object{{"path", "large.notesblob"}, {"max_bytes", 48}};
     auto readDeferred = cc::AgentRuntime{}.runTool(deferredRequest, readDeferredCall);
-    requireTrue(readDeferred.ok() && readDeferred.value().ok &&
-                    readDeferred.value().output.at("content_deferred").asBool(false) &&
-                    readDeferred.value().output.at("on_demand_original_read").asBool(false) &&
-                    readDeferred.value().output.at("truncated").asBool(false) &&
-                    readDeferred.value().output.at("content").asString().size() <= 48U &&
-                    readDeferred.value().output.at("content").asString().starts_with(
-                        "deferred source"),
-                "deferred directory text should be read from the original only within bounds");
+    requireTrue(
+        readDeferred.ok() && readDeferred.value().ok &&
+            readDeferred.value().output.at("content_deferred").asBool(false) &&
+            readDeferred.value().output.at("on_demand_original_read").asBool(false) &&
+            readDeferred.value().output.at("truncated").asBool(false) &&
+            readDeferred.value().output.at("content").asString().size() <= 48U &&
+            readDeferred.value().output.at("content").asString().starts_with("deferred source"),
+        "deferred directory text should be read from the original only within bounds");
     requireTrue(cc::util::readFileLimited(deferredRoot / "large.notesblob", deferredText.size()) ==
                     deferredText,
                 "on-demand reads must not modify the original project");
@@ -248,8 +275,7 @@ void runAgentTests() {
     requireTrue(singleDeferredContext.ok() &&
                     singleDeferredContext.value().unpackStatus == "SINGLE_FILE_METADATA_ONLY",
                 "oversized selected text file should import as metadata-only");
-    auto singleDeferredInventory =
-        cc::InventoryEngine{}.build(singleDeferredContext.value());
+    auto singleDeferredInventory = cc::InventoryEngine{}.build(singleDeferredContext.value());
     requireTrue(singleDeferredInventory.ok(),
                 "single metadata-only file should enter the audit inventory");
     cc::AuditResult singleDeferredAudit;
@@ -258,11 +284,12 @@ void runAgentTests() {
     auto singleDeferredRequest = deferredRequest;
     singleDeferredRequest.projectRoot = singleDeferredAudit.context.inputRoot;
     singleDeferredRequest.auditResult = &singleDeferredAudit;
-    auto singleList =
-        cc::AgentRuntime{}.runTool(singleDeferredRequest, deferredListCall);
+    auto singleList = cc::AgentRuntime{}.runTool(singleDeferredRequest, deferredListCall);
     requireTrue(singleList.ok() && singleList.value().ok &&
-                    singleList.value().output.at("files").at(0).at(
-                        "on_demand_text_candidate")
+                    singleList.value()
+                        .output.at("files")
+                        .at(0)
+                        .at("on_demand_text_candidate")
                         .asBool(false),
                 "single metadata-only input should advertise bounded on-demand inspection");
     auto singleReadCall = readDeferredCall;
@@ -279,8 +306,8 @@ void runAgentTests() {
     std::filesystem::rename(deferredRoot / "large.notesblob",
                             deferredRoot / "large-target.notesblob", symlinkError);
     if (!symlinkError) {
-        std::filesystem::create_symlink("large-target.notesblob",
-                                        deferredRoot / "large.notesblob", symlinkError);
+        std::filesystem::create_symlink("large-target.notesblob", deferredRoot / "large.notesblob",
+                                        symlinkError);
     }
     if (!symlinkError) {
         auto rejectedSymlink = cc::AgentRuntime{}.runTool(deferredRequest, readDeferredCall);
@@ -302,17 +329,17 @@ void runAgentTests() {
     archiveRequest.projectRoot = archiveAudit.context.inputRoot;
     archiveRequest.auditResult = &archiveAudit;
     auto archiveList = cc::AgentRuntime{}.runTool(archiveRequest, deferredListCall);
-    requireTrue(archiveList.ok() && archiveList.value().ok &&
-                    archiveList.value().output.at("files").at(0).at("path").asString() ==
-                        "inside/large.txt" &&
-                    archiveList.value().output.at("files").at(0).at("content_deferred")
-                        .asBool(false) &&
-                    !archiveList.value()
-                         .output.at("files")
-                         .at(0)
-                         .at("on_demand_text_candidate")
-                         .asBool(true),
-                "archive-internal deferred entries should be listed without a read-through hint");
+    requireTrue(
+        archiveList.ok() && archiveList.value().ok &&
+            archiveList.value().output.at("files").at(0).at("path").asString() ==
+                "inside/large.txt" &&
+            archiveList.value().output.at("files").at(0).at("content_deferred").asBool(false) &&
+            !archiveList.value()
+                 .output.at("files")
+                 .at(0)
+                 .at("on_demand_text_candidate")
+                 .asBool(true),
+        "archive-internal deferred entries should be listed without a read-through hint");
     auto inspectArchiveDeferred = inspectDeferredCall;
     inspectArchiveDeferred.id = "inspect_archive_deferred";
     inspectArchiveDeferred.input = cc::JsonValue::Object{{"path", "inside/large.txt"}};
@@ -360,17 +387,41 @@ void runAgentTests() {
     auditToolCall.name = "run_project_audit";
     auditToolCall.reason = "先取得确定性规则和证据结果";
     auditToolCall.input = cc::JsonValue::Object{};
-    auto auditExecution =
-        cc::AgentRuntime{}.runToolExecution(auditRequest, auditToolCall);
+    auto auditExecution = cc::AgentRuntime{}.runToolExecution(auditRequest, auditToolCall);
     requireTrue(auditExecution.ok(), "agent audit tool should execute");
     requireTrue(auditExecution.value().auditResult.has_value(),
                 "agent audit tool should return a typed audit result");
     requireTrue(auditExecution.value().observations.size() ==
                     cc::StagedAuditPipeline::stages().size() + 1U,
                 "agent audit tool should expose every deterministic stage and its summary");
-    requireTrue(
-        auditExecution.value().observations.back().toolName == "run_project_audit",
-        "agent audit tool should finish with an aggregate observation for the brain");
+    requireTrue(auditExecution.value().observations.back().toolName == "run_project_audit",
+                "agent audit tool should finish with an aggregate observation for the brain");
+
+    auto auditedRequest = auditRequest;
+    auditedRequest.requireAudit = false;
+    auditedRequest.auditResult = &(*auditExecution.value().auditResult);
+    auditedRequest.projectRoot = auditedRequest.auditResult->context.inputRoot;
+    auditedRequest.workspaceRoot = auditedRequest.auditResult->context.workspaceRoot / "agent";
+    auto inspectOfficeCall = inspectCall;
+    inspectOfficeCall.id = "inspect_office_1";
+    inspectOfficeCall.input = cc::JsonValue::Object{{"path", "项目说明.docx"}};
+    auto inspectedOffice = cc::AgentRuntime{}.runTool(auditedRequest, inspectOfficeCall);
+    requireTrue(inspectedOffice.ok() && inspectedOffice.value().ok &&
+                    inspectedOffice.value().output.at("suggested_tool").asString() ==
+                        "read_extracted_document" &&
+                    inspectedOffice.value().output.at("can_read_extracted_document").asBool(false),
+                "office project files should route to the extracted document reader");
+    cc::AgentToolCall readOfficeCall;
+    readOfficeCall.id = "read_office_1";
+    readOfficeCall.name = "read_extracted_document";
+    readOfficeCall.reason = "读取真实 DOCX 项目文件";
+    readOfficeCall.input = cc::JsonValue::Object{{"path", "项目说明.docx"}, {"max_bytes", 8000}};
+    auto officeRead = cc::AgentRuntime{}.runTool(auditedRequest, readOfficeCall);
+    requireTrue(officeRead.ok() && officeRead.value().ok &&
+                    officeRead.value().output.at("extracted_from_project_file").asBool(false) &&
+                    officeRead.value().output.at("content").asString().find("真实办公文件") !=
+                        std::string::npos,
+                "agent should read content extracted from the real DOCX project file");
 
     auto run = cc::AgentRuntime{}.runLocal(request);
     requireTrue(run.ok(), "local agent runtime should execute");

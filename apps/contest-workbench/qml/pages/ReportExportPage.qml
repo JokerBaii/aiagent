@@ -15,8 +15,8 @@ Item {
         spacing: 16
 
         SectionTitle {
-            title: "报告导出"
-            subtitle: "导出可阅读报告或结构化审计数据包"
+            title: "下载检查报告"
+            subtitle: "保存后可发给团队成员，或用于修改前后对比"
         }
 
         Card {
@@ -34,8 +34,8 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
-                    Text { text: "Markdown 报告"; color: Theme.textPrimary; font.pixelSize: Theme.fontXl; font.bold: true }
-                    Text { text: "含材料、项目画像、证据、风险、评分与补证计划"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm }
+                    Text { text: "便于阅读的检查报告"; color: Theme.textPrimary; font.pixelSize: Theme.fontXl; font.bold: true }
+                    Text { text: "包含分数、发现的问题、证明材料和修改建议"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm }
                 }
                 FieldInput {
                     id: markdownPath
@@ -43,7 +43,7 @@ Item {
                     text: "workbench_report.md"
                 }
                 PrimaryButton {
-                    text: "导出"
+                    text: "保存报告"
                     onClicked: root.compiler.exportMarkdown(markdownPath.text)
                 }
             }
@@ -64,8 +64,8 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
-                    Text { text: "审计数据包"; color: Theme.textPrimary; font.pixelSize: Theme.fontXl; font.bold: true }
-                    Text { text: "结构化审计结果，供二次审计差分与集成使用"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm }
+                    Text { text: "用于前后对比的结果文件"; color: Theme.textPrimary; font.pixelSize: Theme.fontXl; font.bold: true }
+                    Text { text: "只有需要比较两次检查结果时才使用"; color: Theme.textSecondary; font.pixelSize: Theme.fontSm }
                 }
                 FieldInput {
                     id: jsonPath
@@ -73,7 +73,7 @@ Item {
                     text: "workbench_audit.json"
                 }
                 PrimaryButton {
-                    text: "导出"
+                    text: "保存结果"
                     onClicked: root.compiler.exportJson(jsonPath.text)
                 }
             }

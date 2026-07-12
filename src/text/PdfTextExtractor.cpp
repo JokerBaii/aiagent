@@ -24,8 +24,8 @@ Result<TextDocument> PdfTextExtractor::extract(const ProjectAsset& asset) const 
     if (!error && size > kMaxPdfBytes) {
         document.status = "NEED_REVIEW_PDF_TRUNCATED";
     } else {
-        document.status = document.text.empty() ? "NEED_REVIEW_PDF_TEXT_EXTRACTION_LIMITED"
-                                                : "EXTRACTED_PDF";
+        document.status =
+            document.text.empty() ? "NEED_REVIEW_PDF_TEXT_EXTRACTION_LIMITED" : "EXTRACTED_PDF";
     }
     return Result<TextDocument>::success(std::move(document));
 }

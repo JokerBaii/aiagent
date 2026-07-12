@@ -199,7 +199,7 @@ enum class ToolPermission {
 };
 ```
 
-默认允许：ReadProjectFiles、WriteWorkspace、NetworkAccess、LLMAccess、ExportReport。
+当前实现默认只允许安全读取项目副本和导出用户指定的报告。WriteWorkspace、NetworkAccess、LLMAccess 都需要当前任务的显式能力快照；本文件中的交互模式参考不得覆盖 `PermissionGate` 的实际默认策略。
 默认禁止：ReadExternalFiles、ModifyOriginalProject、ExecuteCommand。
 
 高风险动作必须用户确认：执行脚本、读取项目外文件、写入原项目、扫描超大文件、解包嵌套压缩包、导出最终提交版材料。联网和 LLM 默认允许，但没有 API key 时不得发起模型请求。

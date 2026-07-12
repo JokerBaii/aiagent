@@ -96,13 +96,12 @@ void runAuditTests() {
     requireTrue(cc::DiffVerifier{}.diffFiles(largePath, newPath).ok(),
                 "valid reports larger than the former 4 MiB limit must remain comparable");
 
-    cc::EvidenceMatch conflicted{.claimId = "CONFLICT",
-                                 .status = cc::EvidenceStatus::Conflicted,
-                                 .reason = "证据互相冲突"};
-    cc::EvidenceMatch review{.claimId = "REVIEW",
-                             .status = cc::EvidenceStatus::NeedReview,
-                             .reason = "材料不可读"};
-    const auto evidenceScore = cc::TrustScoreCalculator{}.calculate({}, {}, {conflicted, review}, {});
+    cc::EvidenceMatch conflicted{
+        .claimId = "CONFLICT", .status = cc::EvidenceStatus::Conflicted, .reason = "证据互相冲突"};
+    cc::EvidenceMatch review{
+        .claimId = "REVIEW", .status = cc::EvidenceStatus::NeedReview, .reason = "材料不可读"};
+    const auto evidenceScore =
+        cc::TrustScoreCalculator{}.calculate({}, {}, {conflicted, review}, {});
     requireTrue(evidenceScore.totalScore < 100,
                 "conflicted and need-review evidence must affect the deterministic score");
 
@@ -125,7 +124,8 @@ void runAuditTests() {
     requireTrue(unreadableAudit.value().trustScore.totalScore < 100,
                 "an unreadable declaration must never receive a perfect score");
     requireTrue(std::any_of(unreadableAudit.value().findings.begin(),
-                            unreadableAudit.value().findings.end(), [](const auto& finding) {
+                            unreadableAudit.value().findings.end(),
+                            [](const auto& finding) {
                                 return finding.ruleId.starts_with("TEXT_EXTRACTION_REVIEW_");
                             }),
                 "unreadable documents must create an explicit extraction finding");

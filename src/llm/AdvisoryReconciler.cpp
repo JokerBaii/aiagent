@@ -43,22 +43,20 @@ namespace {
 
 [[nodiscard]] bool containsAny(const std::string& text,
                                const std::vector<std::string_view>& phrases) {
-    return std::any_of(phrases.begin(), phrases.end(), [&](std::string_view phrase) {
-        return util::contains(text, phrase);
-    });
+    return std::any_of(phrases.begin(), phrases.end(),
+                       [&](std::string_view phrase) { return util::contains(text, phrase); });
 }
 
 [[nodiscard]] bool claimsPass(const AdvisoryRiskItem& item) {
     const auto text = util::lowerAscii(item.title + " " + item.reason);
     const std::vector<std::string_view> negative{
-        "不通过", "不能通过", "未通过", "禁止通过", "并非无风险", "不是无风险",
-        "存在风险", "存在问题", "发现问题", "不符合", "尚未满足", "缺少", "不足"};
+        "不通过",   "不能通过", "未通过", "禁止通过", "并非无风险", "不是无风险", "存在风险",
+        "存在问题", "发现问题", "不符合", "尚未满足", "缺少",       "不足"};
     if (containsAny(text, negative)) {
         return false;
     }
-    const std::vector<std::string_view> positive{
-        "可以通过", "建议通过", "符合要求", "无风险", "没有问题", "不存在问题",
-        "已满足"};
+    const std::vector<std::string_view> positive{"可以通过", "建议通过",   "符合要求", "无风险",
+                                                 "没有问题", "不存在问题", "已满足"};
     return containsAny(text, positive);
 }
 
@@ -67,8 +65,8 @@ namespace {
         return false;
     }
     const auto text = util::lowerAscii(item.title + " " + item.reason);
-    const std::vector<std::string_view> scope{"整体", "整个项目", "项目总体", "最终结论",
-                                               "审计结论", "提交", "参赛"};
+    const std::vector<std::string_view> scope{"整体",     "整个项目", "项目总体", "最终结论",
+                                              "审计结论", "提交",     "参赛"};
     return containsAny(text, scope);
 }
 
@@ -122,13 +120,12 @@ ReconciledAdvisory AdvisoryReconciler::reconcile(const AuditAdvisory& advisory,
         if (findingIter != result.findings.end()) {
             if (findingIter->severity != item.severity || claimsPass(item)) {
                 reconciled.verdict = AdvisoryVerdict::Conflicting;
-                reconciled.reconciliation =
-                    "与规则冲突：对应规则 " + findingIter->ruleId +
-                    "，但风险严重度或通过结论与确定性结果不一致。";
+                reconciled.reconciliation = "与规则冲突：对应规则 " + findingIter->ruleId +
+                                            "，但风险严重度或通过结论与确定性结果不一致。";
             } else {
                 reconciled.verdict = AdvisoryVerdict::Confirmed;
-                reconciled.reconciliation = "已印证：对应规则 " + findingIter->ruleId + "（" +
-                                            findingIter->title + "）。";
+                reconciled.reconciliation =
+                    "已印证：对应规则 " + findingIter->ruleId + "（" + findingIter->title + "）。";
             }
         } else if (matchesEvidenceGap(item, result.evidenceMatches)) {
             if (claimsPass(item)) {

@@ -14,6 +14,7 @@
 #include <fstream>
 #include <limits>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -58,8 +59,17 @@ class ExtractionRollback {
         }
     }
 
-    void arm() { armed_ = true; }
-    void commit() { committed_ = true; }
+    ExtractionRollback(const ExtractionRollback&) = delete;
+    ExtractionRollback& operator=(const ExtractionRollback&) = delete;
+    ExtractionRollback(ExtractionRollback&&) = delete;
+    ExtractionRollback& operator=(ExtractionRollback&&) = delete;
+
+    void arm() {
+        armed_ = true;
+    }
+    void commit() {
+        committed_ = true;
+    }
 
   private:
     std::filesystem::path root_;
@@ -72,8 +82,8 @@ class ExtractionRollback {
     return offset <= size && length <= size - offset;
 }
 
-[[nodiscard]] Result<std::vector<unsigned char>>
-readBinaryFile(const std::filesystem::path& path, const ImportLimits& limits) {
+[[nodiscard]] Result<std::vector<unsigned char>> readBinaryFile(const std::filesystem::path& path,
+                                                                const ImportLimits& limits) {
     std::error_code error;
     const auto size = std::filesystem::file_size(path, error);
     if (error) {
@@ -91,8 +101,9 @@ readBinaryFile(const std::filesystem::path& path, const ImportLimits& limits) {
     }
     std::vector<unsigned char> data(static_cast<std::size_t>(size));
     if (!data.empty()) {
-        input.read(reinterpret_cast<char*>(data.data()),
-                   static_cast<std::streamsize>(data.size()));
+        // 标准流只接受 char*，底层缓冲区仍由 vector<unsigned char> 独占且大小已校验。
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        input.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
         if (input.gcount() != static_cast<std::streamsize>(data.size())) {
             return Result<std::vector<unsigned char>>::failure("ZIP 文件读取不完整");
         }
@@ -101,8 +112,17 @@ readBinaryFile(const std::filesystem::path& path, const ImportLimits& limits) {
 }
 
 [[nodiscard]] std::uint16_t readU16(const std::vector<unsigned char>& data, std::size_t offset) {
-    return static_cast<std::uint16_t>(data[offset]) |
-           static_cast<std::uint16_t>(static_cast<std::uint16_t>(data[offset + 1U]) << 8U);
+    return static_cast<std::uint16_t>(data.at(offset)) |
+           static_cast<std::uint16_t>(static_cast<std::uint16_t>(data.at(offset + 1U)) << 8U);
+}
+
+[[nodiscard]] std::string byteString(std::span<const unsigned char> bytes) {
+    std::string result;
+    result.reserve(bytes.size());
+    for (const auto byte : bytes) {
+        result.push_back(static_cast<char>(byte));
+    }
+    return result;
 }
 
 [[nodiscard]] std::uint32_t readU32(const std::vector<unsigned char>& data, std::size_t offset) {
@@ -174,7 +194,8 @@ parseCentralDirectory(const std::vector<unsigned char>& data) {
             return Result<std::vector<ParsedEntry>>::failure("ZIP 条目元数据越过文件边界");
         }
         const auto nameOffset = offset + kCentralHeaderSize;
-        std::string name{reinterpret_cast<const char*>(data.data() + nameOffset), fileNameLength};
+        std::string name =
+            byteString(std::span<const unsigned char>{data}.subspan(nameOffset, fileNameLength));
         if (name.find('\0') != std::string::npos) {
             return Result<std::vector<ParsedEntry>>::failure("ZIP 条目名称包含空字符");
         }
@@ -218,26 +239,22 @@ parseCentralDirectory(const std::vector<unsigned char>& data) {
     return key;
 }
 
-[[nodiscard]] bool exceedsRatio(std::uint64_t expanded, std::uint64_t compressed,
-                                double maximum) {
+[[nodiscard]] bool exceedsRatio(std::uint64_t expanded, std::uint64_t compressed, double maximum) {
     if (expanded == 0U) {
         return false;
     }
     if (compressed == 0U) {
         return true;
     }
-    return static_cast<long double>(expanded) /
-               static_cast<long double>(compressed) >
+    return static_cast<long double>(expanded) / static_cast<long double>(compressed) >
            static_cast<long double>(maximum);
 }
 
 [[nodiscard]] Result<void> validateEntries(const std::vector<ParsedEntry>& entries,
-                                           std::uint64_t archiveBytes,
-                                           const ImportLimits& limits) {
+                                           std::uint64_t archiveBytes, const ImportLimits& limits) {
     if (limits.maxFileCount == 0U || limits.maxSingleFileBytes == 0U ||
-        limits.maxExpandedBytes == 0U || limits.maxTotalBytes == 0U ||
-        limits.maxPathDepth == 0U || !std::isfinite(limits.maxCompressionRatio) ||
-        limits.maxCompressionRatio < 1.0) {
+        limits.maxExpandedBytes == 0U || limits.maxTotalBytes == 0U || limits.maxPathDepth == 0U ||
+        !std::isfinite(limits.maxCompressionRatio) || limits.maxCompressionRatio < 1.0) {
         return Result<void>::failure("ZIP 导入资源预算配置无效");
     }
 
@@ -259,8 +276,7 @@ parseCentralDirectory(const std::vector<unsigned char>& data) {
             continue;
         }
         files.insert(key);
-        if (entry.uncompressedSize >
-            std::numeric_limits<std::uint64_t>::max() - expandedTotal) {
+        if (entry.uncompressedSize > std::numeric_limits<std::uint64_t>::max() - expandedTotal) {
             return Result<void>::failure("ZIP 条目声明展开总量溢出");
         }
         expandedTotal += entry.uncompressedSize;
@@ -289,15 +305,17 @@ parseCentralDirectory(const std::vector<unsigned char>& data) {
 }
 
 [[nodiscard]] Result<std::vector<unsigned char>>
-inflateRawDeflate(const unsigned char* compressed, std::size_t compressedSize,
-                  std::size_t uncompressedSize) {
+inflateRawDeflate(std::span<const unsigned char> compressed, std::size_t uncompressedSize) {
+    const auto compressedSize = compressed.size();
     if (compressedSize > static_cast<std::size_t>(std::numeric_limits<uInt>::max()) ||
         uncompressedSize > static_cast<std::size_t>(std::numeric_limits<uInt>::max())) {
         return Result<std::vector<unsigned char>>::failure("ZIP 条目超过 zlib 单次解压上限");
     }
     std::vector<unsigned char> output(uncompressedSize);
     z_stream stream{};
-    stream.next_in = const_cast<Bytef*>(compressed);
+    // zlib 的历史接口未把只读输入声明为 const；inflate 不会修改 next_in 指向的数据。
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+    stream.next_in = const_cast<Bytef*>(compressed.data());
     stream.avail_in = static_cast<uInt>(compressedSize);
     unsigned char emptyOutput = 0U;
     stream.next_out = output.empty() ? &emptyOutput : output.data();
@@ -313,8 +331,8 @@ inflateRawDeflate(const unsigned char* compressed, std::size_t compressedSize,
     return Result<std::vector<unsigned char>>::success(std::move(output));
 }
 
-[[nodiscard]] Result<std::vector<unsigned char>>
-entryBytes(const std::vector<unsigned char>& data, const ParsedEntry& parsed) {
+[[nodiscard]] Result<std::vector<unsigned char>> entryBytes(const std::vector<unsigned char>& data,
+                                                            const ParsedEntry& parsed) {
     const auto& entry = parsed.entry;
     const auto localOffset = static_cast<std::size_t>(parsed.localHeaderOffset);
     if (!rangeInside(localOffset, kLocalHeaderSize, data.size()) ||
@@ -330,8 +348,8 @@ entryBytes(const std::vector<unsigned char>& data, const ParsedEntry& parsed) {
         return Result<std::vector<unsigned char>>::failure("ZIP 本地文件头越过边界");
     }
     const auto localNameOffset = localOffset + kLocalHeaderSize;
-    const std::string localName{reinterpret_cast<const char*>(data.data() + localNameOffset),
-                                fileNameLength};
+    const auto localName =
+        byteString(std::span<const unsigned char>{data}.subspan(localNameOffset, fileNameLength));
     if (localName != entry.relativePath.generic_string() || localFlags != parsed.flags ||
         localMethod != entry.compressionMethod) {
         return Result<std::vector<unsigned char>>::failure("ZIP 本地文件头与中央目录不一致: " +
@@ -357,12 +375,14 @@ entryBytes(const std::vector<unsigned char>& data, const ParsedEntry& parsed) {
         if (entry.compressedSize != entry.uncompressedSize) {
             return Result<std::vector<unsigned char>>::failure("ZIP store 条目大小不一致");
         }
-        bytes = Result<std::vector<unsigned char>>::success(std::vector<unsigned char>{
-            data.begin() + static_cast<std::ptrdiff_t>(payloadOffset),
-            data.begin() + static_cast<std::ptrdiff_t>(payloadOffset + compressedSize)});
+        const auto payload =
+            std::span<const unsigned char>{data}.subspan(payloadOffset, compressedSize);
+        bytes = Result<std::vector<unsigned char>>::success(
+            std::vector<unsigned char>{payload.begin(), payload.end()});
     } else if (entry.compressionMethod == kDeflateMethod) {
-        bytes = inflateRawDeflate(data.data() + payloadOffset, compressedSize,
-                                  static_cast<std::size_t>(entry.uncompressedSize));
+        bytes = inflateRawDeflate(
+            std::span<const unsigned char>{data}.subspan(payloadOffset, compressedSize),
+            static_cast<std::size_t>(entry.uncompressedSize));
     }
     if (!bytes.ok()) {
         return bytes;
@@ -381,7 +401,8 @@ entryBytes(const std::vector<unsigned char>& data, const ParsedEntry& parsed) {
 [[nodiscard]] Result<void> prepareDestination(const std::filesystem::path& root) {
     std::error_code error;
     if (std::filesystem::exists(root, error)) {
-        if (!std::filesystem::is_directory(root, error) || !std::filesystem::is_empty(root, error)) {
+        if (!std::filesystem::is_directory(root, error) ||
+            !std::filesystem::is_empty(root, error)) {
             return Result<void>::failure("ZIP 解压目标必须为空，拒绝覆盖既有文件");
         }
         return Result<void>::success();
@@ -396,8 +417,7 @@ entryBytes(const std::vector<unsigned char>& data, const ParsedEntry& parsed) {
 } // namespace
 
 Result<std::vector<ZipArchiveEntry>>
-ZipArchiveReader::list(const std::filesystem::path& archivePath,
-                       const ImportLimits& limits) const {
+ZipArchiveReader::list(const std::filesystem::path& archivePath, const ImportLimits& limits) const {
     const auto data = readBinaryFile(archivePath, limits);
     if (!data.ok()) {
         return Result<std::vector<ZipArchiveEntry>>::failure(data.error());
@@ -455,8 +475,8 @@ ZipArchiveReader::extractAll(const ZipExtractionRequest& request) const {
             }
             std::filesystem::create_directories(target, error);
             if (error) {
-                return Result<ArchiveExtractionOutcome>::failure(
-                    "无法创建 ZIP 目录: " + error.message());
+                return Result<ArchiveExtractionOutcome>::failure("无法创建 ZIP 目录: " +
+                                                                 error.message());
             }
             continue;
         }
@@ -498,8 +518,8 @@ ZipArchiveReader::extractAll(const ZipExtractionRequest& request) const {
         }
         std::filesystem::create_directories(target.parent_path(), error);
         if (error) {
-            return Result<ArchiveExtractionOutcome>::failure(
-                "无法创建 ZIP 子目录: " + error.message());
+            return Result<ArchiveExtractionOutcome>::failure("无法创建 ZIP 子目录: " +
+                                                             error.message());
         }
         if (std::filesystem::exists(target, error)) {
             return Result<ArchiveExtractionOutcome>::failure(
@@ -511,6 +531,8 @@ ZipArchiveReader::extractAll(const ZipExtractionRequest& request) const {
                 "无法写入 ZIP 条目: " + item.entry.relativePath.generic_string());
         }
         if (!bytes.value().empty()) {
+            // 标准流的二进制写接口只接受 const char*；字节数来自已校验的 vector 大小。
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
             output.write(reinterpret_cast<const char*>(bytes.value().data()),
                          static_cast<std::streamsize>(bytes.value().size()));
         }
@@ -528,9 +550,8 @@ ZipArchiveReader::extractAll(const ZipExtractionRequest& request) const {
     }
     std::sort(outcome.files.begin(), outcome.files.end());
     if (!outcome.deferredFiles.empty()) {
-        outcome.warnings.push_back(
-            "压缩包中有 " + std::to_string(outcome.deferredFiles.size()) +
-            " 个大型、加密、嵌套或受限条目仅保留元数据，其他文件已正常解包");
+        outcome.warnings.push_back("压缩包中有 " + std::to_string(outcome.deferredFiles.size()) +
+                                   " 个大型、加密、嵌套或受限条目仅保留元数据，其他文件已正常解包");
     }
     if (outcome.omittedFileCount > 0U) {
         outcome.warnings.push_back("压缩包条目超过文件树预算，另有 " +
@@ -566,8 +587,7 @@ Result<std::string> ZipArchiveReader::readTextEntry(const ZipEntryReadRequest& r
         }
         if (item.entry.compressionMethod != kStoreMethod &&
             item.entry.compressionMethod != kDeflateMethod) {
-            return Result<std::string>::failure("ZIP 文本条目使用了不支持的压缩方法: " +
-                                               expected);
+            return Result<std::string>::failure("ZIP 文本条目使用了不支持的压缩方法: " + expected);
         }
         if (request.maxBytes == 0U || item.entry.uncompressedSize > request.maxBytes) {
             return Result<std::string>::failure("ZIP 文本条目超过读取上限: " + expected);
@@ -576,8 +596,8 @@ Result<std::string> ZipArchiveReader::readTextEntry(const ZipEntryReadRequest& r
         if (!bytes.ok()) {
             return Result<std::string>::failure(bytes.error());
         }
-        return Result<std::string>::success(std::string{
-            reinterpret_cast<const char*>(bytes.value().data()), bytes.value().size()});
+        return Result<std::string>::success(
+            byteString(std::span<const unsigned char>{bytes.value()}));
     }
     return Result<std::string>::failure("ZIP 条目不存在: " + expected);
 }

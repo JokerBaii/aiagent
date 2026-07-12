@@ -31,8 +31,8 @@ void runRepairTests() {
     requireTrue(cc::util::writeTextFile(patchPath, plan.diffText).ok(),
                 "repair patch fixture should write");
     const auto initCommand = "git -C \"" + gitRoot.string() + "\" init -q";
-    const auto checkCommand = "git -C \"" + gitRoot.string() + "\" apply --check \"" +
-                              patchPath.string() + "\"";
+    const auto checkCommand =
+        "git -C \"" + gitRoot.string() + "\" apply --check \"" + patchPath.string() + "\"";
     requireTrue(std::system(initCommand.c_str()) == 0, "git test repository should initialize");
     requireTrue(std::system(checkCommand.c_str()) == 0,
                 "generated repair diff must pass git apply --check");
@@ -45,13 +45,12 @@ void runRepairTests() {
     cc::EvidenceMatch duplicateB = duplicateA;
     duplicateB.claimId = "CLM-002";
     const auto grouped = cc::FixTaskGenerator{}.generate({}, {duplicateA, duplicateB});
-    requireTrue(grouped.size() == 1U,
-                "equivalent evidence gaps should become one actionable task");
+    requireTrue(grouped.size() == 1U, "equivalent evidence gaps should become one actionable task");
     requireTrue(grouped.front().affectedRules.size() == 2U,
                 "a grouped task must retain every affected claim");
 
-    cc::AuditFinding infoFinding{"INFO_RULE", cc::Severity::Info, "提示", "说明", {}, {},
-                                 "稍后处理"};
+    cc::AuditFinding infoFinding{"INFO_RULE", cc::Severity::Info, "提示", "说明", {},
+                                 {},          "稍后处理"};
     const auto infoTasks = cc::FixTaskGenerator{}.generate({infoFinding}, {});
     requireTrue(infoTasks.front().priority == "P2", "informational findings must not become P1");
 }

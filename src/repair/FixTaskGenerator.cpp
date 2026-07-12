@@ -46,8 +46,8 @@ void mergeTask(FixTask& target, FixTask source) {
     appendUnique(target.relatedFiles, source.relatedFiles);
 }
 
-[[nodiscard]] std::filesystem::path claimSource(
-    const std::string& claimId, const std::vector<ProjectClaim>& claims) {
+[[nodiscard]] std::filesystem::path claimSource(const std::string& claimId,
+                                                const std::vector<ProjectClaim>& claims) {
     const auto claim = std::find_if(claims.begin(), claims.end(), [&](const ProjectClaim& item) {
         return item.claimId == claimId;
     });
@@ -117,9 +117,9 @@ std::vector<FixTask> FixTaskGenerator::generate(const std::vector<AuditFinding>&
         std::ostringstream id;
         id << "FIX-" << std::setw(3) << std::setfill('0') << index + 1U;
         tasks[index].taskId = id.str();
-        const auto evidenceRules = static_cast<std::size_t>(std::count_if(
-            tasks[index].affectedRules.begin(), tasks[index].affectedRules.end(),
-            [](const std::string& rule) { return rule.starts_with("EVIDENCE_"); }));
+        const auto evidenceRules = static_cast<std::size_t>(
+            std::count_if(tasks[index].affectedRules.begin(), tasks[index].affectedRules.end(),
+                          [](const std::string& rule) { return rule.starts_with("EVIDENCE_"); }));
         if (evidenceRules > 1U) {
             tasks[index].title = "为 " + std::to_string(evidenceRules) + " 条声明补充同类独立证据";
         }

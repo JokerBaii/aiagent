@@ -39,15 +39,16 @@ namespace {
 }
 
 [[nodiscard]] int taskCount(const AuditResult& result, const std::string& priority) {
-    return static_cast<int>(std::count_if(
-        result.fixTasks.begin(), result.fixTasks.end(),
-        [&](const FixTask& task) { return task.priority == priority; }));
+    return static_cast<int>(
+        std::count_if(result.fixTasks.begin(), result.fixTasks.end(),
+                      [&](const FixTask& task) { return task.priority == priority; }));
 }
 
 [[nodiscard]] int reviewDocumentCount(const std::vector<TextDocument>& corpus) {
-    return static_cast<int>(std::count_if(corpus.begin(), corpus.end(), [](const TextDocument& doc) {
-        return doc.status.starts_with("NEED_REVIEW") || doc.status == "EMPTY_OR_UNREADABLE";
-    }));
+    return static_cast<int>(
+        std::count_if(corpus.begin(), corpus.end(), [](const TextDocument& doc) {
+            return doc.status.starts_with("NEED_REVIEW") || doc.status == "EMPTY_OR_UNREADABLE";
+        }));
 }
 
 } // namespace
@@ -55,10 +56,9 @@ namespace {
 JsonValue contextToJson(const ProjectContext& context) {
     JsonValue::Array deferred;
     for (const auto& file : context.deferredFiles) {
-        deferred.emplace_back(JsonValue::Object{
-            {"path", util::pathString(file.relativePath)},
-            {"size_bytes", static_cast<double>(file.sizeBytes)},
-            {"reason", file.reason}});
+        deferred.emplace_back(JsonValue::Object{{"path", util::pathString(file.relativePath)},
+                                                {"size_bytes", static_cast<double>(file.sizeBytes)},
+                                                {"reason", file.reason}});
     }
     return JsonValue::Object{{"original_root", util::pathString(context.originalRoot)},
                              {"input_root", util::pathString(context.inputRoot)},
@@ -287,8 +287,7 @@ JsonValue JsonReporter::toJson(const AuditResult& result, const AuditDiff* diff)
                                           {"diff", result.repairPlan.diffText}}}};
 }
 
-Result<void> JsonReporter::write(const AuditResult& result,
-                                 const std::filesystem::path& output,
+Result<void> JsonReporter::write(const AuditResult& result, const std::filesystem::path& output,
                                  const AuditDiff* diff) const {
     return util::writeTextFile(output, writeJson(toJson(result, diff), 2) + "\n");
 }

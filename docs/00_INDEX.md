@@ -1,5 +1,7 @@
 # 竞赛项目智能工作台 Markdown 文档包
 
+> 当前实现请先阅读 `CURRENT_IMPLEMENTATION.md`。本目录中的早期需求、目标和路线图保留设计背景，不代表所有文字都已实现。
+
 项目名称：竞赛项目可信编译器  
 英文名称：Contest Project Trust Compiler  
 桌面端名称：大学生项目材料审计平台
@@ -22,6 +24,7 @@
 
 | 文件 | 用途 |
 |---|---|
+| `CURRENT_IMPLEMENTATION.md` | 当前代码事实、模块边界、已知技术债务和下一批拆分顺序（优先阅读） |
 | `01_research_and_requirements.md` | 正式调研与需求分析文档 |
 | `02_functional_requirements.md` | 全量功能需求规格说明 |
 | `03_architecture_and_directory_tree.md` | 严谨现代架构与目录树 |
@@ -37,12 +40,13 @@
 
 ## 使用方式
 
-1. 先读 `01_research_and_requirements.md` 和 `11_competition_agentic_workbench.md`，确认项目不是通用 AI 助手。
-2. 将 `04_ultimate_codex_goal.md` 作为 Codex `/goal` 的主提示词。
-3. 将 `03_architecture_and_directory_tree.md`、`06_cpp_engineering_and_comment_style.md` 和 `12.md` 固定为工程约束。
-4. 将 `07_rule_pack_spec.md` 作为规则包实现依据。
-5. 将 `09_test_and_acceptance.md` 作为每轮实现后的检查清单。
-6. 不允许跳过 C++ Core 直接做 QML，也不允许让 LLM 直接决定最终评分。
+1. 先读 `CURRENT_IMPLEMENTATION.md`，确认当前代码事实和已知债务。
+2. 再读 `01_research_and_requirements.md` 和 `11_competition_agentic_workbench.md` 理解产品背景。
+3. `04_ultimate_codex_goal.md` 和 `10_implementation_roadmap.md` 是历史目标与路线，不得覆盖当前代码事实。
+4. 将 `03_architecture_and_directory_tree.md`、`06_cpp_engineering_and_comment_style.md` 和 `12.md` 作为工程约束。
+5. 将 `07_rule_pack_spec.md` 作为规则包实现依据。
+6. 将 `09_test_and_acceptance.md` 作为每轮实现后的检查清单。
+7. 不允许跳过 C++ Core 直接做 QML，也不允许让 LLM 直接决定最终评分。
 
 ## 项目最终原则
 

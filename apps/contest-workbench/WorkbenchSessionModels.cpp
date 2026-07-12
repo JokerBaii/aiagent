@@ -158,8 +158,7 @@ namespace {
 }
 
 [[nodiscard]] QVariantMap artifactItem(const QString& pageKey, const QString& title,
-                                       const QString& kind, const QString& detail,
-                                       bool available) {
+                                       const QString& kind, const QString& detail, bool available) {
     QVariantMap item;
     item["pageKey"] = pageKey;
     item["title"] = title;
@@ -214,8 +213,7 @@ namespace {
     case cc::ToolPermission::ReadExternalFiles:
         return allowed ? "Bypass 模式下允许读取用户授权的项目外文件" : "默认拒绝读取项目外文件";
     case cc::ToolPermission::WriteWorkspace:
-        return allowed ? "Code/扩展读取模式可写入隔离会话工作区"
-                       : "Ask/Plan 模式不写入会话工作区";
+        return allowed ? "Code/扩展读取模式可写入隔离会话工作区" : "Ask/Plan 模式不写入会话工作区";
     case cc::ToolPermission::ModifyOriginalProject:
         return "所有模式都禁止覆盖原始项目";
     case cc::ToolPermission::ExecuteCommand:
@@ -223,8 +221,7 @@ namespace {
     case cc::ToolPermission::NetworkAccess:
         return allowed ? "已明确授权联网；请求受 HTTPS、时限和大小边界约束" : "默认关闭联网";
     case cc::ToolPermission::LLMAccess:
-        return allowed ? "已明确授权调用 LLM；最终评分仍由规则引擎裁决"
-                       : "默认关闭 LLM 调用";
+        return allowed ? "已明确授权调用 LLM；最终评分仍由规则引擎裁决" : "默认关闭 LLM 调用";
     case cc::ToolPermission::ExportReport:
         return "允许导出用户指定的 Markdown/JSON 报告";
     }
@@ -255,8 +252,7 @@ namespace {
 
 } // namespace
 
-QVariantMap projectContext(const cc::AuditResult* result,
-                           const QString& normalizedProjectPath) {
+QVariantMap projectContext(const cc::AuditResult* result, const QString& normalizedProjectPath) {
     QVariantMap item;
     if (result == nullptr) {
         item["projectName"] = "等待导入";
@@ -330,9 +326,8 @@ QVariantList sessionHistory(const cc::AuditResult* result,
     return items;
 }
 
-QVariantList toolCards(const cc::AuditResult* result,
-                       const std::optional<cc::AuditDiff>& auditDiff, bool agentRunning,
-                       int activeStep, int completedSteps) {
+QVariantList toolCards(const cc::AuditResult* result, const std::optional<cc::AuditDiff>& auditDiff,
+                       bool agentRunning, int activeStep, int completedSteps) {
     (void)auditDiff;
     QVariantList items;
     const auto& names = auditToolFlow();
@@ -441,7 +436,8 @@ QVariantList permissionCards(bool llmApproved, const QString& accessMode) {
         item["name"] = permissionName(permission);
         item["technicalName"] = stringText(cc::toString(permission));
         item["status"] = accessMode == "plan" && !allowed ? "计划阻断"
-                                                           : allowed ? "允许" : "默认拒绝";
+                         : allowed                        ? "允许"
+                                                          : "默认拒绝";
         item["allowed"] = allowed;
         item["detail"] = permissionDetail(permission, allowed, accessMode);
         items.push_back(item);
@@ -449,70 +445,65 @@ QVariantList permissionCards(bool llmApproved, const QString& accessMode) {
     return items;
 }
 
-QVariantList artifacts(const cc::AuditResult* result,
-                       const std::optional<cc::AuditDiff>& auditDiff, const QString& agentResult) {
+QVariantList artifacts(const cc::AuditResult* result, const std::optional<cc::AuditDiff>& auditDiff,
+                       const QString& agentResult) {
     QVariantList items;
     if (result == nullptr) {
         const auto waiting = QStringLiteral("完成项目审计后可查看");
-        items.push_back(artifactItem("dashboard", "可信评分总览", "总览", waiting, false));
+        items.push_back(artifactItem("dashboard", "检查结果总览", "总览", waiting, false));
         items.push_back(artifactItem("assets", "材料资产清单", "数据", waiting, false));
-        items.push_back(artifactItem("cpir", "项目画像", "画像", waiting, false));
-        items.push_back(artifactItem("claims", "声明与证据", "证据", waiting, false));
-        items.push_back(artifactItem("consistency", "材料一致性", "校验", waiting, false));
-        items.push_back(artifactItem("findings", "规则风险", "风险", waiting, false));
-        items.push_back(artifactItem("tasks", "补证与修复任务", "计划", waiting, false));
+        items.push_back(artifactItem("cpir", "项目基本信息", "信息", waiting, false));
+        items.push_back(artifactItem("claims", "成果与证明材料", "证明", waiting, false));
+        items.push_back(artifactItem("consistency", "材料内容是否矛盾", "核对", waiting, false));
+        items.push_back(artifactItem("findings", "发现的问题", "问题", waiting, false));
+        items.push_back(artifactItem("tasks", "下一步修改清单", "待办", waiting, false));
         items.push_back(
-            artifactItem("diff", "二次审计差分", "对比", "选择两份审计数据包进行比较", true));
-        items.push_back(artifactItem("brain", "智能体运行记录", "记录",
-                                     "配置模型、运行混合研判并查看工具轨迹", true));
-        items.push_back(artifactItem("report", "审计报告导出", "导出", waiting, false));
+            artifactItem("diff", "修改前后对比", "对比", "导入修改后的材料即可重新检查", true));
+        items.push_back(artifactItem("brain", "智能辅助检查", "辅助",
+                                     "可选的联网辅助功能，不影响本地规则检查", true));
+        items.push_back(artifactItem("report", "下载检查报告", "导出", waiting, false));
         return items;
     }
 
-    items.push_back(artifactItem(
-        "dashboard", "可信评分总览", "总览",
-        QStringLiteral("评分 %1 · 必须处理 %2 · 需要关注 %3")
-            .arg(result->trustScore.totalScore)
-            .arg(blockerCount(*result))
-            .arg(warningCount(*result)),
-        true));
+    items.push_back(artifactItem("dashboard", "检查结果总览", "总览",
+                                 QStringLiteral("评分 %1 · 必须处理 %2 · 需要关注 %3")
+                                     .arg(result->trustScore.totalScore)
+                                     .arg(blockerCount(*result))
+                                     .arg(warningCount(*result)),
+                                 true));
     items.push_back(artifactItem(
         "assets", "材料资产清单", "数据",
         QStringLiteral("已识别 %1 份文件").arg(result->inventory.assets.size()), true));
-    items.push_back(artifactItem("cpir", "项目画像", "画像",
+    items.push_back(artifactItem("cpir", "项目基本信息", "信息",
                                  QStringLiteral("%1 · 置信度 %2")
                                      .arg(stringText(cc::toString(result->cpir.competitionType)))
                                      .arg(result->cpir.competitionConfidence),
                                  true));
+    items.push_back(artifactItem("claims", "成果与证明材料", "证明",
+                                 QStringLiteral("声明 %1 条 · 证据匹配 %2 条")
+                                     .arg(result->claims.size())
+                                     .arg(result->evidenceMatches.size()),
+                                 true));
     items.push_back(artifactItem(
-        "claims", "声明与证据", "证据",
-        QStringLiteral("声明 %1 条 · 证据匹配 %2 条")
-            .arg(result->claims.size())
-            .arg(result->evidenceMatches.size()),
-        true));
-    items.push_back(artifactItem(
-        "consistency", "材料一致性", "校验",
+        "consistency", "材料内容是否矛盾", "核对",
         QStringLiteral("发现 %1 个跨材料一致性问题").arg(result->consistencyIssues.size()), true));
-    items.push_back(artifactItem(
-        "findings", "规则风险", "风险",
-        QStringLiteral("规则命中 %1 项").arg(result->findings.size()), true));
-    items.push_back(artifactItem(
-        "tasks", "补证与修复任务", "计划",
-        QStringLiteral("按优先级整理 %1 个任务").arg(result->fixTasks.size()), true));
-    items.push_back(artifactItem(
-        "diff", "实际变更与二次审计", "对比",
-        !result->repairPlan.diffText.empty()
-            ? QStringLiteral("已绑定真实 changes.patch · %1 字节")
-                  .arg(result->repairPlan.diffText.size())
-            : auditDiff.has_value() ? stringText(auditDiff->summary)
-                                    : "选择两份审计数据包进行比较",
-        true));
-    items.push_back(artifactItem(
-        "brain", "智能体运行记录", "记录",
-        agentResult.isEmpty() ? "可运行混合研判并查看工具轨迹" : "已生成智能体运行结果和工具轨迹",
-        true));
+    items.push_back(artifactItem("findings", "发现的问题", "问题",
+                                 QStringLiteral("规则命中 %1 项").arg(result->findings.size()),
+                                 true));
     items.push_back(
-        artifactItem("report", "审计报告导出", "导出", "导出 Markdown 报告或 JSON 审计数据包", true));
+        artifactItem("tasks", "下一步修改清单", "待办",
+                     QStringLiteral("按优先级整理 %1 个任务").arg(result->fixTasks.size()), true));
+    items.push_back(artifactItem("diff", "修改前后对比", "对比",
+                                 !result->repairPlan.diffText.empty()
+                                     ? QStringLiteral("已生成修改建议，涉及 %1 字节的文本变更")
+                                           .arg(result->repairPlan.diffText.size())
+                                 : auditDiff.has_value() ? stringText(auditDiff->summary)
+                                                         : "选择两份审计数据包进行比较",
+                                 true));
+    items.push_back(artifactItem(
+        "brain", "智能辅助检查", "辅助",
+        agentResult.isEmpty() ? "可选的联网辅助检查" : "已生成智能辅助检查结果", true));
+    items.push_back(artifactItem("report", "下载检查报告", "导出", "下载便于阅读的报告", true));
     return items;
 }
 

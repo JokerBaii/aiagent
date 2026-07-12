@@ -182,9 +182,9 @@ namespace {
     if (flag == "SYMLINK_DEFERRED") {
         return "符号链接未跟随，等待确认";
     }
-    if (flag == "FIFO_DEFERRED" || flag == "SOCKET_DEFERRED" ||
-        flag == "BLOCK_DEVICE_DEFERRED" || flag == "CHARACTER_DEVICE_DEFERRED" ||
-        flag == "NON_REGULAR_FILE_DEFERRED" || flag == "NON_REGULAR_ENTRY_DEFERRED") {
+    if (flag == "FIFO_DEFERRED" || flag == "SOCKET_DEFERRED" || flag == "BLOCK_DEVICE_DEFERRED" ||
+        flag == "CHARACTER_DEVICE_DEFERRED" || flag == "NON_REGULAR_FILE_DEFERRED" ||
+        flag == "NON_REGULAR_ENTRY_DEFERRED") {
         return "非普通文件已识别，未打开内容";
     }
     if (flag == "NESTED_ARCHIVE_DEFERRED") {
@@ -196,15 +196,13 @@ namespace {
     if (flag == "ENCRYPTION_STATUS_UNKNOWN_DEFERRED") {
         return "无法确认条目加密状态，未读取内容";
     }
-    if (flag == "UNSUPPORTED_COMPRESSION_DEFERRED" ||
-        flag == "UNSUPPORTED_ARCHIVE_FORMAT") {
+    if (flag == "UNSUPPORTED_COMPRESSION_DEFERRED" || flag == "UNSUPPORTED_ARCHIVE_FORMAT") {
         return "格式已识别，当前解析器暂不支持内容读取";
     }
     if (flag == "ARCHIVE_TOO_LARGE_FOR_INDEXING") {
         return "归档超过自动展开预算，暂保留元数据";
     }
-    if (flag == "RUNTIME_SINGLE_FILE_LIMIT_DEFERRED" ||
-        flag == "RUNTIME_SIZE_LIMIT_DEFERRED") {
+    if (flag == "RUNTIME_SINGLE_FILE_LIMIT_DEFERRED" || flag == "RUNTIME_SIZE_LIMIT_DEFERRED") {
         return "条目实际大小超限，暂保留元数据";
     }
     if (flag == "RUNTIME_COPY_BUDGET_DEFERRED") {

@@ -319,14 +319,14 @@ Item {
 
         ToolbarChip {
             iconName: "attach"
-            tooltip: "附加文件或材料包"
+            tooltip: "添加项目文件或项目压缩包"
             onClicked: root.attachRequested()
         }
 
         ToolbarChip {
             iconName: "plan"
             label: "项目评审"
-            tooltip: "立即运行项目材料审计"
+            tooltip: "立即检查真实项目文件"
             onClicked: root.auditRequested()
         }
 

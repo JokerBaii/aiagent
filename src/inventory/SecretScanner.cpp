@@ -40,17 +40,16 @@ namespace {
         name == "id_rsa" || name == "id_ed25519" || name == "id_ecdsa") {
         return true;
     }
-    if (extension == ".pem" || extension == ".key" || extension == ".p12" ||
-        extension == ".pfx" || extension == ".jks" || extension == ".keystore") {
+    if (extension == ".pem" || extension == ".key" || extension == ".p12" || extension == ".pfx" ||
+        extension == ".jks" || extension == ".keystore") {
         return true;
     }
     constexpr std::array<std::string_view, 8> tokens{
-        "credential", "credentials", "secret",      "secrets",
+        "credential",  "credentials", "secret",       "secrets",
         "private-key", "private_key", "access-token", "access_token",
     };
-    return std::any_of(tokens.begin(), tokens.end(), [&](std::string_view token) {
-        return tokenInName(name, token);
-    });
+    return std::any_of(tokens.begin(), tokens.end(),
+                       [&](std::string_view token) { return tokenInName(name, token); });
 }
 
 [[nodiscard]] std::string unquote(std::string value) {
@@ -58,9 +57,8 @@ namespace {
     while (!value.empty() && (value.back() == ',' || value.back() == ';')) {
         value = util::trim(value.substr(0U, value.size() - 1U));
     }
-    if (value.size() >= 2U &&
-        ((value.front() == '"' && value.back() == '"') ||
-         (value.front() == '\'' && value.back() == '\''))) {
+    if (value.size() >= 2U && ((value.front() == '"' && value.back() == '"') ||
+                               (value.front() == '\'' && value.back() == '\''))) {
         return util::trim(value.substr(1U, value.size() - 2U));
     }
     return value;
@@ -79,23 +77,19 @@ namespace {
 [[nodiscard]] bool placeholderValue(std::string value) {
     value = util::lowerAscii(unquote(std::move(value)));
     if (value.empty() || value == "null" || value == "none" || value == "false" ||
-        value == "true" || value == "changeme" || value == "change_me" ||
-        value == "change-me" || value == "example" || value == "placeholder" ||
-        value == "redacted" || value == "masked" || value == "dummy" || value == "fake" ||
-        value == "sample" || value == "test" || value == "todo" || value == "tbd" ||
-        value == "string" || value == "value" || value == "your-value-here" ||
-        maskedValue(value)) {
+        value == "true" || value == "changeme" || value == "change_me" || value == "change-me" ||
+        value == "example" || value == "placeholder" || value == "redacted" || value == "masked" ||
+        value == "dummy" || value == "fake" || value == "sample" || value == "test" ||
+        value == "todo" || value == "tbd" || value == "string" || value == "value" ||
+        value == "your-value-here" || maskedValue(value)) {
         return true;
     }
     constexpr std::array<std::string_view, 16> prefixes{
-        "${",          "{{",          "<",          "your_",
-        "your-",       "example_",    "example-",   "dummy_",
-        "dummy-",      "fake_",       "fake-",      "sample_",
-        "sample-",     "process.env", "os.getenv",  "getenv(",
+        "${",     "{{",    "<",     "your_",   "your-",   "example_",    "example-",  "dummy_",
+        "dummy-", "fake_", "fake-", "sample_", "sample-", "process.env", "os.getenv", "getenv(",
     };
-    if (std::any_of(prefixes.begin(), prefixes.end(), [&](std::string_view prefix) {
-            return value.starts_with(prefix);
-        })) {
+    if (std::any_of(prefixes.begin(), prefixes.end(),
+                    [&](std::string_view prefix) { return value.starts_with(prefix); })) {
         return true;
     }
     if (value.starts_with("sk-test-") || value.starts_with("sk_test_") ||
@@ -103,8 +97,7 @@ namespace {
         value.find("example.com") != std::string::npos) {
         return true;
     }
-    return value.size() >= 6U &&
-           std::all_of(value.begin(), value.end(), [](char character) {
+    return value.size() >= 6U && std::all_of(value.begin(), value.end(), [](char character) {
                return character == 'x' || character == 'X';
            });
 }
@@ -123,16 +116,15 @@ namespace {
 
 [[nodiscard]] bool credentialKey(std::string_view key) {
     constexpr std::array<std::string_view, 15> exactKeys{
-        "password",       "passwd",          "apikey",       "accesstoken",
-        "refreshtoken",   "clientsecret",    "privatekey",    "secretkey",
-        "authtoken",      "bearertoken",     "awssecretaccesskey",
-        "authorization",  "databaseurl",     "connectionstring", "token",
+        "password",           "passwd",        "apikey",      "accesstoken",      "refreshtoken",
+        "clientsecret",       "privatekey",    "secretkey",   "authtoken",        "bearertoken",
+        "awssecretaccesskey", "authorization", "databaseurl", "connectionstring", "token",
     };
     if (std::find(exactKeys.begin(), exactKeys.end(), key) != exactKeys.end()) {
         return true;
     }
     constexpr std::array<std::string_view, 7> suffixes{
-        "password", "apikey", "accesstoken", "refreshtoken",
+        "password",     "apikey",    "accesstoken",   "refreshtoken",
         "clientsecret", "authtoken", "authorization",
     };
     return std::any_of(suffixes.begin(), suffixes.end(), [&](std::string_view suffix) {
@@ -147,8 +139,7 @@ namespace {
         return value.substr(scheme + 3U, at - scheme - 3U).find(':') != std::string_view::npos;
     }
     const auto lower = util::lowerAscii(std::string{value});
-    return lower.find("password=") != std::string::npos ||
-           lower.find("pwd=") != std::string::npos;
+    return lower.find("password=") != std::string::npos || lower.find("pwd=") != std::string::npos;
 }
 
 [[nodiscard]] bool credentialAssignment(const std::string& sample) {

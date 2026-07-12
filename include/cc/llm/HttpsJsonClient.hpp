@@ -26,9 +26,9 @@ struct HttpsRequestOptions {
     std::chrono::milliseconds writeTimeout{10000};
     std::chrono::milliseconds readTimeout{60000};
     std::chrono::milliseconds totalTimeout{90000};
-    std::size_t maxRequestBodyBytes{2U * 1024U * 1024U};
-    std::size_t maxResponseBytes{16U * 1024U * 1024U};
-    std::size_t maxResponseHeaderBytes{64U * 1024U};
+    std::size_t maxRequestBodyBytes{std::size_t{2U} * 1024U * 1024U};
+    std::size_t maxResponseBytes{std::size_t{16U} * 1024U * 1024U};
+    std::size_t maxResponseHeaderBytes{std::size_t{64U} * 1024U};
     std::function<bool()> isCancelled;
 };
 

@@ -40,8 +40,8 @@ constexpr std::size_t kMaximumHostBytes = 253U;
     while (begin < host.size()) {
         const auto end = host.find('.', begin);
         const auto length = (end == std::string_view::npos ? host.size() : end) - begin;
-        if (length == 0U || length > 63U || host[begin] == '-' ||
-            host[begin + length - 1U] == '-') {
+        if (length == 0U || length > 63U || host.at(begin) == '-' ||
+            host.at(begin + length - 1U) == '-') {
             return false;
         }
         if (end == std::string_view::npos) {
@@ -59,9 +59,8 @@ constexpr std::size_t kMaximumHostBytes = 253U;
         return Result<std::string>::failure("LLM endpoint 端口必须是 1 到 65535 的数字");
     }
     unsigned int port = 0U;
-    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), port);
-    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || port == 0U ||
-        port > 65535U) {
+    const auto parsed = std::from_chars(text.begin(), text.end(), port);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.end() || port == 0U || port > 65535U) {
         return Result<std::string>::failure("LLM endpoint 端口必须是 1 到 65535 的数字");
     }
     return Result<std::string>::success(std::to_string(port));
@@ -92,7 +91,7 @@ Result<Endpoint> EndpointParser::parse(std::string endpoint) const {
     Endpoint parsed;
     if (targetBegin == std::string::npos) {
         parsed.target = "/";
-    } else if (endpoint[targetBegin] == '?') {
+    } else if (endpoint.at(targetBegin) == '?') {
         parsed.target = "/" + endpoint.substr(targetBegin);
     } else {
         parsed.target = endpoint.substr(targetBegin);
@@ -117,7 +116,7 @@ Result<Endpoint> EndpointParser::parse(std::string endpoint) const {
             return Result<Endpoint>::failure("LLM endpoint IPv6 主机格式非法");
         }
         if (bracket + 1U < authority.size()) {
-            if (authority[bracket + 1U] != ':') {
+            if (authority.at(bracket + 1U) != ':') {
                 return Result<Endpoint>::failure("LLM endpoint IPv6 主机后只能跟端口");
             }
             portText = authority.substr(bracket + 2U);

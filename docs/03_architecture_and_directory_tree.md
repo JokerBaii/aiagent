@@ -69,6 +69,26 @@ DiffWorkflow
 
 Agentic Runtime 的输入必须来自 ProjectContext、ProjectInventory、CPIR、EvidenceGraph、AuditResult 或用户明确确认；输出必须进入 AuditSession、RepairPlan、AuditDiff 或 Report，不允许生成脱离项目证据链的结论。
 
+### 3.1 Runtime 内部边界
+
+`AgentRuntime` 只能承担请求生命周期编排，不能继续吸收具体工具实现。新增能力必须进入下列职责组件之一：
+
+```text
+AgentRuntime                 请求生命周期、取消传播、结果聚合
+├── ToolRegistry             工具 schema 与权限声明
+├── PermissionGate           权限决策
+├── AgentPermissionPolicy    请求能力快照到工具授权
+├── AgentFilePolicy          文本判定、UTF-8、敏感内容策略
+├── AgentPathResolver        路径和资产边界（待拆）
+├── AgentProjectTools        项目只读工具（待拆）
+├── AgentAuditTools          审计与二次审计工具（待拆）
+├── AgentWorkspaceTools      安全副本写入工具（待拆）
+├── AgentTraceSerializer     call、observation、event 与 trace JSON
+└── AgentToolDispatcher      handler 注册与分发（待拆）
+```
+
+禁止新增 `if (toolName == ...)` 式分支到 `AgentRuntime.cpp`。过渡期修改已有工具时可以保持兼容，但必须优先向对应组件迁移。
+
 ## 4. 现代目录树
 
 ```text
@@ -132,7 +152,7 @@ contest-compiler/
 | Target | 作用 |
 |---|---|
 | `contest_core` | 数据模型、审计核心、规则、评分、报告 |
-| `contest_agent` | ToolRegistry、PermissionGate、Hooks、Session |
+| `contest_agent` | ToolRegistry、PermissionGate、AgentFilePolicy、Hooks、Session、受控工具编排 |
 | `contest_llm` | 可选 LLM Brain、API 客户端和建议生成，不进入 core |
 | `contest-workbench` | Qt/QML 桌面端 |
 | `contest_tests` | 单元测试 |

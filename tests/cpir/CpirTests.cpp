@@ -24,14 +24,11 @@ void runCpirTests() {
         material("review.md", cc::AssetRole::ProjectDeclaration),
     };
     const std::vector<cc::TextDocument> corpus = {
-        {"README.md", "README",
-         "# Demo\n目标用户：学生\n解决方案：可信审计\n商业模式：订阅\n",
+        {"README.md", "README", "# Demo\n目标用户：学生\n解决方案：可信审计\n商业模式：订阅\n",
          "EXTRACTED_TEXT"},
-        {"src/app.js", "source",
-         "// 市场规模：SAM 9999 亿元\n// 当前成果：用户名或密码错误\n",
+        {"src/app.js", "source", "// 市场规模：SAM 9999 亿元\n// 当前成果：用户名或密码错误\n",
          "EXTRACTED_TEXT"},
-        {"review.md", "review", "目标用户：虚构用户\n",
-         "NEED_REVIEW_TEXT_TRUNCATED"},
+        {"review.md", "review", "目标用户：虚构用户\n", "NEED_REVIEW_TEXT_TRUNCATED"},
     };
     const auto explicitType = cc::CompetitionTypeDetector{}.detectDetailed(
         inventory, corpus, cc::CompetitionType::BusinessInnovation);
@@ -40,8 +37,7 @@ void runCpirTests() {
     requireTrue(cpir.targetUser == "目标用户：学生", "CPIR should use trusted labeled fields");
     requireTrue(cpir.marketAnalysis.empty(), "source comments must not populate CPIR fields");
     requireTrue(cpir.currentResults.empty(), "incidental source messages must not become results");
-    requireTrue(explicitType.confidence == 1.0,
-                "explicit competition type should be trusted");
+    requireTrue(explicitType.confidence == 1.0, "explicit competition type should be trusted");
     requireTrue(!cpir.riskItems.empty(), "review-only text should be reflected as a CPIR risk");
 
     inventory.roleCounts[cc::AssetRole::BusinessPlan] = 1U;
@@ -66,8 +62,7 @@ void runCpirTests() {
     };
     for (const auto& [text, expected] : tracks) {
         cc::ProjectInventory trackInventory;
-        trackInventory.assets.push_back(
-            material("申报书.md", cc::AssetRole::ProjectDeclaration));
+        trackInventory.assets.push_back(material("申报书.md", cc::AssetRole::ProjectDeclaration));
         const std::vector<cc::TextDocument> trackCorpus = {
             {"申报书.md", "申报书", text, "EXTRACTED_TEXT"}};
         const auto detected = cc::CompetitionTypeDetector{}.detectDetailed(

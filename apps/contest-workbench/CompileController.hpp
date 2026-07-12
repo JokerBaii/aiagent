@@ -60,8 +60,8 @@ class CompileController : public QObject {
     Q_PROPERTY(QVariantList sessionList READ sessionList NOTIFY sessionChanged)
     Q_PROPERTY(QVariantMap advisory READ advisory NOTIFY advisoryChanged)
     Q_PROPERTY(bool advisoryRunning READ advisoryRunning NOTIFY advisoryChanged)
-    Q_PROPERTY(QVariantMap selectedFilePreview READ selectedFilePreview
-                   NOTIFY selectedFilePreviewChanged)
+    Q_PROPERTY(
+        QVariantMap selectedFilePreview READ selectedFilePreview NOTIFY selectedFilePreviewChanged)
 
   public:
     explicit CompileController(QObject* parent = nullptr);
@@ -172,7 +172,8 @@ class CompileController : public QObject {
     [[nodiscard]] QString sessionStatusText() const;
     [[nodiscard]] QString compactedContextText() const;
     [[nodiscard]] QString accessModeLabel() const;
-    [[nodiscard]] cc::AgentRunRequest makeAgentRequest(const QString& goal) const;
+    [[nodiscard]] cc::AgentRunRequest makeAgentRequest(const QString& goal,
+                                                       const QString& context = {}) const;
 
     QString projectPath_;
     QString oldAuditPath_;

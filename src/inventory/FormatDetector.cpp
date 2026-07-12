@@ -167,8 +167,8 @@ readSample(const std::filesystem::path& path) {
 [[nodiscard]] bool startsWithAt(const std::vector<unsigned char>& sample, std::size_t offset,
                                 std::initializer_list<unsigned char> prefix) {
     return offset <= sample.size() && prefix.size() <= sample.size() - offset &&
-           std::equal(prefix.begin(), prefix.end(), sample.begin() +
-                                                        static_cast<std::ptrdiff_t>(offset));
+           std::equal(prefix.begin(), prefix.end(),
+                      sample.begin() + static_cast<std::ptrdiff_t>(offset));
 }
 
 [[nodiscard]] bool isPdf(const std::vector<unsigned char>& sample) {
@@ -382,10 +382,13 @@ ProjectAsset FormatDetector::detect(const std::filesystem::path& root,
     }
     if (kind == FormatKind::OfficeOpenXml) {
         if (!zipContent) {
-            markMismatch(asset, magic.has_value() ? magic->format : textContent ? "text" : "binary",
+            markMismatch(asset,
+                         magic.has_value() ? magic->format
+                         : textContent     ? "text"
+                                           : "binary",
                          magic.has_value() ? magic->mime
-                                           : textContent ? "text/plain"
-                                                         : "application/octet-stream");
+                         : textContent     ? "text/plain"
+                                           : "application/octet-stream");
             return asset;
         }
         asset.auditable = true;
@@ -393,10 +396,13 @@ ProjectAsset FormatDetector::detect(const std::filesystem::path& root,
     }
     if (kind == FormatKind::Pdf) {
         if (!pdfContent) {
-            markMismatch(asset, magic.has_value() ? magic->format : textContent ? "text" : "binary",
+            markMismatch(asset,
+                         magic.has_value() ? magic->format
+                         : textContent     ? "text"
+                                           : "binary",
                          magic.has_value() ? magic->mime
-                                           : textContent ? "text/plain"
-                                                         : "application/octet-stream");
+                         : textContent     ? "text/plain"
+                                           : "application/octet-stream");
             return asset;
         }
         asset.auditable = true;
@@ -416,8 +422,7 @@ ProjectAsset FormatDetector::detect(const std::filesystem::path& root,
     }
     if (kind != FormatKind::Unknown) {
         const bool compatibleMediaContainer =
-            magic.has_value() &&
-            (kind == FormatKind::Audio || kind == FormatKind::Video) &&
+            magic.has_value() && (kind == FormatKind::Audio || kind == FormatKind::Video) &&
             (magic->kind == FormatKind::Audio || magic->kind == FormatKind::Video);
         if (magic.has_value() && magic->kind != kind && !compatibleMediaContainer &&
             kind != FormatKind::Document && kind != FormatKind::ModelArtifact) {

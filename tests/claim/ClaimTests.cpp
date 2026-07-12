@@ -30,12 +30,10 @@ void runClaimTests() {
          "未申请专利，禁止营收宣传\n"
          "与华星公司已签署合作协议\n",
          "EXTRACTED_TEXT"},
-        {"商业计划.md", "商业计划", "市场规模：预计 TAM 达到 100 亿元\n",
-         "EXTRACTED_TEXT"},
+        {"商业计划.md", "商业计划", "市场规模：预计 TAM 达到 100 亿元\n", "EXTRACTED_TEXT"},
         {"src/app.js", "source", "已有用户达到 99999 人\n", "EXTRACTED_TEXT"},
         {"mocks/fake.md", "mock", "已获得专利，专利号 12345678\n", "EXTRACTED_TEXT"},
-        {"待复核.md", "review", "已获得专利，专利号 87654321\n",
-         "NEED_REVIEW_TEXT_TRUNCATED"},
+        {"待复核.md", "review", "已获得专利，专利号 87654321\n", "NEED_REVIEW_TEXT_TRUNCATED"},
     };
 
     const auto claims = cc::ClaimExtractor{}.extract(corpus, inventory);

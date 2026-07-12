@@ -12,8 +12,8 @@ class ProjectMemory {
   public:
     [[nodiscard]] Result<void> init(const std::filesystem::path& workspaceRoot,
                                     CompetitionType track) const;
-    [[nodiscard]] Result<std::string> loadInstructions(
-        const std::filesystem::path& workspaceRoot) const;
+    [[nodiscard]] Result<std::string>
+    loadInstructions(const std::filesystem::path& workspaceRoot) const;
 };
 
 } // namespace cc

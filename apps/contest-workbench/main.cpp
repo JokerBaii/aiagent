@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief 大学生项目材料审计平台桌面端入口。
+ * @brief 大学生项目审计与完善平台桌面端入口。
  */
 
 #include "CompileController.hpp"
@@ -21,13 +21,13 @@ int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("ContestTrust"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("contest-trust.local"));
-    QCoreApplication::setApplicationName(QStringLiteral("大学生项目材料审计平台"));
+    QCoreApplication::setApplicationName(QStringLiteral("大学生项目审计与完善平台"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     if (qEnvironmentVariableIsEmpty("CONTEST_WORKSPACE_ROOT")) {
         const auto workspaceRoot =
-            QDir{QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)}
-                .filePath(QStringLiteral("workspaces"));
+            QDir{QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)}.filePath(
+                QStringLiteral("workspaces"));
         qputenv("CONTEST_WORKSPACE_ROOT", QFile::encodeName(workspaceRoot));
     }
 

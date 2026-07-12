@@ -20,8 +20,8 @@ Item {
         spacing: 16
 
         SectionTitle {
-            title: "实际变更与二次审计"
-            subtitle: "先核对 repaired-project 的真实补丁，再查看确定性评分变化"
+            title: "修改前后对比"
+            subtitle: "修改材料后重新检查，确认分数是否提高、问题是否减少"
         }
 
         Card {
@@ -37,7 +37,7 @@ Item {
                     Layout.fillWidth: true
                     Text {
                         Layout.fillWidth: true
-                        text: "真实 changes.patch · "
+                        text: "本次建议修改了 "
                               + root.compiler.repairWorkspace.changedFileCount + " 个文件"
                         color: Theme.textPrimary
                         font.pixelSize: Theme.fontMd
@@ -81,12 +81,19 @@ Item {
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 10
+                Text {
+                    Layout.fillWidth: true
+                    text: "使用方法：先保存当前检查结果，再导入修改后的项目并保存新结果。下面选择这两份结果进行比较。"
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSm
+                    wrapMode: Text.WordWrap
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 10
                     Text {
                         Layout.preferredWidth: 88
-                        text: "旧 audit"
+                        text: "修改前结果"
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontMd
                     }
@@ -102,7 +109,7 @@ Item {
                     spacing: 10
                     Text {
                         Layout.preferredWidth: 88
-                        text: "新 audit"
+                        text: "修改后结果"
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontMd
                     }
@@ -113,7 +120,7 @@ Item {
                         onTextEdited: root.compiler.newAuditPath = text
                     }
                     PrimaryButton {
-                        text: "生成差分"
+                        text: "开始对比"
                         onClicked: root.compiler.runDiff()
                     }
                 }
@@ -164,7 +171,7 @@ Item {
 
                 model: [
                     ["可信评分", root.value("oldScore"), root.value("newScore"), "越高越好"],
-                    ["可信债务", root.value("oldTrustDebt"), root.value("newTrustDebt"), "越低越好"],
+                    ["待改进分值", root.value("oldTrustDebt"), root.value("newTrustDebt"), "越低越好"],
                     ["必须处理", root.value("oldBlockers"), root.value("newBlockers"), "必须优先清零"],
                     ["需要关注", root.value("oldWarnings"), root.value("newWarnings"), "影响答辩风险"],
                     ["证据覆盖率", root.value("oldEvidenceCoverage") + "%", root.value("newEvidenceCoverage") + "%", "Supported + Partial/2"],

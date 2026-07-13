@@ -16,7 +16,6 @@ Item {
     signal auditRequested()
     signal planRequested()
     signal rewindRequested()
-    signal modelSelected(string value)
 
     property int commandIndex: 0
     property bool slashPopupDismissed: false
@@ -29,6 +28,7 @@ Item {
         { label: "/audit", badge: "评审", hint: "运行项目缺点评审" },
         { label: "/agent", badge: "任务", hint: "提交智能体任务" },
         { label: "/plan", badge: "计划", hint: "先生成计划，确认后再执行" },
+        { label: "/optimize", badge: "修改", hint: "在安全副本中修改并二次审计" },
         { label: "/status", badge: "会话", hint: "查看项目和运行状态" },
         { label: "/compact", badge: "会话", hint: "压缩当前上下文" },
         { label: "/clear", badge: "会话", hint: "清空当前会话并重新开始" },
@@ -53,7 +53,8 @@ Item {
     function activateCommand(commandItem) {
         if (!commandItem)
             return
-        if (commandItem.label === "/agent" || commandItem.label === "/plan") {
+        if (commandItem.label === "/agent" || commandItem.label === "/plan"
+                || commandItem.label === "/optimize") {
             input.text = commandItem.label + " "
             input.forceActiveFocus()
             input.cursorPosition = input.text.length
@@ -64,9 +65,6 @@ Item {
     }
 
     function modelLabel(value) {
-        if (value === "deepseek-v4-flash") return "DeepSeek V4 Flash"
-        if (value === "deepseek-chat") return "DeepSeek Chat"
-        if (value === "deepseek-reasoner") return "DeepSeek Reasoner"
         return value.length > 0 ? value : "未配置模型"
     }
 
@@ -363,38 +361,13 @@ Item {
                     elide: Text.ElideRight
                     Layout.maximumWidth: 150
                 }
-                Icon { name: "chevronDown"; size: 8; color: Theme.textMuted }
             }
+            ToolTip.visible: modelMouse.containsMouse
+            ToolTip.text: "当前模型；可在设置中输入服务支持的任意模型 ID"
             ActionArea {
                 id: modelMouse
                 anchors.fill: parent
-                accessibleName: "选择大模型：" + root.modelLabel(root.currentModel)
-                onClicked: modelMenu.open()
-            }
-            ToolTip.visible: modelMouse.containsMouse
-            ToolTip.text: "选择大模型"
-            Menu {
-                id: modelMenu
-                y: -implicitHeight
-                x: parent.width - implicitWidth
-                MenuItem {
-                    text: "DeepSeek V4 Flash"
-                    checkable: true
-                    checked: root.currentModel === "deepseek-v4-flash"
-                    onTriggered: root.modelSelected("deepseek-v4-flash")
-                }
-                MenuItem {
-                    text: "DeepSeek Chat"
-                    checkable: true
-                    checked: root.currentModel === "deepseek-chat"
-                    onTriggered: root.modelSelected("deepseek-chat")
-                }
-                MenuItem {
-                    text: "DeepSeek Reasoner"
-                    checkable: true
-                    checked: root.currentModel === "deepseek-reasoner"
-                    onTriggered: root.modelSelected("deepseek-reasoner")
-                }
+                accessibleName: "当前大模型：" + root.modelLabel(root.currentModel)
             }
         }
     }

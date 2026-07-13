@@ -12,26 +12,34 @@ Item {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 24
-        spacing: 16
+        anchors.margins: root.width < 720 ? 16 : 24
+        spacing: 18
 
-        RowLayout {
+        GridLayout {
             Layout.fillWidth: true
-            spacing: 16
+            columns: root.width >= 720 ? 3 : 1
+            columnSpacing: 14
+            rowSpacing: 12
             StatTile {
-                label: "可信评分"
-                value: root.compiler.trustScore + " / 100"
+                label: "当前得分"
+                value: String(root.compiler.trustScore)
+                suffix: "分"
+                hint: "满分 100"
                 accent: Theme.accent
             }
             StatTile {
-                label: "必须处理"
-                value: root.compiler.blockerCount
+                label: "提交前要处理"
+                value: String(root.compiler.blockerCount)
+                suffix: "个"
+                hint: root.compiler.blockerCount > 0 ? "优先处理" : "目前没有"
                 accent: Theme.danger
                 tint: root.compiler.blockerCount > 0 ? Theme.dangerSoft : Theme.surface
             }
             StatTile {
-                label: "需要关注"
-                value: root.compiler.warningCount
+                label: "建议补齐"
+                value: String(root.compiler.warningCount)
+                suffix: "个"
+                hint: root.compiler.warningCount > 0 ? "逐项完善" : "目前没有"
                 accent: Theme.warning
                 tint: root.compiler.warningCount > 0 ? Theme.warningSoft : Theme.surface
             }
@@ -43,7 +51,7 @@ Item {
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 6
-                SectionTitle { title: "审计概要" }
+                SectionTitle { title: "这次检查到" }
                 Text {
                     Layout.fillWidth: true
                     text: root.compiler.summary
@@ -55,9 +63,9 @@ Item {
             }
         }
 
-            SectionTitle {
-                Layout.leftMargin: 4
-                title: "扣分明细"
+        SectionTitle {
+            Layout.leftMargin: 2
+            title: "分数为什么变化"
             subtitle: "影响评分的主要原因"
         }
 
@@ -80,12 +88,15 @@ Item {
 
                 delegate: Rectangle {
                     id: penaltyDelegate
+                    required property int index
                     required property var modelData
 
                     width: list.width
                     implicitHeight: row.implicitHeight + 20
-                    radius: Theme.radiusSm
-                    color: Theme.surfaceMuted
+                    radius: Theme.radius
+                    color: penaltyDelegate.index % 2 === 0 ? Theme.surfaceMuted : Theme.surface
+                    border.color: Theme.borderSubtle
+                    border.width: 1
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
                     RowLayout {
@@ -99,8 +110,8 @@ Item {
 
                         Pill {
                             text: penaltyDelegate.modelData.dimension
-                            bg: Theme.accentSoft
-                            fg: Theme.accentActive
+                            bg: Theme.surface
+                            fg: Theme.textSecondary
                         }
                         Text {
                             Layout.fillWidth: true
@@ -121,7 +132,8 @@ Item {
                 EmptyState {
                     anchors.fill: parent
                     visible: list.count === 0
-                    text: "暂无扣分项"
+                    text: "这次没有扣分"
+                    hint: "当前材料没有触发会影响分数的检查项。"
                 }
             }
         }

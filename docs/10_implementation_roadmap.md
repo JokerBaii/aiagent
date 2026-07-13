@@ -51,7 +51,7 @@
 
 交付 EndpointParser、HttpResponseParser、HttpsJsonClient、LlmBrain、BrainAgentLoop。
 
-验收：无显式授权时必须阻断；LLM 输出不进入最终评分。
+验收：缺少有效配置或任务能力快照时必须阻断；完整配置自动启用联网模型；LLM 输出不进入最终评分。
 
 ## 10. Milestone 10：Workbench
 

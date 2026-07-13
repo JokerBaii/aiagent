@@ -96,31 +96,31 @@ namespace {
         return "整理材料";
     }
     if (name == "extract_text") {
-        return "读取文本";
+        return "读取材料内容";
     }
     if (name == "detect_competition_type") {
-        return "判断赛道";
+        return "判断项目类型";
     }
     if (name == "build_cpir") {
-        return "生成项目画像";
+        return "整理项目信息";
     }
     if (name == "extract_claims") {
-        return "提取关键声明";
+        return "找出需要举证的成果";
     }
     if (name == "match_evidence") {
-        return "匹配证据";
+        return "核对证明材料";
     }
     if (name == "check_consistency") {
-        return "检查一致性";
+        return "核对材料表述";
     }
     if (name == "run_rules") {
-        return "执行规则";
+        return "查找提交问题";
     }
     if (name == "calculate_trust_score") {
         return "计算评分";
     }
     if (name == "generate_fix_tasks") {
-        return "生成补证任务";
+        return "整理修改清单";
     }
     if (name == "generate_repair_plan") {
         return "整理修复计划";
@@ -219,9 +219,11 @@ namespace {
     case cc::ToolPermission::ExecuteCommand:
         return "所有模式都不提供自由脚本或 shell 执行";
     case cc::ToolPermission::NetworkAccess:
-        return allowed ? "已明确授权联网；请求受 HTTPS、时限和大小边界约束" : "默认关闭联网";
+        return allowed ? "有效 LLM 配置已启用联网；请求受 HTTPS、时限和大小边界约束"
+                       : "未配置有效 LLM 服务，不会联网";
     case cc::ToolPermission::LLMAccess:
-        return allowed ? "已明确授权调用 LLM；最终评分仍由规则引擎裁决" : "默认关闭 LLM 调用";
+        return allowed ? "有效配置已启用 LLM；最终评分仍由规则引擎裁决"
+                       : "未配置有效 LLM 服务，不会调用模型";
     case cc::ToolPermission::ExportReport:
         return "允许导出用户指定的 Markdown/JSON 报告";
     }
@@ -314,13 +316,12 @@ QVariantList sessionHistory(const cc::AuditResult* result,
     }
     if (result != nullptr) {
         items.push_back(messageItem("工具",
-                                    QStringLiteral("审计完成：评分 %1/100，必须处理 %2 "
-                                                   "个，需要关注 %3 个，补证任务 %4 个。")
+                                    QStringLiteral("材料已经看完：%1 分，%2 个问题要先处理，"
+                                                   "另有 %3 个地方建议补齐。")
                                         .arg(result->trustScore.totalScore)
                                         .arg(blockerCount(*result))
-                                        .arg(warningCount(*result))
-                                        .arg(result->fixTasks.size()),
-                                    "审计完成"));
+                                        .arg(warningCount(*result)),
+                                    "检查完成"));
         items.push_back(messageItem("智能体", agentSummary(result), "下一步建议"));
     }
     return items;
@@ -386,29 +387,33 @@ QVariantList toolCards(const cc::AuditResult* result, const std::optional<cc::Au
             } else if (name == "extract_text") {
                 item["detail"] = QStringLiteral("可审计文本 %1 份").arg(result->corpus.size());
             } else if (name == "detect_competition_type") {
-                item["detail"] = QStringLiteral("赛道 %1，置信度 %2")
-                                     .arg(stringText(cc::toString(result->cpir.competitionType)))
-                                     .arg(result->cpir.competitionConfidence);
+                item["detail"] =
+                    QStringLiteral("判断为 %1，把握 %2%")
+                        .arg(stringText(cc::toString(result->cpir.competitionType)))
+                        .arg(QString::number(result->cpir.competitionConfidence * 100.0, 'f', 0));
             } else if (name == "build_cpir") {
-                item["detail"] = "已生成项目画像和关键上下文";
+                item["detail"] = "已整理项目介绍里的关键信息";
             } else if (name == "extract_claims") {
-                item["detail"] = QStringLiteral("声明 %1 条").arg(result->claims.size());
+                item["detail"] =
+                    QStringLiteral("找到 %1 条需要证明的成果").arg(result->claims.size());
             } else if (name == "match_evidence") {
                 item["detail"] =
-                    QStringLiteral("证据匹配 %1 条").arg(result->evidenceMatches.size());
+                    QStringLiteral("完成 %1 条证明材料核对").arg(result->evidenceMatches.size());
             } else if (name == "check_consistency") {
-                item["detail"] =
-                    QStringLiteral("一致性问题 %1 个").arg(result->consistencyIssues.size());
+                item["detail"] = QStringLiteral("发现 %1 处材料表述需要对齐")
+                                     .arg(result->consistencyIssues.size());
             } else if (name == "run_rules") {
-                item["detail"] = QStringLiteral("规则风险 %1 个").arg(result->findings.size());
+                item["detail"] =
+                    QStringLiteral("发现 %1 个需要查看的问题").arg(result->findings.size());
             } else if (name == "calculate_trust_score") {
-                item["detail"] = QStringLiteral("可信评分 %1，可信债务 %2")
+                item["detail"] = QStringLiteral("当前 %1 分，还有 %2 分可以通过完善材料恢复")
                                      .arg(result->trustScore.totalScore)
                                      .arg(result->trustScore.trustDebt);
             } else if (name == "generate_fix_tasks") {
-                item["detail"] = QStringLiteral("补证任务 %1 个").arg(result->fixTasks.size());
+                item["detail"] =
+                    QStringLiteral("整理出 %1 项修改建议").arg(result->fixTasks.size());
             } else if (name == "generate_repair_plan") {
-                item["detail"] = "已生成修复建议，不覆盖原项目";
+                item["detail"] = "修改建议已经整理好，原项目不会被改动";
             }
         }
         items.push_back(item);
@@ -416,7 +421,7 @@ QVariantList toolCards(const cc::AuditResult* result, const std::optional<cc::Au
     return items;
 }
 
-QVariantList permissionCards(bool llmApproved, const QString& accessMode) {
+QVariantList permissionCards(bool llmConfigured, const QString& accessMode) {
     QVariantList items;
     cc::PermissionGate gate;
     for (const auto permission : gate.permissions()) {
@@ -427,7 +432,7 @@ QVariantList permissionCards(bool llmApproved, const QString& accessMode) {
             allowed = accessMode == "code" || accessMode == "bypass";
         } else if (permission == cc::ToolPermission::NetworkAccess ||
                    permission == cc::ToolPermission::LLMAccess) {
-            allowed = llmApproved && accessMode != "plan";
+            allowed = llmConfigured && accessMode != "plan";
         } else if (permission == cc::ToolPermission::ModifyOriginalProject ||
                    permission == cc::ToolPermission::ExecuteCommand) {
             allowed = false;
@@ -466,7 +471,7 @@ QVariantList artifacts(const cc::AuditResult* result, const std::optional<cc::Au
     }
 
     items.push_back(artifactItem("dashboard", "检查结果总览", "总览",
-                                 QStringLiteral("评分 %1 · 必须处理 %2 · 需要关注 %3")
+                                 QStringLiteral("%1 分，%2 个问题要处理，%3 个地方建议补齐")
                                      .arg(result->trustScore.totalScore)
                                      .arg(blockerCount(*result))
                                      .arg(warningCount(*result)),
@@ -474,13 +479,14 @@ QVariantList artifacts(const cc::AuditResult* result, const std::optional<cc::Au
     items.push_back(artifactItem(
         "assets", "材料资产清单", "数据",
         QStringLiteral("已识别 %1 份文件").arg(result->inventory.assets.size()), true));
-    items.push_back(artifactItem("cpir", "项目基本信息", "信息",
-                                 QStringLiteral("%1 · 置信度 %2")
-                                     .arg(stringText(cc::toString(result->cpir.competitionType)))
-                                     .arg(result->cpir.competitionConfidence),
-                                 true));
+    items.push_back(
+        artifactItem("cpir", "项目基本信息", "信息",
+                     QStringLiteral("%1，判断把握 %2%")
+                         .arg(stringText(cc::toString(result->cpir.competitionType)))
+                         .arg(QString::number(result->cpir.competitionConfidence * 100.0, 'f', 0)),
+                     true));
     items.push_back(artifactItem("claims", "成果与证明材料", "证明",
-                                 QStringLiteral("声明 %1 条 · 证据匹配 %2 条")
+                                 QStringLiteral("识别 %1 条成果，已完成 %2 条证明材料核对")
                                      .arg(result->claims.size())
                                      .arg(result->evidenceMatches.size()),
                                  true));
@@ -512,20 +518,17 @@ QString agentSummary(const cc::AuditResult* result) {
         return "请选择项目材料包并开始审计。";
     }
 
-    QString summary = QStringLiteral("当前可信评分 %1/100，待补强空间 %2 分。")
-                          .arg(result->trustScore.totalScore)
-                          .arg(result->trustScore.trustDebt);
+    QString summary = QStringLiteral("目前是 %1 分。").arg(result->trustScore.totalScore);
     const auto blocker = std::find_if(
         result->findings.begin(), result->findings.end(),
         [](const cc::AuditFinding& finding) { return finding.severity == cc::Severity::Blocker; });
     if (blocker != result->findings.end()) {
-        summary += QStringLiteral(" 优先处理必须项：%1。").arg(stringText(blocker->reason));
+        summary += QStringLiteral(" 最先要处理的是：%1").arg(stringText(blocker->reason));
     }
     if (!result->fixTasks.empty()) {
         const auto& task = result->fixTasks.front();
-        summary += QStringLiteral(" 下一步补证：%1。").arg(stringText(task.title));
+        summary += QStringLiteral(" 接着可以做：%1。").arg(stringText(task.title));
     }
-    summary += " 所有建议均来自规则结果、证据状态和补证任务，不生成虚假材料。";
     return summary;
 }
 

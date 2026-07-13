@@ -9,6 +9,15 @@ import "../components"
 Item {
     id: root
     required property var compiler
+    signal previewRequested(string relativePath)
+
+    function formatBytes(value) {
+        var bytes = Number(value || 0)
+        if (bytes < 1024) return bytes + " B"
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB"
+        if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + " MB"
+        return (bytes / 1024 / 1024 / 1024).toFixed(1) + " GB"
+    }
 
     RowLayout {
         anchors.fill: parent
@@ -38,12 +47,15 @@ Item {
                     }
                     delegate: Rectangle {
                         id: roleDelegate
+                        required property int index
                         required property var modelData
 
                         width: roleList.width
                         height: 44
                         radius: Theme.radiusSm
-                        color: Theme.surfaceMuted
+                        color: roleDelegate.index % 2 === 0 ? Theme.surfaceMuted : Theme.surface
+                        border.color: Theme.borderSubtle
+                        border.width: 1
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
                         RowLayout {
                             anchors.fill: parent
@@ -66,7 +78,8 @@ Item {
                     EmptyState {
                         anchors.fill: parent
                         visible: roleList.count === 0
-                        text: "暂无资产"
+                        text: "还没有材料"
+                        hint: "添加项目后，这里会按文件用途整理材料。"
                     }
                 }
             }
@@ -100,7 +113,9 @@ Item {
                         width: assetList.width
                         implicitHeight: assetCol.implicitHeight + 20
                         radius: Theme.radiusSm
-                        color: Theme.surfaceMuted
+                        color: assetAction.containsMouse ? Theme.surfaceHover : Theme.surface
+                        border.color: Theme.borderSubtle
+                        border.width: 1
                         Behavior on color { ColorAnimation { duration: Theme.fast } }
                         ColumnLayout {
                             id: assetCol
@@ -119,22 +134,44 @@ Item {
                                 wrapMode: Text.WrapAnywhere
                             }
                             RowLayout {
+                                Layout.fillWidth: true
                                 spacing: 8
-                                Pill { text: assetDelegate.modelData.role; bg: Theme.surface; fg: Theme.textSecondary }
-                                Pill { text: assetDelegate.modelData.format; bg: Theme.surface; fg: Theme.textSecondary }
-                                Pill {
-                                    visible: assetDelegate.modelData.risk && assetDelegate.modelData.risk.length > 0
-                                    text: assetDelegate.modelData.risk
-                                    bg: Theme.warningSoft
-                                    fg: Theme.warning
+                                Pill { text: assetDelegate.modelData.role; bg: Theme.surfaceMuted; fg: Theme.textSecondary }
+                                Pill { text: assetDelegate.modelData.format; bg: Theme.surfaceMuted; fg: Theme.textSecondary }
+                                Item { Layout.fillWidth: true }
+                                Text {
+                                    text: root.formatBytes(assetDelegate.modelData.size)
+                                    color: Theme.textMuted
+                                    font.pixelSize: Theme.fontSm
+                                }
+                                Icon {
+                                    name: "chevronRight"
+                                    size: 11
+                                    color: Theme.textTertiary
                                 }
                             }
+                            Text {
+                                Layout.fillWidth: true
+                                visible: assetDelegate.modelData.risk
+                                         && assetDelegate.modelData.risk.length > 0
+                                text: "注意：" + assetDelegate.modelData.risk
+                                color: Theme.warning
+                                font.pixelSize: Theme.fontSm
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                        ActionArea {
+                            id: assetAction
+                            anchors.fill: parent
+                            accessibleName: "预览 " + assetDelegate.modelData.path
+                            onClicked: root.previewRequested(assetDelegate.modelData.path)
                         }
                     }
                     EmptyState {
                         anchors.fill: parent
                         visible: assetList.count === 0
-                        text: "暂无资产"
+                        text: "还没有材料"
+                        hint: "添加项目后，这里会列出每份文件及其用途。"
                     }
                 }
             }

@@ -7,8 +7,8 @@ Rectangle {
     property color bg: Theme.surfaceMuted
     property color fg: Theme.textSecondary
 
-    implicitWidth: label.implicitWidth + 20
-    implicitHeight: 22
+    implicitWidth: label.implicitWidth + 22
+    implicitHeight: 24
     radius: height / 2
     color: bg
     Behavior on color { ColorAnimation { duration: Theme.normal } }
@@ -19,6 +19,6 @@ Rectangle {
         text: root.text
         color: root.fg
         font.pixelSize: Theme.fontSm
-        font.bold: true
+        font.weight: Font.DemiBold
     }
 }

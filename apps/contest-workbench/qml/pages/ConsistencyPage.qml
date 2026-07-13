@@ -13,6 +13,8 @@ Item {
     function sevColors(s) {
         if (s === "必须处理")
             return { bg: Theme.dangerSoft, fg: Theme.danger }
+        if (s === "提示")
+            return { bg: Theme.accentSoft, fg: Theme.accent }
         return { bg: Theme.warningSoft, fg: Theme.warning }
     }
 
@@ -22,8 +24,8 @@ Item {
         spacing: 12
 
         SectionTitle {
-            title: "材料一致性"
-            subtitle: "跨材料的冲突、矛盾与修复建议"
+            title: "不同材料有没有对不上"
+            subtitle: "重点看名称、时间、数字和成果描述是否一致"
         }
 
         Card {
@@ -50,7 +52,9 @@ Item {
                     width: list.width
                     implicitHeight: col.implicitHeight + 24
                     radius: Theme.radiusSm
-                    color: Theme.surfaceMuted
+                    color: Theme.surface
+                    border.color: Theme.borderSubtle
+                    border.width: 1
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
                     ColumnLayout {
@@ -81,8 +85,17 @@ Item {
                         }
                         Text {
                             Layout.fillWidth: true
+                            visible: consistencyDelegate.modelData.files
+                                     && consistencyDelegate.modelData.files.length > 0
+                            text: "涉及：" + consistencyDelegate.modelData.files
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSm
+                            wrapMode: Text.WrapAnywhere
+                        }
+                        Text {
+                            Layout.fillWidth: true
                             visible: consistencyDelegate.modelData.fix && consistencyDelegate.modelData.fix.length > 0
-                            text: "建议：" + consistencyDelegate.modelData.fix
+                            text: "可以这样处理：" + consistencyDelegate.modelData.fix
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
@@ -93,7 +106,8 @@ Item {
                 EmptyState {
                     anchors.fill: parent
                     visible: list.count === 0
-                    text: "未发现一致性问题"
+                    text: "材料之间没有发现明显冲突"
+                    hint: "名称、数字、日期和成果描述暂时能对得上。"
                 }
             }
         }

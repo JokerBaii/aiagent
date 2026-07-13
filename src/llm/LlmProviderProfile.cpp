@@ -81,43 +81,15 @@ struct NormalizedEndpoint {
     return path;
 }
 
-[[nodiscard]] ProviderKind providerFromModel(std::string_view model) {
-    const auto lower = util::lowerAscii(std::string{model});
-    if (lower.starts_with("claude-")) {
-        return ProviderKind::Anthropic;
-    }
-    if (lower.starts_with("deepseek-")) {
-        return ProviderKind::DeepSeek;
-    }
-    return ProviderKind::OpenAi;
-}
-
-[[nodiscard]] Result<void> validateModel(ProviderKind provider, std::string_view host,
-                                         std::string_view model) {
+[[nodiscard]] Result<void> validateModel(std::string_view model) {
     if (model.empty() || model.size() > 256U || hasUnsafeText(model)) {
         return Result<void>::failure("LLM model 为空、过长或包含控制字符");
-    }
-    const auto lower = util::lowerAscii(std::string{model});
-    if (isAnthropicHost(host) && !lower.starts_with("claude-")) {
-        return Result<void>::failure("Anthropic 官方 endpoint 只能配置 Claude 模型");
-    }
-    if (isDeepSeekHost(host) && !lower.starts_with("deepseek-")) {
-        return Result<void>::failure("DeepSeek 官方 endpoint 只能配置 DeepSeek 模型");
-    }
-    if (isOpenAiHost(host) && (lower.starts_with("claude-") || lower.starts_with("deepseek-"))) {
-        return Result<void>::failure("OpenAI 官方 endpoint 与当前模型不一致");
-    }
-    if (provider == ProviderKind::Anthropic &&
-        (lower.starts_with("gpt-") || lower.starts_with("deepseek-") || lower.starts_with("o1") ||
-         lower.starts_with("o3") || lower.starts_with("o4"))) {
-        return Result<void>::failure("Anthropic Messages endpoint 与当前模型不一致");
     }
     return Result<void>::success();
 }
 
 [[nodiscard]] Result<NormalizedEndpoint>
-normalizeEndpoint(std::string endpoint, std::string_view model,
-                  const ProviderKind* requiredProvider = nullptr) {
+normalizeEndpoint(std::string endpoint, const ProviderKind* requiredProvider = nullptr) {
     endpoint = trim(std::move(endpoint));
     while (endpoint.size() > std::string_view{"https://"}.size() && endpoint.ends_with('/')) {
         endpoint.pop_back();
@@ -163,7 +135,10 @@ normalizeEndpoint(std::string endpoint, std::string_view model,
     } else if (isOpenAiHost(parsed.value().host)) {
         provider = ProviderKind::OpenAi;
     } else {
-        provider = providerFromModel(model);
+        // A model id does not identify a wire protocol. Custom base URLs default to the broadly
+        // supported OpenAI-compatible protocol; Anthropic-compatible gateways must expose an
+        // explicit /messages endpoint.
+        provider = ProviderKind::OpenAi;
     }
 
     if ((isAnthropicHost(parsed.value().host) && provider != ProviderKind::Anthropic) ||
@@ -227,8 +202,8 @@ normalizeEndpoint(std::string endpoint, std::string_view model,
 [[nodiscard]] LlmProviderProfile
 environmentProfile(const LlmProviderResolver::Environment& environment, ProviderKind provider,
                    std::string key, std::string credentialSource, std::string_view baseName,
-                   std::string_view modelName, std::string defaultEndpoint,
-                   std::string defaultModel) {
+                   std::string_view modelName, std::string defaultEndpoint) {
+    const bool anthropicBearer = credentialSource == "ANTHROPIC_AUTH_TOKEN";
     if (key.size() > 8192U || hasUnsafeText(key)) {
         return invalidProfile(std::string{credentialSource} +
                               " 配置无效: API key 过长或包含控制字符");
@@ -238,14 +213,22 @@ environmentProfile(const LlmProviderResolver::Environment& environment, Provider
         endpoint = std::move(defaultEndpoint);
     }
     auto model = value(environment, modelName);
-    if (model.empty()) {
-        model = std::move(defaultModel);
-    }
-    auto normalized = normalizeEndpoint(endpoint, model, &provider);
+    auto normalized = normalizeEndpoint(endpoint, &provider);
     if (!normalized.ok()) {
         return invalidProfile(std::string{baseName} + " 配置无效: " + normalized.error());
     }
-    auto modelValidation = validateModel(provider, normalized.value().host, model);
+    if (model.empty()) {
+        auto profile = profileFor(std::move(normalized.value()), {}, std::move(key),
+                                  std::move(credentialSource));
+        if (anthropicBearer) {
+            profile.config.apiKeyHeader = "Authorization";
+            profile.config.apiKeyPrefix = "Bearer ";
+        }
+        profile.configured = false;
+        profile.error = std::string{modelName} + " 未配置；可在界面按当前凭证获取模型列表后选择";
+        return profile;
+    }
+    auto modelValidation = validateModel(model);
     if (!modelValidation.ok()) {
         return invalidProfile(std::string{modelName} + " 配置无效: " + modelValidation.error());
     }
@@ -263,55 +246,127 @@ environmentProfile(const LlmProviderResolver::Environment& environment, Provider
 
 LlmProviderProfile
 LlmProviderResolver::resolve(const LlmProviderResolver::Environment& environment) const {
-    const auto anthropicKey = value(environment, "ANTHROPIC_API_KEY");
-    if (!anthropicKey.empty()) {
-        return environmentProfile(environment, ProviderKind::Anthropic, anthropicKey,
-                                  "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
-                                  "https://api.anthropic.com/v1/messages", "claude-sonnet-4-6");
-    }
-    const auto anthropicToken = value(environment, "ANTHROPIC_AUTH_TOKEN");
-    if (!anthropicToken.empty()) {
-        return environmentProfile(environment, ProviderKind::Anthropic, anthropicToken,
-                                  "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
-                                  "https://api.anthropic.com/v1/messages", "claude-sonnet-4-6");
-    }
-    const auto openAiKey = value(environment, "OPENAI_API_KEY");
-    if (!openAiKey.empty()) {
-        return environmentProfile(environment, ProviderKind::OpenAi, openAiKey, "OPENAI_API_KEY",
-                                  "OPENAI_BASE_URL", "OPENAI_MODEL",
-                                  "https://api.openai.com/v1/chat/completions", "gpt-4o-mini");
+    const auto genericKey = value(environment, "LLM_API_KEY");
+    if (!genericKey.empty()) {
+        if (!value(environment, "ANTHROPIC_API_KEY").empty() ||
+            !value(environment, "ANTHROPIC_AUTH_TOKEN").empty() ||
+            !value(environment, "OPENAI_API_KEY").empty() ||
+            !value(environment, "DEEPSEEK_API_KEY").empty() ||
+            !value(environment, "DEEPSEEK_AUTH_TOKEN").empty()) {
+            return invalidProfile("LLM_API_KEY 不能与厂商专用凭证同时配置");
+        }
+        const auto genericEndpoint = value(environment, "LLM_BASE_URL");
+        const auto genericModel = value(environment, "LLM_MODEL");
+        if (genericEndpoint.empty()) {
+            return invalidProfile("LLM_API_KEY 需要同时配置 LLM_BASE_URL");
+        }
+        if (genericModel.empty()) {
+            auto discovered = resolveModelDiscoveryProfile(genericEndpoint, genericKey);
+            if (!discovered.ok()) {
+                return invalidProfile("通用 LLM 配置无效: " + discovered.error());
+            }
+            auto profile = std::move(discovered.value());
+            profile.configured = false;
+            profile.credentialSource = "LLM_API_KEY";
+            profile.error = "LLM_MODEL 未配置；可在界面按当前凭证获取模型列表后选择";
+            return profile;
+        }
+        auto resolved = resolveUserProfile(genericEndpoint, genericModel, genericKey);
+        if (!resolved.ok()) {
+            return invalidProfile("通用 LLM 配置无效: " + resolved.error());
+        }
+        auto profile = std::move(resolved.value());
+        profile.credentialSource = "LLM_API_KEY";
+        return profile;
     }
 
+    const auto anthropicKey = value(environment, "ANTHROPIC_API_KEY");
+    const auto anthropicToken = value(environment, "ANTHROPIC_AUTH_TOKEN");
+    const auto openAiKey = value(environment, "OPENAI_API_KEY");
     auto deepSeekKey = value(environment, "DEEPSEEK_API_KEY");
-    auto credentialSource = std::string{"DEEPSEEK_API_KEY"};
+    auto deepSeekCredentialSource = std::string{"DEEPSEEK_API_KEY"};
     if (deepSeekKey.empty()) {
         deepSeekKey = value(environment, "DEEPSEEK_AUTH_TOKEN");
-        credentialSource = "DEEPSEEK_AUTH_TOKEN";
+        deepSeekCredentialSource = "DEEPSEEK_AUTH_TOKEN";
     }
-    return environmentProfile(environment, ProviderKind::DeepSeek, std::move(deepSeekKey),
-                              std::move(credentialSource), "DEEPSEEK_BASE_URL", "DEEPSEEK_MODEL",
-                              "https://api.deepseek.com/chat/completions", "deepseek-v4-flash");
+
+    if (!anthropicKey.empty() && !anthropicToken.empty()) {
+        return invalidProfile("ANTHROPIC_API_KEY 与 ANTHROPIC_AUTH_TOKEN 不能同时配置");
+    }
+    const bool hasAnthropic = !anthropicKey.empty() || !anthropicToken.empty();
+    const bool hasOpenAi = !openAiKey.empty();
+    const bool hasDeepSeek = !deepSeekKey.empty();
+    const auto configuredProviders = static_cast<int>(hasAnthropic) + static_cast<int>(hasOpenAi) +
+                                     static_cast<int>(hasDeepSeek);
+    auto selectedProvider = util::lowerAscii(value(environment, "LLM_PROVIDER"));
+    if (selectedProvider.empty()) {
+        if (configuredProviders > 1) {
+            return invalidProfile("检测到多个 LLM provider 的凭证；请用 LLM_PROVIDER 明确选择");
+        }
+        selectedProvider = hasAnthropic  ? "anthropic"
+                           : hasOpenAi   ? "openai"
+                           : hasDeepSeek ? "deepseek"
+                                         : "";
+    }
+    if (selectedProvider.empty()) {
+        return {};
+    }
+    if (selectedProvider == "anthropic" && hasAnthropic) {
+        if (!anthropicKey.empty()) {
+            return environmentProfile(environment, ProviderKind::Anthropic, anthropicKey,
+                                      "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+                                      "https://api.anthropic.com/v1/messages");
+        }
+        return environmentProfile(environment, ProviderKind::Anthropic, anthropicToken,
+                                  "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
+                                  "https://api.anthropic.com/v1/messages");
+    }
+    if (selectedProvider == "openai" && hasOpenAi) {
+        return environmentProfile(environment, ProviderKind::OpenAi, openAiKey, "OPENAI_API_KEY",
+                                  "OPENAI_BASE_URL", "OPENAI_MODEL",
+                                  "https://api.openai.com/v1/chat/completions");
+    }
+    if (selectedProvider == "deepseek" && hasDeepSeek) {
+        return environmentProfile(environment, ProviderKind::DeepSeek, std::move(deepSeekKey),
+                                  std::move(deepSeekCredentialSource), "DEEPSEEK_BASE_URL",
+                                  "DEEPSEEK_MODEL", "https://api.deepseek.com/chat/completions");
+    }
+    if (selectedProvider != "anthropic" && selectedProvider != "openai" &&
+        selectedProvider != "deepseek") {
+        return invalidProfile("LLM_PROVIDER 只支持 anthropic、openai 或 deepseek");
+    }
+    return invalidProfile("LLM_PROVIDER=" + selectedProvider + "，但没有对应的凭证");
 }
 
 Result<LlmProviderProfile> LlmProviderResolver::resolveUserProfile(std::string endpoint,
                                                                    std::string model,
                                                                    std::string apiKey) const {
     model = trim(std::move(model));
+    auto modelValidation = validateModel(model);
+    if (!modelValidation.ok()) {
+        return Result<LlmProviderProfile>::failure(modelValidation.error());
+    }
+    auto discovery = resolveModelDiscoveryProfile(std::move(endpoint), std::move(apiKey));
+    if (!discovery.ok()) {
+        return discovery;
+    }
+    auto profile = std::move(discovery.value());
+    profile.config.model = std::move(model);
+    profile.configured = profile.config.apiKey.size() >= 8U;
+    return Result<LlmProviderProfile>::success(std::move(profile));
+}
+
+Result<LlmProviderProfile>
+LlmProviderResolver::resolveModelDiscoveryProfile(std::string endpoint, std::string apiKey) const {
     apiKey = trim(std::move(apiKey));
     if (apiKey.size() > 8192U || hasUnsafeText(apiKey)) {
         return Result<LlmProviderProfile>::failure("LLM API key 过长或包含控制字符");
     }
-    auto normalized = normalizeEndpoint(std::move(endpoint), model);
+    auto normalized = normalizeEndpoint(std::move(endpoint));
     if (!normalized.ok()) {
         return Result<LlmProviderProfile>::failure(normalized.error());
     }
-    auto modelValidation =
-        validateModel(normalized.value().provider, normalized.value().host, model);
-    if (!modelValidation.ok()) {
-        return Result<LlmProviderProfile>::failure(modelValidation.error());
-    }
-    auto profile =
-        profileFor(std::move(normalized.value()), std::move(model), std::move(apiKey), "user");
+    auto profile = profileFor(std::move(normalized.value()), {}, std::move(apiKey), "user");
     profile.configured = profile.config.apiKey.size() >= 8U;
     return Result<LlmProviderProfile>::success(std::move(profile));
 }
@@ -329,7 +384,7 @@ Result<void> LlmProviderResolver::validateConfig(const LlmConfig& config) const 
         return Result<void>::failure("不支持的 LLM provider: " + provider);
     }
 
-    auto normalized = normalizeEndpoint(config.endpoint, config.model, &requiredProvider);
+    auto normalized = normalizeEndpoint(config.endpoint, &requiredProvider);
     if (!normalized.ok()) {
         return Result<void>::failure(normalized.error());
     }
@@ -339,13 +394,17 @@ Result<void> LlmProviderResolver::validateConfig(const LlmConfig& config) const 
                                          : "OpenAI-compatible endpoint 必须是完整的 "
                                            "/chat/completions 地址");
     }
-    auto modelValidation = validateModel(requiredProvider, normalized.value().host, config.model);
+    auto modelValidation = validateModel(config.model);
     if (!modelValidation.ok()) {
         return modelValidation;
     }
     if (requiredProvider == ProviderKind::Anthropic) {
-        if (config.apiKeyHeader != "x-api-key" || !config.apiKeyPrefix.empty()) {
-            return Result<void>::failure("Anthropic 认证必须使用 x-api-key，且不能添加 Bearer");
+        const bool apiKeyAuth = config.apiKeyHeader == "x-api-key" && config.apiKeyPrefix.empty();
+        const bool bearerAuth =
+            config.apiKeyHeader == "Authorization" && config.apiKeyPrefix == "Bearer ";
+        if (!apiKeyAuth && !bearerAuth) {
+            return Result<void>::failure(
+                "Anthropic 认证必须使用 x-api-key 或 Authorization: Bearer");
         }
     } else if (config.apiKeyHeader != "Authorization" || config.apiKeyPrefix != "Bearer ") {
         return Result<void>::failure("OpenAI-compatible 认证必须使用 Authorization: Bearer");

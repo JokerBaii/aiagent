@@ -12,7 +12,6 @@
 
 #include <algorithm>
 #include <optional>
-#include <sstream>
 #include <utility>
 
 namespace cc {
@@ -38,17 +37,6 @@ namespace {
                       .text = observation.summary,
                       .context = observation.toolName,
                       .payload = agentObservationJson(observation)};
-}
-
-[[nodiscard]] std::string boundedFinalAnswer(const std::vector<AgentObservation>& observations,
-                                             std::size_t maxSteps) {
-    std::ostringstream output;
-    output << "Brain 已执行 " << maxSteps
-           << " 轮受控工具调用，达到本轮最大步数，先基于已得到的观察结果收束。";
-    for (const auto& observation : observations) {
-        output << "\n- " << observation.summary;
-    }
-    return output.str();
 }
 
 [[nodiscard]] bool hasSuccessfulWorkspaceChange(const AgentRunResult& result) {
@@ -90,6 +78,10 @@ Result<AgentRunResult> BrainAgentLoop::run(const LlmConfig& config, const AgentR
 
 Result<AgentRunResult> BrainAgentLoop::run(const LlmConfig& config, const AgentRunRequest& request,
                                            AgentEventObserver observe, std::size_t maxSteps) const {
+    const auto configuredSteps = maxSteps == 0U ? config.maxAgentSteps : maxSteps;
+    if (configuredSteps == 0U || configuredSteps > 256U) {
+        return Result<AgentRunResult>::failure("智能体最大工具步数必须在 1 到 256 之间");
+    }
     LlmBrain brain;
     return runWithDecisionProvider(
         request,
@@ -97,23 +89,27 @@ Result<AgentRunResult> BrainAgentLoop::run(const LlmConfig& config, const AgentR
             const std::vector<AgentToolSpec>& tools) {
             return brain.decideNextAgentStep(config, activeRequest, result, tools);
         },
-        maxSteps, std::move(observe));
+        configuredSteps, std::move(observe));
 }
 
 Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunRequest& request,
                                                                AgentDecisionProvider decide,
                                                                std::size_t maxSteps,
                                                                AgentEventObserver observe) const {
+    if (maxSteps == 0U || maxSteps > 256U) {
+        return Result<AgentRunResult>::failure("智能体最大工具步数必须在 1 到 256 之间");
+    }
     AgentRunResult result;
     result.plan.summary = "LLM Brain 迭代工具循环：每一步基于已有观察选择一个受控工具，"
                           "或在信息足够时给出最终回答。";
-    const auto stepLimit = std::max<std::size_t>(1U, maxSteps);
+    const auto stepLimit = maxSteps;
     const auto tools = ToolRegistry{}.interactiveToolSpecs();
     AgentRuntime runtime;
     auto activeRequest = request;
     std::optional<AuditResult> ownedBaseline;
     std::string previousCallSignature;
     std::size_t consecutiveIdenticalCalls = 0U;
+    bool previousCallSucceeded = false;
 
     for (std::size_t step = 1U; step <= stepLimit; ++step) {
         if (requestCancelled(activeRequest)) {
@@ -172,7 +168,9 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
         }
         const auto callSignature = call.name + "\n" + writeJson(call.input, 0);
         if (callSignature == previousCallSignature) {
-            ++consecutiveIdenticalCalls;
+            // Invalid/rejected calls have not made progress. They must remain recoverable model
+            // feedback instead of tripping the circuit breaker intended for repeated successes.
+            consecutiveIdenticalCalls = previousCallSucceeded ? consecutiveIdenticalCalls + 1U : 1U;
         } else {
             previousCallSignature = callSignature;
             consecutiveIdenticalCalls = 1U;
@@ -194,6 +192,7 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
                 observe(result.events.back());
             }
             result.trace = agentRunTraceJson(result);
+            previousCallSucceeded = true;
             continue;
         }
         result.plan.calls.push_back(call);
@@ -215,6 +214,7 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
                 observe(result.events.back());
             }
             result.trace = agentRunTraceJson(result);
+            previousCallSucceeded = false;
             continue;
         }
 
@@ -236,6 +236,7 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
                 observe(result.events.back());
             }
             result.trace = agentRunTraceJson(result);
+            previousCallSucceeded = false;
             continue;
         }
 
@@ -254,7 +255,9 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
             return Result<AgentRunResult>::failure(execution.error());
         }
         std::size_t observationIndex = 0U;
+        bool executionSucceeded = false;
         for (auto& observation : execution.value().observations) {
+            executionSucceeded = executionSucceeded || observation.ok;
             result.observations.push_back(observation);
             result.events.push_back(toolEvent(observation));
             if (observe && observationIndex >= streamedObservations) {
@@ -262,6 +265,7 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
             }
             ++observationIndex;
         }
+        previousCallSucceeded = executionSucceeded;
         if (execution.value().auditResult.has_value()) {
             result.auditResult = std::move(execution.value().auditResult);
             activeRequest.auditResult = &(*result.auditResult);
@@ -289,12 +293,8 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
     if (!incomplete.empty()) {
         return Result<AgentRunResult>::failure(incomplete + "，已达到本轮最大工具步数");
     }
-    setAgentFinalAnswer(result, boundedFinalAnswer(result.observations, stepLimit),
-                        "Brain step limit");
-    if (observe) {
-        observe(result.events.back());
-    }
-    return Result<AgentRunResult>::success(std::move(result));
+    return Result<AgentRunResult>::failure(
+        "智能助手已达到本轮最大工具步数，但没有给出最终回答；已有工具结果仍然有效，可继续重试");
 }
 
 } // namespace cc

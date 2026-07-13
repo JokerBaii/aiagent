@@ -36,6 +36,7 @@
 #include <filesystem>
 #include <iterator>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -96,16 +97,64 @@ namespace {
     return std::filesystem::is_regular_file(rulesDir / "common_rules.json", ec);
 }
 
-[[nodiscard]] QString severityLabel(cc::Severity severity) {
-    switch (severity) {
-    case cc::Severity::Blocker:
-        return "必须处理";
-    case cc::Severity::Warning:
-        return "需要关注";
-    case cc::Severity::Info:
-        return "提示";
+[[nodiscard]] QString naturalFindingTitle(const cc::AuditFinding& finding) {
+    auto title = stringText(finding.title).trimmed();
+    if (title == "材料文本无法可靠读取") {
+        return "有文件没有读完整";
     }
-    return "未知";
+    if (title.endsWith("失败")) {
+        title.chop(2);
+    }
+    if (title.endsWith("检查")) {
+        title.chop(2);
+    }
+    return title.isEmpty() ? QStringLiteral("这项材料需要补充") : title;
+}
+
+[[nodiscard]] QString naturalFindingReason(const std::string& rawReason) {
+    auto reason = stringText(rawReason).trimmed();
+    const auto internalDetails = reason.indexOf(" 缺失/风险项:");
+    if (internalDetails >= 0) {
+        reason = reason.left(internalDetails).trimmed();
+    }
+    reason.replace("NEED_REVIEW_TEXT_TRUNCATED", "文件只读取到一部分");
+    reason.replace("NEED_REVIEW_STRUCTURED_TEXT_TRUNCATED", "文件只读取到一部分");
+    reason.replace("NEED_REVIEW_PDF_TRUNCATED", "PDF 只读取到一部分");
+    reason.replace("NEED_REVIEW_PDF_TEXT_EXTRACTION_LIMITED", "PDF 正文没有完整读出");
+    reason.replace("NEED_REVIEW_OPENXML_TEXT_EXTRACTION_LIMITED", "文档正文没有完整读出");
+    reason.replace("NEED_REVIEW_EXTRACTION_FAILED", "文件内容读取失败");
+    reason.replace("EMPTY_OR_UNREADABLE", "没有读到可用文字");
+    reason.replace("项目包中", "项目包里");
+    return reason;
+}
+
+[[nodiscard]] QString readableExtractionStatus(const std::string& status) {
+    if (status == "EXTRACTED_TEXT" || status == "EXTRACTED_STRUCTURED_JSON" ||
+        status == "EXTRACTED_STRUCTURED_YAML") {
+        return "已读取文本";
+    }
+    if (status == "EXTRACTED_PDF") {
+        return "已读取 PDF 正文";
+    }
+    if (status == "EXTRACTED_OPENXML") {
+        return "已读取文档正文";
+    }
+    if (status.find("TRUNCATED") != std::string::npos) {
+        return "文件较大，只预览前一部分";
+    }
+    if (status.find("EXTRACTION_LIMITED") != std::string::npos) {
+        return "正文没有完整读出";
+    }
+    if (status == "EMPTY_OR_UNREADABLE") {
+        return "没有读到可用文字";
+    }
+    if (status.find("PARSE_FAILED") != std::string::npos) {
+        return "文件格式需要检查";
+    }
+    if (status.find("NEED_REVIEW") != std::string::npos) {
+        return "需要人工确认内容";
+    }
+    return status.empty() ? QStringLiteral("等待检查") : stringText(status);
 }
 
 [[nodiscard]] QString friendlyToolName(const std::string& name) {
@@ -116,31 +165,31 @@ namespace {
         return "整理项目文件";
     }
     if (name == "extract_text") {
-        return "读取可审计文本";
+        return "读取材料内容";
     }
     if (name == "detect_competition_type") {
-        return "判断参赛类别";
+        return "判断项目类型";
     }
     if (name == "build_cpir") {
-        return "生成项目画像";
+        return "整理项目信息";
     }
     if (name == "extract_claims") {
-        return "提取关键声明";
+        return "找出需要举证的成果";
     }
     if (name == "match_evidence") {
-        return "匹配声明证据";
+        return "核对证明材料";
     }
     if (name == "check_consistency") {
-        return "检查材料一致性";
+        return "核对材料表述";
     }
     if (name == "run_rules") {
-        return "执行审计规则";
+        return "查找提交问题";
     }
     if (name == "calculate_trust_score") {
-        return "计算可信评分";
+        return "计算分数";
     }
     if (name == "generate_fix_tasks") {
-        return "生成补证任务";
+        return "整理修改清单";
     }
     if (name == "generate_repair_plan") {
         return "整理改进方案";
@@ -195,65 +244,87 @@ namespace {
 
 [[nodiscard]] QString defectReportText(const cc::AuditResult& result) {
     QStringList lines;
-    lines << QStringLiteral("缺点评审完成：材料可信评分 %1/100，还有 %2 分需要通过补材料、"
-                            "补证据或修正矛盾来恢复。")
-                 .arg(result.trustScore.totalScore)
-                 .arg(result.trustScore.trustDebt);
-    lines << QStringLiteral("我只列影响交付可信度的问题，不写无关优点。");
+    const auto blockers = workbench::blockerCount(result);
+    const auto warnings = workbench::warningCount(result);
+    if (blockers > 0) {
+        auto opening = QStringLiteral("我检查完了，目前是 %1 分。提交前有 %2 个问题要先处理")
+                           .arg(result.trustScore.totalScore)
+                           .arg(blockers);
+        if (warnings > 0) {
+            opening += QStringLiteral("，另外有 %1 个地方建议补齐").arg(warnings);
+        }
+        lines << opening + "。";
+    } else if (warnings > 0) {
+        lines << QStringLiteral("我检查完了，目前是 %1 分。没有发现会直接卡住提交的问题，"
+                                "不过还有 %2 个地方值得补齐。")
+                     .arg(result.trustScore.totalScore)
+                     .arg(warnings);
+    } else {
+        lines << QStringLiteral("我检查完了，目前是 %1 分。从现有材料看，没有发现会直接影响"
+                                "提交的问题。")
+                     .arg(result.trustScore.totalScore);
+    }
 
     if (result.findings.empty() && result.consistencyIssues.empty() && result.fixTasks.empty()) {
-        lines << "当前规则包没有抓到必须处理项或补证任务。建议仍做人工复核后再提交。";
+        lines << "提交前再人工看一遍关键数字、证明材料和文件版本，就可以了。";
         return lines.join("\n");
     }
 
+    std::set<std::string> coveredRules;
     if (!result.findings.empty()) {
-        lines << "\n审计发现的问题：";
-        const auto limit = std::min<std::size_t>(result.findings.size(), 8U);
+        lines << "\n先改这几处：";
+        const auto limit = std::min<std::size_t>(result.findings.size(), 6U);
         for (std::size_t index = 0U; index < limit; ++index) {
             const auto& finding = result.findings.at(index);
-            lines << QStringLiteral("%1. [%2] %3：%4")
+            coveredRules.insert(finding.ruleId);
+            const auto priority = finding.severity == cc::Severity::Blocker
+                                      ? QStringLiteral("提交前处理")
+                                      : QStringLiteral("建议补齐");
+            lines << QStringLiteral("%1. %2（%3）")
                          .arg(static_cast<int>(index + 1U))
-                         .arg(severityLabel(finding.severity))
-                         .arg(stringText(finding.title))
-                         .arg(stringText(finding.reason));
+                         .arg(naturalFindingTitle(finding), priority);
+            lines << QStringLiteral("   %1").arg(naturalFindingReason(finding.reason));
+            if (!finding.fixSuggestion.empty()) {
+                lines
+                    << QStringLiteral("   可以这样处理：%1").arg(stringText(finding.fixSuggestion));
+            }
         }
         if (result.findings.size() > limit) {
-            lines << QStringLiteral("... 还有 %1 个规则问题已写入报告。")
+            lines << QStringLiteral("其余 %1 个问题可以在右侧“检查结果”里逐项查看。")
                          .arg(static_cast<int>(result.findings.size() - limit));
         }
     }
 
     if (!result.consistencyIssues.empty()) {
-        lines << "\n材料一致性缺点：";
-        const auto limit = std::min<std::size_t>(result.consistencyIssues.size(), 5U);
+        lines << "\n还有几处材料表述需要对齐：";
+        const auto limit = std::min<std::size_t>(result.consistencyIssues.size(), 3U);
         for (std::size_t index = 0U; index < limit; ++index) {
             const auto& issue = result.consistencyIssues.at(index);
-            lines << QStringLiteral("%1. [%2] %3；建议：%4")
-                         .arg(static_cast<int>(index + 1U))
-                         .arg(severityLabel(issue.severity))
-                         .arg(stringText(issue.description))
-                         .arg(stringText(issue.fixSuggestion));
+            auto text = QStringLiteral("• %1").arg(stringText(issue.description));
+            if (!issue.fixSuggestion.empty()) {
+                text += QStringLiteral(" 可以这样处理：%1").arg(stringText(issue.fixSuggestion));
+            }
+            lines << text;
         }
     }
 
-    if (!result.fixTasks.empty()) {
-        lines << "\n优先优化/补证任务：";
-        const auto limit = std::min<std::size_t>(result.fixTasks.size(), 6U);
-        for (std::size_t index = 0U; index < limit; ++index) {
-            const auto& task = result.fixTasks.at(index);
-            const auto priority = task.priority == "P0"   ? QStringLiteral("立即处理")
-                                  : task.priority == "P1" ? QStringLiteral("尽快处理")
-                                                          : stringText(task.priority);
-            lines << QStringLiteral("%1. [%2] %3：%4")
-                         .arg(static_cast<int>(index + 1U))
-                         .arg(priority)
-                         .arg(stringText(task.title))
-                         .arg(stringText(task.reason));
+    QStringList extraTasks;
+    for (const auto& task : result.fixTasks) {
+        const auto alreadyCovered =
+            std::any_of(task.affectedRules.begin(), task.affectedRules.end(),
+                        [&](const std::string& rule) { return coveredRules.contains(rule); });
+        if (alreadyCovered || extraTasks.size() >= 3) {
+            continue;
         }
+        extraTasks << QStringLiteral("• %1").arg(stringText(task.title));
+    }
+    if (!extraTasks.empty()) {
+        lines << "\n另外可以补上：";
+        lines.append(extraTasks);
     }
 
-    lines << "\n需要继续修改时，请切换到 Code 模式并说明要改的文件，或使用 /optimize。"
-             "所有改动只进入 repaired project，并提供 diff 和二次审计。";
+    lines << "\n如果你想让我直接整理修订稿，切到 Code 模式后输入 /optimize。改动只会放在"
+             "项目副本里，不会碰原文件。";
     return lines.join("\n");
 }
 
@@ -321,6 +392,7 @@ CompileController::CompileController(QObject* parent) : QObject(parent) {
     activeSessionId_ = QString::fromStdString(cc::util::makeSessionId());
     cc::LlmProviderResolver::Environment environment;
     constexpr const char* names[]{
+        "LLM_API_KEY",         "LLM_BASE_URL",         "LLM_MODEL",          "LLM_PROVIDER",
         "ANTHROPIC_API_KEY",   "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL",
         "OPENAI_API_KEY",      "OPENAI_BASE_URL",      "OPENAI_MODEL",       "DEEPSEEK_API_KEY",
         "DEEPSEEK_AUTH_TOKEN", "DEEPSEEK_BASE_URL",    "DEEPSEEK_MODEL"};
@@ -334,10 +406,16 @@ CompileController::CompileController(QObject* parent) : QObject(parent) {
     llmApiKey_ = QString::fromStdString(profile.config.apiKey);
     llmEndpoint_ = QString::fromStdString(profile.config.endpoint);
     llmModel_ = QString::fromStdString(profile.config.model);
-    llmProvider_ = QString::fromStdString(profile.config.provider);
-    llmApiKeyHeader_ = QString::fromStdString(profile.config.apiKeyHeader);
-    llmApiKeyPrefix_ = QString::fromStdString(profile.config.apiKeyPrefix);
-    llmApproved_ = false;
+    if (!profile.config.apiKey.empty() && !profile.config.endpoint.empty()) {
+        llmCredentialConfig_ = profile.config;
+    }
+    if (profile.configured && cc::LlmProviderResolver{}.validateConfig(profile.config).ok()) {
+        resolvedLlmConfig_ = profile.config;
+        llmConfigured_ = true;
+    } else if (!profile.error.empty()) {
+        status_ =
+            QStringLiteral("LLM 环境配置未启用：%1").arg(QString::fromStdString(profile.error));
+    }
 }
 
 QString CompileController::projectPath() const {
@@ -428,7 +506,7 @@ QVariantList CompileController::toolCards() const {
 }
 
 QVariantList CompileController::permissionCards() const {
-    return workbench::permissionCards(llmApproved_, accessMode_);
+    return workbench::permissionCards(llmConfigured_, accessMode_);
 }
 
 QVariantList CompileController::artifacts() const {
@@ -533,7 +611,8 @@ void CompileController::setLlmApiKey(const QString& value) {
         return;
     }
     llmApiKey_ = trimmed;
-    llmApproved_ = false;
+    llmCredentialConfig_.reset();
+    refreshLlmConfig(true);
     emit llmConfigChanged();
     emit workspaceChanged();
 }
@@ -547,7 +626,7 @@ void CompileController::setLlmEndpoint(const QString& value) {
         return;
     }
     llmEndpoint_ = value;
-    llmApproved_ = false;
+    refreshLlmConfig(true);
     emit llmConfigChanged();
     emit workspaceChanged();
 }
@@ -561,27 +640,135 @@ void CompileController::setLlmModel(const QString& value) {
         return;
     }
     llmModel_ = value;
-    emit llmConfigChanged();
-}
-
-bool CompileController::llmApproved() const {
-    return llmApproved_;
-}
-
-void CompileController::setLlmApproved(bool value) {
-    const bool approved = value && !llmApiKey_.isEmpty() &&
-                          llmEndpoint_.trimmed().startsWith("https://") &&
-                          !llmModel_.trimmed().isEmpty();
-    if (llmApproved_ == approved) {
-        return;
-    }
-    llmApproved_ = approved;
-    if (value && !approved) {
-        status_ = "LLM 授权失败：请先配置 API key、HTTPS endpoint 和模型";
-        emit statusChanged();
-    }
+    refreshLlmConfig(false);
     emit llmConfigChanged();
     emit workspaceChanged();
+}
+
+bool CompileController::llmConfigured() const {
+    return llmConfigured_;
+}
+
+QVariantList CompileController::llmAvailableModels() const {
+    return llmAvailableModels_;
+}
+
+bool CompileController::llmModelsLoading() const {
+    return llmModelsLoading_;
+}
+
+QString CompileController::llmModelsStatus() const {
+    return llmModelsStatus_;
+}
+
+void CompileController::refreshLlmConfig(bool invalidateModels) {
+    if (invalidateModels) {
+        if (llmModelsCancellation_) {
+            llmModelsCancellation_->store(true);
+            llmModelsCancellation_.reset();
+        }
+        llmAvailableModels_.clear();
+        llmModelsStatus_.clear();
+        llmModelsLoading_ = false;
+        emit llmModelsChanged();
+    }
+    resolvedLlmConfig_.reset();
+    llmConfigured_ = false;
+    if (llmApiKey_.isEmpty() || llmEndpoint_.trimmed().isEmpty() || llmModel_.trimmed().isEmpty()) {
+        return;
+    }
+    auto resolved = cc::LlmProviderResolver{}.resolveUserProfile(
+        llmEndpoint_.toStdString(), llmModel_.toStdString(), llmApiKey_.toStdString());
+    if (!resolved.ok() || !resolved.value().configured) {
+        return;
+    }
+    auto config = resolved.value().config;
+    if (llmCredentialConfig_.has_value() && llmCredentialConfig_->apiKey == config.apiKey &&
+        llmCredentialConfig_->provider == config.provider) {
+        config.apiKeyHeader = llmCredentialConfig_->apiKeyHeader;
+        config.apiKeyPrefix = llmCredentialConfig_->apiKeyPrefix;
+    }
+    llmCredentialConfig_ = config;
+    resolvedLlmConfig_ = std::move(config);
+    llmConfigured_ = true;
+}
+
+void CompileController::refreshLlmModels() {
+    if (llmModelsLoading_) {
+        return;
+    }
+    if (llmEndpoint_.trimmed().isEmpty() || llmApiKey_.isEmpty()) {
+        llmModelsStatus_ = "请先填写 HTTPS 服务地址和访问密钥";
+        emit llmModelsChanged();
+        return;
+    }
+    auto profile = cc::LlmProviderResolver{}.resolveModelDiscoveryProfile(
+        llmEndpoint_.toStdString(), llmApiKey_.toStdString());
+    if (!profile.ok() || !profile.value().configured) {
+        llmModelsStatus_ = profile.ok() ? QStringLiteral("访问密钥长度或格式无效")
+                                        : QString::fromStdString(profile.error());
+        emit llmModelsChanged();
+        return;
+    }
+
+    auto config = profile.value().config;
+    if (llmCredentialConfig_.has_value() && llmCredentialConfig_->apiKey == config.apiKey &&
+        llmCredentialConfig_->provider == config.provider) {
+        config.apiKeyHeader = llmCredentialConfig_->apiKeyHeader;
+        config.apiKeyPrefix = llmCredentialConfig_->apiKeyPrefix;
+    }
+    llmCredentialConfig_ = config;
+    config.allowNetwork = true;
+    config.allowLlm = true;
+    auto cancellation = std::make_shared<std::atomic_bool>(false);
+    llmModelsCancellation_ = cancellation;
+    config.isCancelled = [cancellation]() { return cancellation->load(); };
+    llmAvailableModels_.clear();
+    llmModelsStatus_ = "正在读取该凭证可用的模型…";
+    llmModelsLoading_ = true;
+    emit llmModelsChanged();
+
+    const QPointer<CompileController> guard{this};
+    auto* worker = QThread::create([guard, config = std::move(config), cancellation]() mutable {
+        auto models = std::make_shared<cc::Result<std::vector<std::string>>>(
+            cc::LlmBrain{}.listModels(config));
+        if (guard.isNull()) {
+            return;
+        }
+        QMetaObject::invokeMethod(
+            guard,
+            [guard, models, cancellation]() {
+                if (guard.isNull() || cancellation->load() ||
+                    guard->llmModelsCancellation_ != cancellation) {
+                    return;
+                }
+                guard->llmModelsCancellation_.reset();
+                guard->llmModelsLoading_ = false;
+                guard->llmAvailableModels_.clear();
+                if (!models->ok()) {
+                    guard->llmModelsStatus_ = QStringLiteral("获取模型失败：%1")
+                                                  .arg(QString::fromStdString(models->error()));
+                } else {
+                    for (const auto& model : models->value()) {
+                        guard->llmAvailableModels_.push_back(QString::fromStdString(model));
+                    }
+                    guard->llmModelsStatus_ =
+                        QStringLiteral("已读取 %1 个模型；请选择或继续手动输入")
+                            .arg(guard->llmAvailableModels_.size());
+                }
+                emit guard->llmModelsChanged();
+            },
+            Qt::QueuedConnection);
+    });
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+    worker->start();
+}
+
+cc::LlmConfig CompileController::llmConfig(bool allowNetwork, bool allowLlm) const {
+    auto config = resolvedLlmConfig_.value_or(cc::LlmConfig{});
+    config.allowNetwork = allowNetwork;
+    config.allowLlm = allowLlm;
+    return config;
 }
 
 QString CompileController::agentResult() const {
@@ -675,7 +862,8 @@ void CompileController::resetActiveSession(bool addGreeting) {
     activeSessionId_ = QString::fromStdString(cc::util::makeSessionId());
     status_ = "已开始新任务，等待添加项目文件";
     if (addGreeting) {
-        conversation_.push_back({"系统", "已开始新任务。请添加完整项目文件夹、项目压缩包或单个项目文件。",
+        conversation_.push_back({"系统",
+                                 "已开始新任务。请添加完整项目文件夹、项目压缩包或单个项目文件。",
                                  "会话", "system", QString{}, true});
     }
 }
@@ -728,7 +916,7 @@ void CompileController::selectProject(const QString& urlOrPath) {
         {"用户",
          QStringLiteral("已添加项目：%1").arg(selectedName.isEmpty() ? "项目文件" : selectedName),
          QFileInfo(path).isDir() ? "项目文件夹" : "项目文件", "user", QString{}, true});
-    const bool brainReady = llmApproved_ && !llmApiKey_.isEmpty();
+    const bool brainReady = llmConfigured_ && !llmApiKey_.isEmpty();
     status_ = brainReady ? "大模型审计助手正在分析项目" : "正在启动本地规则审计";
     emit statusChanged();
     emit resultChanged();
@@ -772,7 +960,7 @@ QVariantList CompileController::sessionList() const {
             item["title"] = QString::fromStdString(result->context.projectName.empty()
                                                        ? result->context.sessionId
                                                        : result->context.projectName);
-            item["subtitle"] = QStringLiteral("评分 %1 · 必须处理 %2")
+            item["subtitle"] = QStringLiteral("%1 分，%2 个问题要处理")
                                    .arg(result->trustScore.totalScore)
                                    .arg(workbench::blockerCount(*result));
         } else {
@@ -880,8 +1068,8 @@ void CompileController::runAdvisory() {
         emit sessionChanged();
         return;
     }
-    if (!llmApproved_ || llmApiKey_.isEmpty()) {
-        status_ = "混合研判需要在 LLM Brain 页填入 API key 并授权联网";
+    if (!llmConfigured_ || llmApiKey_.isEmpty()) {
+        status_ = "混合研判需要先配置有效的 LLM 服务地址、模型和 API key";
         conversation_.push_back({"系统", status_, "混合研判", "system", QString{}, false});
         emit statusChanged();
         emit sessionChanged();
@@ -901,15 +1089,7 @@ void CompileController::runAdvisory() {
     emit advisoryChanged();
     emit sessionChanged();
 
-    cc::LlmConfig config;
-    config.apiKey = llmApiKey_.toStdString();
-    config.endpoint = llmEndpoint_.toStdString();
-    config.model = llmModel_.toStdString();
-    config.provider = llmProvider_.toStdString();
-    config.apiKeyHeader = llmApiKeyHeader_.toStdString();
-    config.apiKeyPrefix = llmApiKeyPrefix_.toStdString();
-    config.allowNetwork = true;
-    config.allowLlm = true;
+    auto config = llmConfig(true, true);
     config.isCancelled = [cancellation]() { return cancellation->load(); };
     auto auditSnapshot = result_;
     const auto sessionId = activeSessionId_;
@@ -975,7 +1155,7 @@ void CompileController::runGeneralAssistant(const QString& message, const QStrin
         conversation_.push_back({"用户", trimmed, context, "user", QString{}, true});
     }
 
-    if (!llmApproved_ || llmApiKey_.isEmpty()) {
+    if (!llmConfigured_ || llmApiKey_.isEmpty()) {
         status_ = "常规问答需要先在设置中配置 LLM Brain";
         conversation_.push_back(
             {"智能体",
@@ -987,15 +1167,7 @@ void CompileController::runGeneralAssistant(const QString& message, const QStrin
         return;
     }
 
-    cc::LlmConfig config;
-    config.apiKey = llmApiKey_.toStdString();
-    config.endpoint = llmEndpoint_.toStdString();
-    config.model = llmModel_.toStdString();
-    config.provider = llmProvider_.toStdString();
-    config.apiKeyHeader = llmApiKeyHeader_.toStdString();
-    config.apiKeyPrefix = llmApiKeyPrefix_.toStdString();
-    config.allowNetwork = true;
-    config.allowLlm = true;
+    auto config = llmConfig(true, true);
     auto cancellation = activeCancellation_;
     if (!cancellation) {
         cancellation = std::make_shared<std::atomic_bool>(false);
@@ -1077,8 +1249,9 @@ void CompileController::runAudit() {
     }
     if (normalizedInputPath(projectPath_).trimmed().isEmpty()) {
         status_ = "请先添加项目文件";
-        conversation_.push_back(
-            {"智能体", "先添加完整项目文件夹、项目压缩包或单个项目文件，我再开始检查。", "等待项目"});
+        conversation_.push_back({"智能体",
+                                 "先添加完整项目文件夹、项目压缩包或单个项目文件，我再开始检查。",
+                                 "等待项目"});
         emit statusChanged();
         emit sessionChanged();
         return;
@@ -1237,12 +1410,10 @@ void CompileController::completeAuditRun(cc::Result<cc::AuditResult> result) {
     status_ = result_->context.warnings.empty()
                   ? "检查完成：先处理红色的“必须处理”，再查看黄色的“需要关注”"
                   : "检查完成：部分材料未能完整读取，请查看右侧提示";
+    conversation_.push_back({"工具", "材料已经整理完，证据、规则和评分也都核对过了。", "检查记录"});
     conversation_.push_back(
-        {"工具", "已完成材料整理、证据匹配、规则检查和评分。",
-         QStringLiteral("会话 %1").arg(stringText(result_->context.sessionId))});
-    conversation_.push_back(
-        {"智能体", defectReportText(*result_), "缺点评审报告", "assistant", QString{}, true});
-    conversation_.push_back({"产物", "打开可信评分、材料、证据、风险和修复任务。", "完整审计结果",
+        {"智能体", defectReportText(*result_), "检查结论", "assistant", QString{}, true});
+    conversation_.push_back({"产物", "打开检查总览、材料、证明、问题和修改清单。", "完整检查结果",
                              "artifact", QString{}, true, "dashboard"});
     if (!result_->context.warnings.empty()) {
         QStringList warnings;
@@ -1269,10 +1440,27 @@ void CompileController::completeAuditRun(cc::Result<cc::AuditResult> result) {
 
 void CompileController::runDiff() {
     if (agentRunning_ || advisoryRunning_) {
+        status_ = "请等当前任务结束后再比较";
+        emit statusChanged();
         return;
     }
     if (oldAuditPath_.isEmpty() || newAuditPath_.isEmpty()) {
-        status_ = "请先填写两份 audit.json 路径";
+        status_ = "请先选择修改前、修改后的两份检查结果";
+        emit statusChanged();
+        return;
+    }
+    const auto oldNormalized = normalizedInputPath(oldAuditPath_).trimmed();
+    const auto newNormalized = normalizedInputPath(newAuditPath_).trimmed();
+    const QFileInfo oldInfo{oldNormalized};
+    const QFileInfo newInfo{newNormalized};
+    if (!oldInfo.isFile() || !newInfo.isFile()) {
+        status_ = !oldInfo.isFile() ? "找不到修改前的检查结果，请重新选择"
+                                    : "找不到修改后的检查结果，请重新选择";
+        emit statusChanged();
+        return;
+    }
+    if (oldInfo.absoluteFilePath() == newInfo.absoluteFilePath()) {
+        status_ = "修改前和修改后不能选择同一个文件";
         emit statusChanged();
         return;
     }
@@ -1286,8 +1474,8 @@ void CompileController::runDiff() {
     emit workspaceChanged();
     emit sessionChanged();
 
-    const auto oldPath = normalizedInputPath(oldAuditPath_).toStdString();
-    const auto newPath = normalizedInputPath(newAuditPath_).toStdString();
+    const auto oldPath = oldNormalized.toStdString();
+    const auto newPath = newNormalized.toStdString();
     const auto sessionId = activeSessionId_;
     const QPointer<CompileController> guard{this};
     auto* worker = QThread::create([guard, oldPath, newPath, sessionId, cancellation]() {
@@ -1358,10 +1546,11 @@ QString CompileController::sessionStatusText() const {
     lines << QStringLiteral("权限模式：%1").arg(accessModeLabel());
     lines << QStringLiteral("项目文件：%1").arg(normalized.isEmpty() ? "未选择" : normalized);
     lines << QStringLiteral("LLM Brain：%1")
-                 .arg(llmApproved_ && !llmApiKey_.isEmpty() ? "已授权" : "本地受控");
+                 .arg(llmConfigured_ && !llmApiKey_.isEmpty() ? "配置有效" : "本地受控");
     lines << QStringLiteral("当前状态：%1").arg(status_);
     if (result_ != nullptr) {
-        lines << QStringLiteral("审计结果：评分 %1/100，必须处理 %2，需要关注 %3，补证任务 %4")
+        lines << QStringLiteral("检查结果：%1 分，%2 个问题要处理，%3 个地方建议补齐，"
+                                "%4 项修改任务")
                      .arg(result_->trustScore.totalScore)
                      .arg(workbench::blockerCount(*result_))
                      .arg(workbench::warningCount(*result_))
@@ -1527,7 +1716,7 @@ void CompileController::previewProjectFile(const QString& relativePath) {
                                        });
     if (document != result_->corpus.end()) {
         content = QString::fromStdString(document->text);
-        extractionStatus = QString::fromStdString(document->status);
+        extractionStatus = readableExtractionStatus(document->status);
     } else if (asset->auditable) {
         content = QString::fromStdString(cc::util::readFileLimited(asset->absolutePath, 48000U));
     }
@@ -1594,20 +1783,12 @@ void CompileController::runAgentConversation(const QString& message, const QStri
         conversation_.push_back({"用户", message, context});
     }
 
-    const bool brainReady = llmApproved_ && !llmApiKey_.isEmpty();
+    const bool brainReady = llmConfigured_ && !llmApiKey_.isEmpty();
     status_ = brainReady ? "大模型审计助手正在分析" : "本地诊断：未启用大模型";
     emit statusChanged();
 
     if (brainReady) {
-        cc::LlmConfig brainConfig;
-        brainConfig.apiKey = llmApiKey_.toStdString();
-        brainConfig.endpoint = llmEndpoint_.toStdString();
-        brainConfig.model = llmModel_.toStdString();
-        brainConfig.provider = llmProvider_.toStdString();
-        brainConfig.apiKeyHeader = llmApiKeyHeader_.toStdString();
-        brainConfig.apiKeyPrefix = llmApiKeyPrefix_.toStdString();
-        brainConfig.allowNetwork = request.allowNetwork;
-        brainConfig.allowLlm = request.allowLlm;
+        auto brainConfig = llmConfig(request.allowNetwork, request.allowLlm);
         brainConfig.isCancelled = [cancellation]() { return cancellation->load(); };
 
         auto requestCopy = request;
@@ -1667,7 +1848,7 @@ void CompileController::runAgentConversation(const QString& message, const QStri
         return;
     }
 
-    conversation_.push_back({"系统", "未检测到已授权的大模型配置，本轮只执行本地上下文诊断。",
+    conversation_.push_back({"系统", "未检测到有效的大模型配置，本轮只执行本地上下文诊断。",
                              "Brain 未启用", "system", QString{}, true});
     auto requestCopy = request;
     auto auditSnapshot = result_;
@@ -1799,7 +1980,7 @@ void CompileController::applyAgentRunResult(cc::Result<cc::AgentRunResult> run,
         activeAuditStep_ = -1;
         currentAgentAction_ = producedDiff ? "修改后复查完成" : "项目文件检查完成";
     }
-    status_ = producedAudit ? (producedDiff ? "修改后复查完成" : "项目文件检查完成")
+    status_ = producedAudit            ? (producedDiff ? "修改后复查完成" : "项目文件检查完成")
               : planner == "LLM Brain" ? "大模型审计助手已完成分析"
                                        : "仅完成本地上下文诊断";
     emit statusChanged();
@@ -1933,7 +2114,7 @@ cc::AgentRunRequest CompileController::makeAgentRequest(const QString& goal,
     const bool optimizeWorkflow = context == "/optimize";
     request.requireWorkspaceChanges = optimizeWorkflow;
     request.requireReaudit = optimizeWorkflow;
-    const bool brainReady = llmApproved_ && !llmApiKey_.isEmpty();
+    const bool brainReady = llmConfigured_ && !llmApiKey_.isEmpty();
     request.allowNetwork = brainReady;
     request.allowLlm = brainReady;
     const bool bypass = accessMode_ == "bypass";
@@ -2111,7 +2292,7 @@ void CompileController::submitMessage(const QString& message) {
         conversation_.push_back({"用户", QString::fromStdString(command.prompt),
                                  QString::fromStdString(command.context)});
         emit sessionChanged();
-        if (llmApproved_ && !llmApiKey_.isEmpty() &&
+        if (llmConfigured_ && !llmApiKey_.isEmpty() &&
             !normalizedInputPath(projectPath_).trimmed().isEmpty()) {
             result_.reset();
             baselineResult_.reset();

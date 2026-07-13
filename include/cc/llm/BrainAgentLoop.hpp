@@ -28,17 +28,17 @@ class BrainAgentLoop {
   public:
     /** @brief 运行一轮 Brain 工具循环。 */
     [[nodiscard]] Result<AgentRunResult>
-    run(const LlmConfig& config, const AgentRunRequest& request, std::size_t maxSteps = 12U) const;
+    run(const LlmConfig& config, const AgentRunRequest& request, std::size_t maxSteps = 0U) const;
     /** @brief 运行工具循环并在每个事件产生时通知观察者。 */
     [[nodiscard]] Result<AgentRunResult> run(const LlmConfig& config,
                                              const AgentRunRequest& request,
                                              AgentEventObserver observe,
-                                             std::size_t maxSteps = 12U) const;
+                                             std::size_t maxSteps = 0U) const;
 
     /** @brief 使用注入的决策器运行同一工具循环，供确定性集成测试和替代模型传输使用。 */
     [[nodiscard]] Result<AgentRunResult>
     runWithDecisionProvider(const AgentRunRequest& request, AgentDecisionProvider decide,
-                            std::size_t maxSteps = 12U, AgentEventObserver observe = {}) const;
+                            std::size_t maxSteps = 32U, AgentEventObserver observe = {}) const;
 };
 
 } // namespace cc

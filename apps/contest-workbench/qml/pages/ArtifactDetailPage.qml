@@ -12,6 +12,7 @@ Item {
     required property var compiler
     property string pageKey: "dashboard"
     signal closeRequested()
+    signal filePreviewRequested(string relativePath)
 
     readonly property var pageMetadata: ({
         "dashboard": ["检查结果总览", "先看必须处理的问题，再按建议完善材料"],
@@ -50,7 +51,7 @@ Item {
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 70
+                Layout.preferredHeight: 76
                 color: Theme.window
 
                 RowLayout {
@@ -74,7 +75,7 @@ Item {
                         ActionArea {
                             id: backAction
                             anchors.fill: parent
-                            accessibleName: "返回审计对话"
+                            accessibleName: "返回项目对话"
                             onClicked: root.closeRequested()
                         }
                         ToolTip.visible: backAction.containsMouse
@@ -102,37 +103,43 @@ Item {
                     }
 
                     Pill {
-                        visible: root.compiler.hasAuditResult
-                        text: "评分 " + root.compiler.trustScore
+                        visible: root.compiler.hasAuditResult && root.width >= 600
+                        text: root.compiler.trustScore + " 分"
                         bg: Theme.accentSoft
                         fg: Theme.accent
                     }
                     Pill {
                         visible: root.compiler.hasAuditResult && root.compiler.blockerCount > 0
-                        text: "必须处理 " + root.compiler.blockerCount
+                                 && root.width >= 760
+                        text: root.compiler.blockerCount + " 个要处理"
                         bg: Theme.dangerSoft
                         fg: Theme.danger
                     }
                     Pill {
                         visible: root.compiler.hasAuditResult && root.compiler.warningCount > 0
-                        text: "需关注 " + root.compiler.warningCount
+                                 && root.width >= 760
+                        text: root.compiler.warningCount + " 个建议"
                         bg: Theme.warningSoft
                         fg: Theme.warning
                     }
                     Rectangle {
                         Layout.preferredWidth: 8
                         Layout.preferredHeight: 8
+                        visible: root.compiler.agentRunning
                         radius: 4
-                        color: root.compiler.agentRunning ? Theme.warning
-                                                           : root.compiler.hasAuditResult
-                                                             ? Theme.success : Theme.textTertiary
+                        color: Theme.warning
                     }
                     Text {
+                        id: headerStatus
                         Layout.maximumWidth: 210
+                        visible: root.compiler.agentRunning && root.width >= 760
                         text: root.compiler.status
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontSm
                         elide: Text.ElideRight
+                        HoverHandler { id: headerStatusHover }
+                        ToolTip.visible: headerStatusHover.hovered && headerStatus.truncated
+                        ToolTip.text: root.compiler.status
                     }
                 }
 
@@ -152,7 +159,12 @@ Item {
                 currentIndex: root.pageIndex(root.pageKey)
 
                 TrustDashboardPage { compiler: root.compiler }
-                AssetInventoryPage { compiler: root.compiler }
+                AssetInventoryPage {
+                    compiler: root.compiler
+                    onPreviewRequested: function(relativePath) {
+                        root.filePreviewRequested(relativePath)
+                    }
+                }
                 CPIRPage { compiler: root.compiler }
                 ClaimEvidencePage { compiler: root.compiler }
                 ConsistencyPage { compiler: root.compiler }

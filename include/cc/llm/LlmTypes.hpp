@@ -5,7 +5,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -22,16 +24,23 @@ struct LlmMessage {
 /**
  * @brief LLM 调用配置。
  *
- * allowNetwork 和 allowLlm 是双重授权开关，默认 false。
+ * allowNetwork 和 allowLlm 是每次任务内部的能力快照，默认 false；Workbench 在完整配置
+ * 通过校验后自动为模型任务设置它们，不对应额外的用户确认开关。
  */
 struct LlmConfig {
-    std::string endpoint{"https://api.openai.com/v1/chat/completions"};
-    std::string model{"gpt-4o-mini"};
+    std::string endpoint;
+    std::string model;
     std::string apiKey;
-    std::string provider{"openai"};
-    std::string apiKeyHeader{"Authorization"};
-    std::string apiKeyPrefix{"Bearer "};
+    std::string provider;
+    std::string apiKeyHeader;
+    std::string apiKeyPrefix;
     int maxTokens{4096};
+    /** Serialized prompt guard; provider token windows remain authoritative. */
+    std::size_t maxPromptBytes{std::size_t{4U} * 1024U * 1024U};
+    /** Maximum model decisions in one controlled tool turn. */
+    std::size_t maxAgentSteps{32U};
+    /** Omitted by default because some reasoning/custom models reject temperature. */
+    std::optional<double> temperature;
     bool allowNetwork{false};
     bool allowLlm{false};
     std::function<bool()> isCancelled;

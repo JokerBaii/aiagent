@@ -129,5 +129,12 @@ void runAuditTests() {
                                 return finding.ruleId.starts_with("TEXT_EXTRACTION_REVIEW_");
                             }),
                 "unreadable documents must create an explicit extraction finding");
+    const auto extractionFinding = std::find_if(
+        unreadableAudit.value().findings.begin(), unreadableAudit.value().findings.end(),
+        [](const auto& finding) { return finding.ruleId.starts_with("TEXT_EXTRACTION_REVIEW_"); });
+    requireTrue(extractionFinding != unreadableAudit.value().findings.end() &&
+                    extractionFinding->reason.find("NEED_REVIEW_") == std::string::npos &&
+                    extractionFinding->reason.find("抽取状态") == std::string::npos,
+                "text integrity findings must explain the limitation without internal statuses");
     std::filesystem::remove_all(unreadableRoot, cleanupError);
 }

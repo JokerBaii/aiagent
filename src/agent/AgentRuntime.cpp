@@ -1469,8 +1469,9 @@ using ToolRunner = Result<AgentObservation> (*)(const AgentRunRequest&, const Ag
 
 std::string agentCommandHelpText() {
     return "可用命令：/audit 运行缺点评审；/agent <任务> 或 /task <任务> 提交智能体任务；"
+           "/plan [目标] 生成只读计划；"
            "/optimize [目标] 在 repaired project 中修改并二次审计；/status 查看会话状态；"
-           "/compact 压缩当前审计上下文；/clear 开始新会话。"
+           "/compact 压缩当前审计上下文；/clear 开始新会话；/help 显示本帮助。"
            "权限模式和高风险边界在设置中管理；普通输入会作为常规问答或项目评审任务处理。";
 }
 
@@ -1479,12 +1480,12 @@ Result<AgentRunResult> AgentRuntime::runLocal(const AgentRunRequest& request) co
         return Result<AgentRunResult>::failure("智能体任务已取消");
     }
     if (request.requireWorkspaceChanges || request.requireReaudit) {
-        return Result<AgentRunResult>::failure(
-            "项目完善需要已授权的智能辅助服务来阅读并生成具体修改；本地规则检查只能给出问题和修改清"
-            "单，不能假装已经完成修改");
+        return Result<AgentRunResult>::failure("项目完善需要有效的智能辅助服务配置来阅读并生成具体"
+                                               "修改；本地规则检查只能给出问题和修改清"
+                                               "单，不能假装已经完成修改");
     }
     AgentPlan plan;
-    plan.summary = "本地受控探索：未授权 LLM 时只收集可复核上下文，不冒充模型做语义决策。"
+    plan.summary = "本地受控探索：未配置有效 LLM 时只收集可复核上下文，不冒充模型做语义决策。"
                    "启用 Brain 后，大模型会基于这些观察继续选择受控工具。";
 
     std::vector<AgentObservation> observations;
@@ -1559,11 +1560,17 @@ Result<AgentToolExecution> AgentRuntime::runToolExecution(const AgentRunRequest&
 
     auto validInput = ToolRegistry{}.validateInteractiveInput(callItem.name, callItem.input);
     if (!validInput.ok()) {
-        return Result<AgentToolExecution>::success(
-            AgentToolExecution{.observations = {rejectedObservation(
-                                   callItem, "工具输入校验失败: " + validInput.error())},
-                               .auditResult = std::nullopt,
-                               .auditDiff = std::nullopt});
+        return Result<AgentToolExecution>::success(AgentToolExecution{
+            .observations = {AgentObservation{
+                .callId = callItem.id,
+                .toolName = callItem.name,
+                .ok = false,
+                .summary = "工具输入校验失败: " + validInput.error(),
+                .output = JsonValue::Object{{"reason", "invalid_tool_input"},
+                                            {"input_schema", toolSpec->inputSchema},
+                                            {"attempted_input", callItem.input}}}},
+            .auditResult = std::nullopt,
+            .auditDiff = std::nullopt});
     }
 
     if (request.requireAudit && request.auditResult == nullptr &&

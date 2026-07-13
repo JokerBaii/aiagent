@@ -57,6 +57,10 @@ void runLlmTests() {
     requireTrue(!cancelledRequest.ok() &&
                     cancelledRequest.error().find("取消") != std::string::npos,
                 "pre-cancelled HTTPS request must fail before network access");
+    auto cancelledGet = cc::HttpsJsonClient{}.getJson(
+        endpoint.value(), {{"Authorization", "Bearer offline-test-key"}}, cancelledOptions);
+    requireTrue(!cancelledGet.ok() && cancelledGet.error().find("取消") != std::string::npos,
+                "pre-cancelled HTTPS GET must fail before model discovery network access");
     cancelledOptions.isCancelled = []() -> bool { throw std::runtime_error{"cancel callback"}; };
     requireTrue(!cc::HttpsJsonClient{}
                      .postJson(endpoint.value(), {{"Authorization", "Bearer offline-test-key"}},
@@ -87,6 +91,15 @@ void runLlmTests() {
                                "{}", excessiveResponseLimit)
                      .ok(),
                 "response limit itself must have a hard upper bound");
+
+    auto modelList = cc::LlmBrain{}.parseModelList(
+        R"({"data":[{"id":"z-model"},{"id":"a-model"},{"id":"a-model"},{"name":"ignored"}]})");
+    requireTrue(modelList.ok() && modelList.value().size() == 2U &&
+                    modelList.value().at(0) == "a-model" && modelList.value().at(1) == "z-model",
+                "provider model discovery must accept arbitrary IDs and return sorted uniques");
+    requireTrue(!cc::LlmBrain{}.parseModelList(R"({"models":[]})").ok() &&
+                    !cc::LlmBrain{}.parseModelList(R"({"data":[]})").ok(),
+                "malformed or empty provider model catalogs must be rejected");
 
     const std::string rawResponse = "HTTP/1.1 200 OK\r\nTransfer-Encoding: "
                                     "chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
@@ -182,7 +195,10 @@ void runLlmTests() {
             {.role = index % 2 == 0 ? "user" : "assistant",
              .content = "turn-" + std::to_string(index) + " " + std::string(20000U, 'x')});
     }
-    const auto boundedHistory = cc::LlmPromptGuard{}.sanitize(oversizedHistory);
+    const auto boundedHistory = cc::LlmPromptGuard{}.sanitize(
+        oversizedHistory, {.maxMessages = 32U,
+                           .maxMessageBytes = std::size_t{16U} * 1024U,
+                           .maxTotalBytes = std::size_t{96U} * 1024U});
     std::size_t boundedHistoryBytes = 0U;
     std::string boundedHistoryText;
     for (const auto& message : boundedHistory) {
@@ -197,6 +213,17 @@ void runLlmTests() {
     requireTrue(boundedHistoryText.find("turn-0 ") == std::string::npos,
                 "prompt budget should discard stale turns");
 
+    const std::string agentSchemaTail = "agent-schema-tail-required-path";
+    const auto agentTurn = cc::LlmPromptGuard{}.sanitize(
+        {{.role = "system", .content = "agent-system-policy"},
+         {.role = "user", .content = std::string(128U * 1024U, 'a') + agentSchemaTail}});
+    std::string retainedAgentTurn;
+    for (const auto& message : agentTurn) {
+        retainedAgentTurn += message.content;
+    }
+    requireTrue(retainedAgentTurn.find(agentSchemaTail) != std::string::npos,
+                "long-context agent turns must retain schemas beyond the former 96 KiB cutoff");
+
     cc::LlmConfig openAiPayloadConfig;
     openAiPayloadConfig.provider = "openai";
     openAiPayloadConfig.model = "offline-model";
@@ -206,15 +233,19 @@ void runLlmTests() {
         openAiPayloadConfig, {{.role = "user", .content = "never forward custom-secret-value"}});
     requireTrue(openAiPayload.ok() && openAiPayload.value().at("max_tokens").asNumber() == 3210.0,
                 "OpenAI-compatible payload must include max_tokens");
+    requireTrue(openAiPayload.value().at("temperature").isNull(),
+                "model-specific sampling parameters must be omitted unless explicitly configured");
     requireTrue(cc::writeJson(openAiPayload.value(), 0).find("custom-secret-value") ==
                     std::string::npos,
                 "configured API key must be removed from model messages");
     cc::LlmConfig deepSeekPayloadConfig = openAiPayloadConfig;
     deepSeekPayloadConfig.provider = "deepseek";
+    deepSeekPayloadConfig.temperature = 0.4;
     auto deepSeekPayload = cc::LlmBrain{}.preparePayload(deepSeekPayloadConfig, messages);
     requireTrue(deepSeekPayload.ok() &&
-                    deepSeekPayload.value().at("max_tokens").asNumber() == 3210.0,
-                "every OpenAI-compatible provider must receive max_tokens");
+                    deepSeekPayload.value().at("max_tokens").asNumber() == 3210.0 &&
+                    deepSeekPayload.value().at("temperature").asNumber() == 0.4,
+                "explicit sampling parameters must be preserved for compatible models");
     cc::LlmConfig anthropicPayloadConfig = openAiPayloadConfig;
     anthropicPayloadConfig.provider = "anthropic";
     auto anthropicPayload = cc::LlmBrain{}.preparePayload(anthropicPayloadConfig, messages);
@@ -228,6 +259,10 @@ void runLlmTests() {
     openAiPayloadConfig.maxTokens = 65537;
     requireTrue(!cc::LlmBrain{}.preparePayload(openAiPayloadConfig, messages).ok(),
                 "excessive max_tokens must be rejected locally");
+    openAiPayloadConfig.maxTokens = 4096;
+    openAiPayloadConfig.maxPromptBytes = 0U;
+    requireTrue(!cc::LlmBrain{}.preparePayload(openAiPayloadConfig, messages).ok(),
+                "invalid prompt budgets must be rejected locally");
 
     const std::string toolDecisionJson =
         R"({"action":"tool","summary":"先读取 README","call":{"id":"s1","name":"read_text_file","reason":"需要看到文档正文","input":{"path":"README.md","max_bytes":4000}}})";
@@ -393,6 +428,72 @@ void runLlmTests() {
                 "optimization loop should return a typed before/after audit diff");
     requireTrue(optimizeStep == 9,
                 "early final answers must be rejected until both edit and re-audit complete");
+
+    cc::AgentRunRequest recoverableRequest = auditLoopRequest;
+    recoverableRequest.requireAudit = false;
+    int recoverableStep = 0;
+    auto recoverableLoop = cc::BrainAgentLoop{}.runWithDecisionProvider(
+        recoverableRequest,
+        [&](const cc::AgentRunRequest&, const cc::AgentRunResult& current,
+            const std::vector<cc::AgentToolSpec>&) {
+            ++recoverableStep;
+            cc::AgentDecision decision;
+            if (recoverableStep == 4) {
+                decision.kind = cc::AgentDecisionKind::FinalAnswer;
+                decision.finalAnswer = "已在校验反馈后完成读取。";
+                return cc::Result<cc::AgentDecision>::success(std::move(decision));
+            }
+            decision.kind = cc::AgentDecisionKind::ToolCall;
+            decision.summary = "读取真实文件";
+            decision.call = {.id = "recover_" + std::to_string(recoverableStep),
+                             .name = "read_text_file",
+                             .reason = "验证参数错误可以在下一轮纠正",
+                             .input = cc::JsonValue::Object{}};
+            if (recoverableStep == 3) {
+                requireTrue(current.observations.size() == 2U && current.observations.back()
+                                                                     .output.at("input_schema")
+                                                                     .at("required")
+                                                                     .isArray(),
+                            "invalid calls must return their schema to the next model decision");
+                decision.call.input =
+                    cc::JsonValue::Object{{"path", "README.md"}, {"max_bytes", 4000}};
+            }
+            return cc::Result<cc::AgentDecision>::success(std::move(decision));
+        },
+        5U);
+    requireTrue(recoverableLoop.ok() && recoverableStep == 4 &&
+                    std::any_of(recoverableLoop.value().observations.begin(),
+                                recoverableLoop.value().observations.end(),
+                                [](const cc::AgentObservation& observation) {
+                                    return observation.ok &&
+                                           observation.toolName == "read_text_file";
+                                }),
+                "repeated invalid parameters must remain recoverable inside the real loop");
+
+    int exhaustedSteps = 0;
+    auto exhaustedLoop = cc::BrainAgentLoop{}.runWithDecisionProvider(
+        recoverableRequest,
+        [&](const cc::AgentRunRequest&, const cc::AgentRunResult&,
+            const std::vector<cc::AgentToolSpec>&) {
+            ++exhaustedSteps;
+            return cc::Result<cc::AgentDecision>::success(
+                cc::AgentDecision{.kind = cc::AgentDecisionKind::ToolCall,
+                                  .summary = "持续缺少参数",
+                                  .call = {.id = "exhaust_" + std::to_string(exhaustedSteps),
+                                           .name = "read_text_file",
+                                           .reason = "验证步数耗尽不会伪装成功",
+                                           .input = cc::JsonValue::Object{}},
+                                  .finalAnswer = {}});
+        },
+        3U);
+    requireTrue(!exhaustedLoop.ok() && exhaustedSteps == 3 &&
+                    exhaustedLoop.error().find("没有给出最终回答") != std::string::npos,
+                "step exhaustion must fail instead of fabricating an automatic final answer");
+
+    cc::LlmConfig invalidStepConfig;
+    invalidStepConfig.maxAgentSteps = 0U;
+    requireTrue(!cc::BrainAgentLoop{}.run(invalidStepConfig, recoverableRequest).ok(),
+                "configured agent step limits must be validated before a provider request");
 
     int repeatedSteps = 0;
     auto repeatedLoop = cc::BrainAgentLoop{}.runWithDecisionProvider(

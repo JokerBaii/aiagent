@@ -21,6 +21,11 @@
 #include <algorithm>
 
 void runAgentTests() {
+    const auto help = cc::agentCommandHelpText();
+    requireTrue(help.find("/plan") != std::string::npos &&
+                    help.find("/optimize") != std::string::npos &&
+                    help.find("/help") != std::string::npos,
+                "command help must stay aligned with the public composer commands");
     const std::string invalidUtf8{"ok\xFFtext", 7U};
     requireTrue(cc::agent_file_policy::sanitizeUtf8(invalidUtf8) == "ok?text",
                 "agent file policy should sanitize invalid UTF-8 before JSON output");

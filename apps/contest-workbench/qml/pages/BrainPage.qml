@@ -9,6 +9,7 @@ import "../components"
 Item {
     id: root
     required property var compiler
+    property bool showTrace: false
 
     RowLayout {
         anchors.fill: parent
@@ -35,7 +36,7 @@ Item {
                     FieldInput {
                         Layout.fillWidth: true
                         text: root.compiler.llmEndpoint
-                        placeholderText: "https://api.openai.com/v1/chat/completions"
+                        placeholderText: "https://服务地址/v1/chat/completions 或 /v1/messages"
                         onTextEdited: root.compiler.llmEndpoint = text
                     }
 
@@ -43,7 +44,7 @@ Item {
                     FieldInput {
                         Layout.fillWidth: true
                         text: root.compiler.llmModel
-                        placeholderText: "gpt-4o-mini"
+                        placeholderText: "输入该服务支持的模型 ID"
                         onTextEdited: root.compiler.llmModel = text
                     }
 
@@ -57,28 +58,45 @@ Item {
                         onTextEdited: root.compiler.llmApiKey = text
                     }
 
+                    PrimaryButton {
+                        Layout.fillWidth: true
+                        enabled: !root.compiler.llmModelsLoading
+                                 && !root.compiler.agentRunning
+                                 && !root.compiler.advisoryRunning
+                        text: root.compiler.llmModelsLoading ? "正在获取可用模型…" : "按当前凭证获取模型"
+                        onClicked: root.compiler.refreshLlmModels()
+                    }
+                    ComboBox {
+                        Layout.fillWidth: true
+                        visible: root.compiler.llmAvailableModels.length > 0
+                        model: root.compiler.llmAvailableModels
+                        currentIndex: root.compiler.llmAvailableModels.indexOf(root.compiler.llmModel)
+                        onActivated: root.compiler.llmModel = currentText
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: root.compiler.llmModelsStatus.length > 0
+                        text: root.compiler.llmModelsStatus
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontXs
+                        wrapMode: Text.WordWrap
+                    }
+
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: authRow.implicitHeight + 20
+                        Layout.preferredHeight: automaticConnectionText.implicitHeight + 20
                         radius: Theme.radiusSm
-                        color: root.compiler.llmApproved ? Theme.successSoft : Theme.warningSoft
-                        RowLayout {
-                            id: authRow
+                        color: root.compiler.llmConfigured ? Theme.successSoft : Theme.warningSoft
+                        Text {
+                            id: automaticConnectionText
                             anchors.fill: parent
                             anchors.margins: 10
-                            spacing: 8
-                            CheckBox {
-                                Accessible.name: "允许本次联网并调用大模型"
-                                checked: root.compiler.llmApproved
-                                onToggled: root.compiler.llmApproved = checked
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: "允许本次联网使用智能辅助服务。原始项目不会被修改，最终分数仍以本地规则检查为准。"
-                                color: Theme.textPrimary
-                                font.pixelSize: Theme.fontSm
-                                wrapMode: Text.WordWrap
-                            }
+                            text: root.compiler.llmConfigured
+                                  ? "配置有效，后续项目任务默认联网使用该模型。原始项目不会被修改，最终分数仍以本地规则检查为准。"
+                                  : "配置完整且有效后自动启用联网模型；未配置时使用本地规则检查。"
+                            color: Theme.textPrimary
+                            font.pixelSize: Theme.fontSm
+                            wrapMode: Text.WordWrap
                         }
                     }
 
@@ -107,29 +125,34 @@ Item {
 
                     PrimaryButton {
                         Layout.fillWidth: true
-                        text: root.compiler.llmApproved ? "开始智能审计" : "运行本地规则审计"
+                        enabled: !root.compiler.agentRunning && !root.compiler.advisoryRunning
+                        text: root.compiler.llmConfigured ? "开始智能检查" : "运行本地规则检查"
                         onClicked: root.compiler.runBrainTask(brainTask.text)
                     }
 
                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
 
                     Text {
-                        text: "混合研判"
+                        text: "再听一个模型意见（可选）"
                         color: Theme.textSecondary
                         font.pixelSize: Theme.fontSm
                         font.bold: true
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "LLM 先基于审计结果给出风险判断和评分建议，确定性规则和证据逐条校验；冲突项降级并标注，最终评分仍以规则引擎为准。"
+                        text: "模型会再看一遍现有结果，但最终分数仍以本地规则和证明材料为准。"
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontXs
                         wrapMode: Text.WordWrap
                     }
                     PrimaryButton {
                         Layout.fillWidth: true
-                        enabled: !root.compiler.advisoryRunning
-                        text: root.compiler.advisoryRunning ? "研判中…" : "运行混合研判"
+                        enabled: root.compiler.hasAuditResult && root.compiler.llmConfigured
+                                 && !root.compiler.advisoryRunning && !root.compiler.agentRunning
+                        text: root.compiler.advisoryRunning ? "正在复核…"
+                              : !root.compiler.hasAuditResult ? "先完成项目检查"
+                              : !root.compiler.llmConfigured ? "先配置模型"
+                              : "让模型再复核一次"
                         onClicked: root.compiler.runAdvisory()
                     }
                 }
@@ -143,8 +166,8 @@ Item {
             spacing: 12
 
             SectionTitle {
-                title: "混合研判结论"
-                subtitle: root.compiler.advisory.available ? root.compiler.advisory.summary : "运行后显示 LLM 研判与规则校验对齐结果"
+                title: "辅助判断"
+                subtitle: root.compiler.advisory.available ? root.compiler.advisory.summary : "需要时可以让模型给出第二意见"
             }
             Card {
                 Layout.fillWidth: true
@@ -156,13 +179,13 @@ Item {
                         Layout.fillWidth: true
                         spacing: 10
                         Pill {
-                            text: "确定性评分 " + root.compiler.advisory.finalScore
+                            text: "最终 " + root.compiler.advisory.finalScore + " 分"
                             bg: Theme.accentSoft
                             fg: Theme.accentActive
                         }
                         Pill {
                             visible: root.compiler.advisory.suggestedScore > 0
-                            text: "LLM 建议 " + root.compiler.advisory.suggestedScore
+                            text: "模型建议 " + root.compiler.advisory.suggestedScore + " 分"
                             bg: Theme.surfaceMuted
                             fg: Theme.textSecondary
                         }
@@ -229,7 +252,7 @@ Item {
                 }
             }
 
-            SectionTitle { title: "运行结果" }
+            SectionTitle { title: "智能助手的回答" }
             Card {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.max(180, root.height * 0.28)
@@ -249,10 +272,39 @@ Item {
                 }
             }
 
-            SectionTitle { title: "Trace" }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 38
+                radius: Theme.radiusSm
+                color: traceToggle.containsMouse ? Theme.surfaceHover : Theme.surfaceMuted
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.showTrace ? "收起技术记录" : "查看技术记录"
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSm
+                    font.weight: Font.DemiBold
+                }
+                Icon {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: root.showTrace ? "chevronDown" : "chevronRight"
+                    size: 12
+                    color: Theme.textMuted
+                }
+                ActionArea {
+                    id: traceToggle
+                    anchors.fill: parent
+                    accessibleName: root.showTrace ? "收起技术记录" : "查看技术记录"
+                    onClicked: root.showTrace = !root.showTrace
+                }
+            }
             Card {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                visible: root.showTrace
                 padding: 4
                 ScrollView {
                     anchors.fill: parent

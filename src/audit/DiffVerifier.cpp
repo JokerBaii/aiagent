@@ -151,11 +151,12 @@ struct AuditMetrics {
     diff.newFixTaskCount = newMetrics.fixTaskCount;
 
     std::ostringstream summary;
-    summary << "可信评分 " << diff.oldScore << " -> " << diff.newScore << "，blocker "
-            << diff.oldBlockers << " -> " << diff.newBlockers << "，warning " << diff.oldWarnings
-            << " -> " << diff.newWarnings << "，证据覆盖率 " << diff.oldEvidenceCoverage << "% -> "
-            << diff.newEvidenceCoverage << "%，补证任务 " << diff.oldFixTaskCount << " -> "
-            << diff.newFixTaskCount << "。";
+    summary << "分数从 " << diff.oldScore << " 分变为 " << diff.newScore
+            << " 分；提交前要处理的问题从 " << diff.oldBlockers << " 个变为 " << diff.newBlockers
+            << " 个，建议补齐的地方从 " << diff.oldWarnings << " 个变为 " << diff.newWarnings
+            << " 个；证明材料覆盖率从 " << diff.oldEvidenceCoverage << "% 变为 "
+            << diff.newEvidenceCoverage << "%；修改任务从 " << diff.oldFixTaskCount << " 项变为 "
+            << diff.newFixTaskCount << " 项。";
     diff.summary = summary.str();
     return diff;
 }

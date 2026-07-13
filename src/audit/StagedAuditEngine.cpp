@@ -32,6 +32,38 @@ namespace {
         .name = info.name, .title = info.title, .detail = std::move(detail), .ok = true};
 }
 
+struct TextReviewCopy {
+    std::string reason;
+    std::string suggestion;
+};
+
+[[nodiscard]] TextReviewCopy textReviewCopy(const TextDocument& document) {
+    const auto path = document.sourceFile.generic_string();
+    if (document.status.find("TRUNCATED") != std::string::npos) {
+        return {.reason = path + " 比较大，这次只读取了前一部分。未读到的内容还没有核对，所以暂时"
+                                 "不把这份文件当作关键证据。",
+                .suggestion =
+                    "如果它是申报书或证明材料，请提供精简版或可完整读取的版本；普通源码可以"
+                    "保留原样。"};
+    }
+    if (document.status.find("JSON_PARSE_FAILED") != std::string::npos) {
+        return {.reason = path + " 不是可正常解析的 JSON，里面的配置暂时无法可靠核对。",
+                .suggestion = "检查 JSON 格式；如果它只是示例或构建产物，可以在材料说明中注明。"};
+    }
+    if (document.status == "EMPTY_OR_UNREADABLE" ||
+        document.status.find("YAML_EMPTY") != std::string::npos) {
+        return {.reason = path + " 没有读到可用文字，可能是空文件、编码不兼容或二进制内容。",
+                .suggestion = "确认文件内容和编码；需要评审的材料请另存为可复制文本的版本。"};
+    }
+    if (document.status.find("PDF") != std::string::npos ||
+        document.status.find("OPENXML") != std::string::npos) {
+        return {.reason = path + " 没有提取出足够完整的正文，可能是扫描件或使用了暂不支持的排版。",
+                .suggestion = "提供可复制文字的原文件；扫描件请先做 OCR，并人工核对识别结果。"};
+    }
+    return {.reason = path + " 的正文没有可靠读取完成，因此暂时不能用来支撑关键结论。",
+            .suggestion = "请提供可正常打开、可复制文字的版本，并人工确认内容完整。"};
+}
+
 void appendTextIntegrityFindings(AuditResult& result) {
     std::size_t index = 0U;
     for (const auto& document : result.corpus) {
@@ -44,15 +76,15 @@ void appendTextIntegrityFindings(AuditResult& result) {
             (asset->role == AssetRole::ProjectDeclaration ||
              asset->role == AssetRole::BusinessPlan || asset->role == AssetRole::ResearchPaper ||
              asset->role == AssetRole::SocialPracticeProof);
+        const auto copy = textReviewCopy(document);
         result.findings.push_back(
             {.ruleId = "TEXT_EXTRACTION_REVIEW_" + std::to_string(++index),
              .severity = requiredMaterial ? Severity::Blocker : Severity::Warning,
-             .title = "材料文本无法可靠读取",
-             .reason = document.sourceFile.generic_string() + " 的抽取状态为 " + document.status +
-                       "，其内容不能作为高置信事实或证据。",
+             .title = "有文件没有读完整",
+             .reason = copy.reason,
              .evidence = {document.sourceFile},
              .missingEvidence = {"可可靠读取且经人工确认的材料内容"},
-             .fixSuggestion = "提供可复制文本的原始文档，或对扫描件完成 OCR 后人工复核。"});
+             .fixSuggestion = copy.suggestion});
     }
 }
 
@@ -95,12 +127,12 @@ void markUnverifiedWorkspaceFiles(ProjectInventory& inventory,
 
 const std::vector<AuditStageInfo>& StagedAuditEngine::stages() {
     static const std::vector<AuditStageInfo> table = {
-        {"inventory_project", "整理材料"},       {"extract_text", "读取文本"},
-        {"detect_competition_type", "判断赛道"}, {"build_cpir", "生成项目画像"},
-        {"extract_claims", "提取关键声明"},      {"match_evidence", "匹配证据"},
-        {"check_consistency", "检查一致性"},     {"run_rules", "执行规则"},
-        {"calculate_trust_score", "计算评分"},   {"generate_fix_tasks", "生成补证任务"},
-        {"generate_repair_plan", "整理修复计划"}};
+        {"inventory_project", "整理项目文件"},       {"extract_text", "读取材料内容"},
+        {"detect_competition_type", "判断项目类型"}, {"build_cpir", "整理项目信息"},
+        {"extract_claims", "找出需要举证的成果"},    {"match_evidence", "核对证明材料"},
+        {"check_consistency", "核对材料表述"},       {"run_rules", "查找提交问题"},
+        {"calculate_trust_score", "计算分数"},       {"generate_fix_tasks", "整理修改清单"},
+        {"generate_repair_plan", "整理修改方案"}};
     return table;
 }
 
@@ -205,15 +237,15 @@ Result<AuditStageOutcome> StagedAuditEngine::advance() {
         appendTextIntegrityFindings(result_);
         ++stageIndex_;
         return Result<AuditStageOutcome>::success(
-            ok(info, "规则风险 " + std::to_string(result_.findings.size()) + " 个"));
+            ok(info, "发现 " + std::to_string(result_.findings.size()) + " 个需要查看的问题"));
     }
     case 8: {
         result_.trustScore =
             TrustScoreCalculator{}.calculate(result_.inventory, result_.findings,
                                              result_.evidenceMatches, result_.consistencyIssues);
         std::ostringstream detail;
-        detail << "可信评分 " << result_.trustScore.totalScore << "，可信债务 "
-               << result_.trustScore.trustDebt;
+        detail << "当前 " << result_.trustScore.totalScore << " 分，还有 "
+               << result_.trustScore.trustDebt << " 分可通过完善材料恢复";
         ++stageIndex_;
         return Result<AuditStageOutcome>::success(ok(info, detail.str()));
     }
@@ -222,7 +254,7 @@ Result<AuditStageOutcome> StagedAuditEngine::advance() {
             FixTaskGenerator{}.generate(result_.findings, result_.evidenceMatches, result_.claims);
         ++stageIndex_;
         return Result<AuditStageOutcome>::success(
-            ok(info, "补证任务 " + std::to_string(result_.fixTasks.size()) + " 个"));
+            ok(info, "整理出 " + std::to_string(result_.fixTasks.size()) + " 项修改建议"));
     }
     case 10: {
         result_.repairPlan = RepairPlanner{}.plan(result_.fixTasks, result_.cpir);
@@ -233,7 +265,7 @@ Result<AuditStageOutcome> StagedAuditEngine::advance() {
         }
         result_.toolOutputs = std::move(outputs);
         ++stageIndex_;
-        return Result<AuditStageOutcome>::success(ok(info, "已生成修复建议，不覆盖原项目"));
+        return Result<AuditStageOutcome>::success(ok(info, "修改建议已经整理好，原项目不会被改动"));
     }
     default:
         return Result<AuditStageOutcome>::failure("未知审计步骤");

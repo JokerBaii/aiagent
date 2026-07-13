@@ -22,6 +22,37 @@ namespace {
     return QString::fromStdString(value);
 }
 
+[[nodiscard]] QString findingTitleText(const std::string& value) {
+    auto title = stringText(value).trimmed();
+    if (title == "材料文本无法可靠读取") {
+        return "有文件没有读完整";
+    }
+    if (title.endsWith("失败")) {
+        title.chop(2);
+    }
+    if (title.endsWith("检查")) {
+        title.chop(2);
+    }
+    return title;
+}
+
+[[nodiscard]] QString readableReason(const std::string& value) {
+    auto reason = stringText(value).trimmed();
+    const auto internalDetails = reason.indexOf(" 缺失/风险项:");
+    if (internalDetails >= 0) {
+        reason = reason.left(internalDetails).trimmed();
+    }
+    reason.replace("NEED_REVIEW_TEXT_TRUNCATED", "文件只读取到一部分");
+    reason.replace("NEED_REVIEW_STRUCTURED_TEXT_TRUNCATED", "文件只读取到一部分");
+    reason.replace("NEED_REVIEW_PDF_TRUNCATED", "PDF 只读取到一部分");
+    reason.replace("NEED_REVIEW_PDF_TEXT_EXTRACTION_LIMITED", "PDF 正文没有完整读出");
+    reason.replace("NEED_REVIEW_OPENXML_TEXT_EXTRACTION_LIMITED", "文档正文没有完整读出");
+    reason.replace("NEED_REVIEW_EXTRACTION_FAILED", "文件内容读取失败");
+    reason.replace("EMPTY_OR_UNREADABLE", "没有读到可用文字");
+    reason.replace("项目包中", "项目包里");
+    return reason;
+}
+
 [[nodiscard]] QString joinedStrings(const std::vector<std::string>& values) {
     QStringList items;
     for (const auto& value : values) {
@@ -250,7 +281,7 @@ int warningCount(const cc::AuditResult& result) {
 }
 
 QString summary(const cc::AuditResult& result) {
-    return QStringLiteral("资产 %1 个，声明 %2 条，补证任务 %3 个")
+    return QStringLiteral("共检查 %1 份文件，整理出 %2 条需要举证的成果，并生成 %3 项修改建议。")
         .arg(result.inventory.assets.size())
         .arg(result.claims.size())
         .arg(result.fixTasks.size());
@@ -357,8 +388,8 @@ QVariantList findings(const cc::AuditResult& result) {
         item["ruleId"] = stringText(finding.ruleId);
         item["severity"] = severityText(finding.severity);
         item["severityCode"] = stringText(cc::toString(finding.severity));
-        item["title"] = stringText(finding.title);
-        item["reason"] = stringText(finding.reason);
+        item["title"] = findingTitleText(finding.title);
+        item["reason"] = readableReason(finding.reason);
         item["evidence"] = joinedPaths(finding.evidence);
         item["missing"] = joinedStrings(finding.missingEvidence);
         item["fix"] = stringText(finding.fixSuggestion);
@@ -390,7 +421,7 @@ QVariantList scorePenalties(const cc::AuditResult& result) {
         item["ruleId"] = stringText(penalty.ruleId);
         item["points"] = penalty.points;
         item["dimension"] = stringText(penalty.dimension);
-        item["reason"] = stringText(penalty.reason);
+        item["reason"] = readableReason(penalty.reason);
         items.push_back(item);
     }
     return items;

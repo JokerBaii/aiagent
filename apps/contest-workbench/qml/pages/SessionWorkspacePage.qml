@@ -133,7 +133,6 @@ Item {
                     onAuditRequested: root.compiler.submitMessage("/audit")
                     onPlanRequested: root.focusComposer("/plan ")
                     onRewindRequested: root.compiler.rewindLastTurn()
-                    onModelSelected: function(value) { root.compiler.llmModel = value }
                 }
             }
 
@@ -218,7 +217,7 @@ Item {
         readonly property var words: [
             "思考中",
             "计算中",
-            "匹配规则",
+            "核对材料",
             "读取项目文件",
             "检查证据",
             "整理报告"

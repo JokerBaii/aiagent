@@ -6,7 +6,7 @@ Item {
     default property alias content: body.data
     property int padding: 18
     property color color: Theme.surface
-    property color borderColor: Theme.border
+    property color borderColor: Theme.borderSubtle
     property int radius: Theme.radius
     property bool hoverable: false
 

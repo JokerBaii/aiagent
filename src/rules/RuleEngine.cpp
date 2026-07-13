@@ -1,7 +1,5 @@
 #include "cc/rules/RuleEngine.hpp"
 #include "cc/rules/RuleConditionEvaluator.hpp"
-#include "cc/util/StringUtil.hpp"
-
 namespace cc {
 namespace {
 
@@ -44,11 +42,8 @@ std::vector<AuditFinding> RuleEngine::evaluate(const std::vector<AuditRule>& rul
         AuditFinding finding;
         finding.ruleId = rule.ruleId;
         finding.severity = rule.severity;
-        finding.title = rule.name + "失败";
+        finding.title = rule.name;
         finding.reason = rule.failReason;
-        if (!result.missing.empty()) {
-            finding.reason += " 缺失/风险项: " + util::join(result.missing, "、");
-        }
         finding.evidence = result.evidence;
         finding.missingEvidence = result.missing;
         finding.fixSuggestion = rule.fixTask;

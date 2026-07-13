@@ -1,6 +1,6 @@
 /**
  * @file HttpsJsonClient.cpp
- * @brief 有界 OpenSSL HTTPS JSON POST 客户端。
+ * @brief 有界 OpenSSL HTTPS JSON GET/POST 客户端。
  */
 
 #include "cc/llm/HttpsJsonClient.hpp"
@@ -177,9 +177,9 @@ validateRequest(const Endpoint& endpoint,
 [[nodiscard]] std::string
 buildRequest(const Endpoint& endpoint,
              const std::vector<std::pair<std::string, std::string>>& headers,
-             const std::string& body) {
+             std::string_view method, const std::string& body) {
     std::ostringstream request;
-    request << "POST " << endpoint.target << " HTTP/1.1\r\n"
+    request << method << " " << endpoint.target << " HTTP/1.1\r\n"
             << "Host: " << endpoint.hostHeader << "\r\n"
             << "User-Agent: contest-compiler/0.1\r\n"
             << "Accept: application/json\r\n"
@@ -426,12 +426,10 @@ connectTls(SSL_CTX* context, const Endpoint& endpoint, const HttpsRequestOptions
     }
 }
 
-} // namespace
-
-Result<HttpResponse>
-HttpsJsonClient::postJson(const Endpoint& endpoint,
-                          const std::vector<std::pair<std::string, std::string>>& headers,
-                          const std::string& body, const HttpsRequestOptions& options) const {
+[[nodiscard]] Result<HttpResponse>
+sendRequest(const Endpoint& endpoint,
+            const std::vector<std::pair<std::string, std::string>>& headers,
+            std::string_view method, const std::string& body, const HttpsRequestOptions& options) {
     auto valid = validateRequest(endpoint, headers, body, options);
     if (!valid.ok()) {
         return Result<HttpResponse>::failure(valid.error());
@@ -455,7 +453,7 @@ HttpsJsonClient::postJson(const Endpoint& endpoint,
     auto bio = std::move(connected.value());
 
     auto written =
-        writeAll(bio.get(), buildRequest(endpoint, headers, body), options, totalDeadline);
+        writeAll(bio.get(), buildRequest(endpoint, headers, method, body), options, totalDeadline);
     if (!written.ok()) {
         return Result<HttpResponse>::failure(written.error());
     }
@@ -467,6 +465,22 @@ HttpsJsonClient::postJson(const Endpoint& endpoint,
         return Result<HttpResponse>::failure("LLM endpoint 未返回 HTTP 响应");
     }
     return HttpResponseParser{}.parse(response.value());
+}
+
+} // namespace
+
+Result<HttpResponse>
+HttpsJsonClient::postJson(const Endpoint& endpoint,
+                          const std::vector<std::pair<std::string, std::string>>& headers,
+                          const std::string& body, const HttpsRequestOptions& options) const {
+    return sendRequest(endpoint, headers, "POST", body, options);
+}
+
+Result<HttpResponse>
+HttpsJsonClient::getJson(const Endpoint& endpoint,
+                         const std::vector<std::pair<std::string, std::string>>& headers,
+                         const HttpsRequestOptions& options) const {
+    return sendRequest(endpoint, headers, "GET", {}, options);
 }
 
 } // namespace cc

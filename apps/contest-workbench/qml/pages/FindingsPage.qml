@@ -13,6 +13,8 @@ Item {
     function sevColors(s) {
         if (s === "必须处理")
             return { bg: Theme.dangerSoft, fg: Theme.danger }
+        if (s === "提示")
+            return { bg: Theme.accentSoft, fg: Theme.accent }
         return { bg: Theme.warningSoft, fg: Theme.warning }
     }
 
@@ -22,8 +24,8 @@ Item {
         spacing: 12
 
         SectionTitle {
-            title: "规则风险"
-            subtitle: "需要复核或补证的项目问题"
+            title: "提交前要改的问题"
+            subtitle: "先处理红色问题，再补齐黄色建议"
         }
 
         Card {
@@ -50,7 +52,9 @@ Item {
                     width: list.width
                     implicitHeight: col.implicitHeight + 24
                     radius: Theme.radiusSm
-                    color: Theme.surfaceMuted
+                    color: Theme.surface
+                    border.color: Theme.borderSubtle
+                    border.width: 1
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
                     ColumnLayout {
@@ -89,9 +93,27 @@ Item {
                         }
                         Text {
                             Layout.fillWidth: true
+                            visible: findingDelegate.modelData.evidence
+                                     && findingDelegate.modelData.evidence.length > 0
+                            text: "相关文件：" + findingDelegate.modelData.evidence
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSm
+                            wrapMode: Text.WrapAnywhere
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: findingDelegate.modelData.missing
+                                     && findingDelegate.modelData.missing.length > 0
+                            text: "还缺：" + findingDelegate.modelData.missing
+                            color: Theme.warning
+                            font.pixelSize: Theme.fontSm
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            Layout.fillWidth: true
                             visible: findingDelegate.modelData.fix && findingDelegate.modelData.fix.length > 0
-                            text: "建议：" + findingDelegate.modelData.fix
-                            color: Theme.accentActive
+                            text: "可以这样处理：" + findingDelegate.modelData.fix
+                            color: Theme.textPrimary
                             font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
                         }
@@ -101,7 +123,8 @@ Item {
                 EmptyState {
                     anchors.fill: parent
                     visible: list.count === 0
-                    text: "未命中规则风险"
+                    text: "没有发现需要修改的问题"
+                    hint: "当前材料没有发现明显问题，提交前仍建议人工复核关键事实。"
                 }
             }
         }

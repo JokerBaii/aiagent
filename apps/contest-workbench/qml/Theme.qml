@@ -8,7 +8,7 @@ QtObject {
     property string colorTheme: "black"
     property string backgroundTheme: "garden"
     property string fontPreset: "microsoft"
-    property int uiFontSize: 18
+    property int uiFontSize: 16
 
     readonly property bool isDark: appearance === "dark" || backgroundTheme === "vscode"
 
@@ -21,7 +21,7 @@ QtObject {
 
     readonly property color window: {
         if (backgroundTheme === "vscode") return "#1E1E1E"
-        if (backgroundTheme === "garden" && !isDark) return "#FFF8EA"
+        if (backgroundTheme === "garden" && !isDark) return "#FAF9F6"
         if (backgroundTheme === "sakura" && !isDark) return "#FFF4F7"
         if (backgroundTheme === "lake" && !isDark) return "#F3FBF8"
         if (backgroundTheme === "dusk" && !isDark) return "#F7F1FB"
@@ -29,7 +29,7 @@ QtObject {
         return isDark ? "#0A0A0A" : "#FFFFFF"
     }
     readonly property color surface: {
-        if (backgroundTheme === "garden" && !isDark) return "#FFF8E9"
+        if (backgroundTheme === "garden" && !isDark) return "#FFFFFF"
         if (backgroundTheme === "sakura" && !isDark) return "#FFF8FA"
         if (backgroundTheme === "lake" && !isDark) return "#F8FCFA"
         if (backgroundTheme === "dusk" && !isDark) return "#FBF7FC"
@@ -38,7 +38,7 @@ QtObject {
     }
     readonly property color surfaceMuted: {
         if (backgroundTheme === "vscode") return "#252526"
-        if (backgroundTheme === "garden" && !isDark) return "#FFF2DE"
+        if (backgroundTheme === "garden" && !isDark) return "#F3F1ED"
         if (backgroundTheme === "sakura" && !isDark) return "#FCEAF0"
         if (backgroundTheme === "lake" && !isDark) return "#E8F5F1"
         if (backgroundTheme === "dusk" && !isDark) return "#EFE7F4"
@@ -46,13 +46,13 @@ QtObject {
         return isDark ? "#2C2C2E" : "#F0F0F2"
     }
     readonly property color surfaceHover: {
-        if (backgroundTheme === "garden" && !isDark) return "#F4CAB7"
+        if (backgroundTheme === "garden" && !isDark) return "#ECE9E3"
         if (backgroundTheme === "sakura" && !isDark) return "#ECBECC"
         return isDark ? "#343436" : "#E8E8EA"
     }
     readonly property color sidebar: {
         if (backgroundTheme === "vscode") return "#252526"
-        if (backgroundTheme === "garden" && !isDark) return "#FFF0DE"
+        if (backgroundTheme === "garden" && !isDark) return "#F3F0EA"
         if (backgroundTheme === "sakura" && !isDark) return "#FFF0F4"
         if (backgroundTheme === "lake" && !isDark) return "#ECF8F4"
         if (backgroundTheme === "dusk" && !isDark) return "#F3EBF7"
@@ -60,18 +60,18 @@ QtObject {
         return isDark ? "#1C1C1E" : "#F5F5F7"
     }
     readonly property color sidebarActive: {
-        if (backgroundTheme === "garden" && !isDark) return Qt.rgba(0.92, 0.55, 0.49, 0.18)
+        if (backgroundTheme === "garden" && !isDark) return Qt.rgba(0.20, 0.20, 0.20, 0.08)
         return isDark ? "#2C2C2E" : "#E8E8EA"
     }
     readonly property color sidebarText: {
-        if (backgroundTheme === "garden" && !isDark) return "#8C6A5B"
+        if (backgroundTheme === "garden" && !isDark) return "#756C64"
         return isDark ? "#A3A3A3" : "#777777"
     }
     readonly property color sidebarTextActive: {
-        if (backgroundTheme === "garden" && !isDark) return "#5F4036"
+        if (backgroundTheme === "garden" && !isDark) return "#29241F"
         return isDark ? "#F0F0F0" : "#1A1A1A"
     }
-    readonly property color input: backgroundTheme === "garden" && !isDark ? "#FFFDF4" : (isDark ? "#1C1C1E" : "#FFFFFF")
+    readonly property color input: backgroundTheme === "garden" && !isDark ? "#FFFFFF" : (isDark ? "#1C1C1E" : "#FFFFFF")
     readonly property color userBubble: backgroundTheme === "garden" && !isDark ? "#D9857A" : (isDark ? "#D0D0D0" : "#333333")
     readonly property color userBubbleText: isDark ? "#101010" : "#FFFFFF"
 
@@ -87,26 +87,26 @@ QtObject {
     readonly property color accentGhost: Qt.rgba(baseAccent.r, baseAccent.g, baseAccent.b, isDark ? 0.24 : 0.16)
 
     readonly property color textPrimary: {
-        if (backgroundTheme === "garden" && !isDark) return "#5F4036"
+        if (backgroundTheme === "garden" && !isDark) return "#29241F"
         return isDark ? "#F0F0F0" : "#1A1A1A"
     }
     readonly property color textSecondary: {
-        if (backgroundTheme === "garden" && !isDark && colorTheme === "black") return "#7C5748"
+        if (backgroundTheme === "garden" && !isDark && colorTheme === "black") return "#625A52"
         return colorTheme === "black" ? (isDark ? "#B0B0B0" : "#555555") : baseAccent
     }
-    readonly property color textMuted: backgroundTheme === "garden" && !isDark ? "#8C6A5B" : (isDark ? "#8C8C8C" : "#888888")
-    readonly property color textTertiary: backgroundTheme === "garden" && !isDark ? "#B28B76" : (isDark ? "#737373" : "#A0A0A0")
+    readonly property color textMuted: backgroundTheme === "garden" && !isDark ? "#80766D" : (isDark ? "#8C8C8C" : "#888888")
+    readonly property color textTertiary: backgroundTheme === "garden" && !isDark ? "#A0968C" : (isDark ? "#737373" : "#A0A0A0")
 
-    readonly property color border: backgroundTheme === "garden" && !isDark ? Qt.rgba(0.87, 0.62, 0.55, 0.58) : (isDark ? "#2C2C2E" : "#EBEBF0")
-    readonly property color borderStrong: backgroundTheme === "garden" && !isDark ? "#E9B2A3" : (isDark ? "#38383A" : "#E5E5EA")
-    readonly property color borderSubtle: backgroundTheme === "garden" && !isDark ? Qt.rgba(0.87, 0.62, 0.55, 0.35) : (isDark ? "#242426" : "#EFEFF3")
+    readonly property color border: backgroundTheme === "garden" && !isDark ? "#E5DED5" : (isDark ? "#2C2C2E" : "#EBEBF0")
+    readonly property color borderStrong: backgroundTheme === "garden" && !isDark ? "#D9CFC4" : (isDark ? "#38383A" : "#E5E5EA")
+    readonly property color borderSubtle: backgroundTheme === "garden" && !isDark ? "#EEE9E3" : (isDark ? "#242426" : "#EFEFF3")
 
     readonly property color success: "#10B981"
     readonly property color successSoft: isDark ? "#123D32" : "#DDF7EF"
     readonly property color warning: "#F59E0B"
-    readonly property color warningSoft: isDark ? "#44310E" : "#FFF2D8"
+    readonly property color warningSoft: isDark ? "#44310E" : "#FFF6DF"
     readonly property color danger: "#EF4444"
-    readonly property color dangerSoft: isDark ? "#4A1F24" : "#FFE4E8"
+    readonly property color dangerSoft: isDark ? "#4A1F24" : "#FFF0F1"
 
     readonly property string fontFamily: {
         if (fontPreset === "mono")

@@ -10,6 +10,10 @@ Item {
     id: root
     required property var compiler
 
+    function isBlank(value) {
+        return value === undefined || value === null || String(value).trim().length === 0
+    }
+
     ScrollView {
         anchors.fill: parent
         anchors.margins: 24
@@ -21,8 +25,8 @@ Item {
             spacing: 16
 
             SectionTitle {
-                title: "项目画像"
-                subtitle: "从材料中整理出的项目关键信息"
+                title: "我们从材料里读到的项目"
+                subtitle: "如果这里理解错了，优先检查对应的项目说明材料"
             }
 
             GridLayout {
@@ -35,10 +39,11 @@ Item {
                     model: [
                         ["项目名称", root.compiler.cpir.projectName],
                         ["竞赛类型", root.compiler.cpir.competitionType],
-                        ["类型置信度", root.compiler.cpir.competitionConfidence],
-                        ["判断理由", root.compiler.cpir.competitionReason],
+                        ["赛道判断把握", root.compiler.cpir.competitionConfidence === undefined
+                                             ? "" : Math.round(Number(root.compiler.cpir.competitionConfidence) * 100) + "%"],
+                        ["为什么这样判断", root.compiler.cpir.competitionReason],
                         ["目标用户", root.compiler.cpir.targetUser],
-                        ["痛点", root.compiler.cpir.painPoint],
+                        ["要解决的问题", root.compiler.cpir.painPoint],
                         ["解决方案", root.compiler.cpir.solution],
                         ["产品或服务", root.compiler.cpir.productOrService],
                         ["技术路线", root.compiler.cpir.technicalRoute],
@@ -60,7 +65,7 @@ Item {
                         Layout.alignment: Qt.AlignTop
                         padding: 14
                         hoverable: true
-                        property bool missing: !cpirCard.modelData[1] || cpirCard.modelData[1] === ""
+                        property bool missing: root.isBlank(cpirCard.modelData[1])
                         ColumnLayout {
                             anchors.fill: parent
                             spacing: 6

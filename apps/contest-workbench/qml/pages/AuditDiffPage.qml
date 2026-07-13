@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import ".."
 import "../components"
@@ -14,10 +15,42 @@ Item {
         return compiler.auditDiff && compiler.auditDiff[name] !== undefined ? compiler.auditDiff[name] : "—"
     }
 
-    ColumnLayout {
+    function percent(name) {
+        var current = root.value(name)
+        return current === "—" ? "—" : Number(current).toFixed(1) + "%"
+    }
+
+    readonly property bool hasDiff: root.compiler.auditDiff
+                                    && root.compiler.auditDiff.summary !== undefined
+                                    && root.compiler.auditDiff.summary.length > 0
+
+    FileDialog {
+        id: oldAuditDialog
+        title: "选择修改前的检查结果"
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["检查结果 (*.json)", "所有文件 (*)"]
+        onAccepted: root.compiler.oldAuditPath = selectedFile
+    }
+
+    FileDialog {
+        id: newAuditDialog
+        title: "选择修改后的检查结果"
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["检查结果 (*.json)", "所有文件 (*)"]
+        onAccepted: root.compiler.newAuditPath = selectedFile
+    }
+
+    ScrollView {
+        id: diffScroll
         anchors.fill: parent
         anchors.margins: 24
-        spacing: 16
+        clip: true
+        contentWidth: availableWidth
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+        ColumnLayout {
+            width: diffScroll.availableWidth
+            spacing: 16
 
         SectionTitle {
             title: "修改前后对比"
@@ -103,6 +136,10 @@ Item {
                         placeholderText: "build/acceptance/audit.json"
                         onTextEdited: root.compiler.oldAuditPath = text
                     }
+                    PrimaryButton {
+                        text: "选择文件"
+                        onClicked: oldAuditDialog.open()
+                    }
                 }
                 RowLayout {
                     Layout.fillWidth: true
@@ -120,7 +157,13 @@ Item {
                         onTextEdited: root.compiler.newAuditPath = text
                     }
                     PrimaryButton {
+                        text: "选择文件"
+                        onClicked: newAuditDialog.open()
+                    }
+                    PrimaryButton {
                         text: "开始对比"
+                        enabled: root.compiler.oldAuditPath.length > 0
+                                 && root.compiler.newAuditPath.length > 0
                         onClicked: root.compiler.runDiff()
                     }
                 }
@@ -129,7 +172,7 @@ Item {
 
         Card {
             Layout.fillWidth: true
-            visible: root.value("summary") !== "—"
+            visible: root.hasDiff
             color: Theme.accentSoft
             borderColor: Theme.border
             Text {
@@ -143,7 +186,7 @@ Item {
 
         Card {
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.preferredHeight: root.hasDiff ? 390 : 190
             padding: 0
 
             ListView {
@@ -152,6 +195,7 @@ Item {
                 anchors.margins: 12
                 clip: true
                 spacing: 6
+                visible: root.hasDiff
                 ScrollBar.vertical: ScrollBar {}
 
                 header: Rectangle {
@@ -170,14 +214,14 @@ Item {
                 }
 
                 model: [
-                    ["可信评分", root.value("oldScore"), root.value("newScore"), "越高越好"],
+                    ["当前得分", root.value("oldScore"), root.value("newScore"), "越高越好"],
                     ["待改进分值", root.value("oldTrustDebt"), root.value("newTrustDebt"), "越低越好"],
                     ["必须处理", root.value("oldBlockers"), root.value("newBlockers"), "必须优先清零"],
                     ["需要关注", root.value("oldWarnings"), root.value("newWarnings"), "影响答辩风险"],
-                    ["证据覆盖率", root.value("oldEvidenceCoverage") + "%", root.value("newEvidenceCoverage") + "%", "Supported + Partial/2"],
+                    ["证据覆盖率", root.percent("oldEvidenceCoverage"), root.percent("newEvidenceCoverage"), "有材料支撑的成果占比"],
                     ["材料完整性", root.value("oldMaterialCompleteness"), root.value("newMaterialCompleteness"), "评分维度"],
                     ["一致性分", root.value("oldConsistencyScore"), root.value("newConsistencyScore"), "评分维度"],
-                    ["补证任务", root.value("oldFixTaskCount"), root.value("newFixTaskCount"), "越少越接近提交"]
+                    ["修改任务", root.value("oldFixTaskCount"), root.value("newFixTaskCount"), "越少越接近提交"]
                 ]
 
                 delegate: Rectangle {
@@ -200,6 +244,14 @@ Item {
                     }
                 }
             }
+            EmptyState {
+                anchors.fill: parent
+                visible: !root.hasDiff
+                text: "还没有对比结果"
+                hint: "选择修改前、修改后的两份 JSON 检查结果，再点击开始对比。"
+            }
+        }
+        Item { Layout.preferredHeight: 8 }
         }
     }
 }

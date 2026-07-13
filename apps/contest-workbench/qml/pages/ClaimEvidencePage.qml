@@ -24,8 +24,8 @@ Item {
         spacing: 12
 
         SectionTitle {
-            title: "声明与证据匹配"
-            subtitle: "每条声明的支撑证据与缺口"
+            title: "成果有没有材料支撑"
+            subtitle: "逐条核对项目中的数据、成果和承诺"
         }
 
         Card {
@@ -52,7 +52,9 @@ Item {
                     width: list.width
                     implicitHeight: col.implicitHeight + 24
                     radius: Theme.radiusSm
-                    color: Theme.surfaceMuted
+                    color: Theme.surface
+                    border.color: Theme.borderSubtle
+                    border.width: 1
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
                     ColumnLayout {
@@ -85,6 +87,24 @@ Item {
                         }
                         Text {
                             Layout.fillWidth: true
+                            visible: claimDelegate.modelData.source
+                                     && claimDelegate.modelData.source.length > 0
+                            text: "来自：" + claimDelegate.modelData.source
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSm
+                            wrapMode: Text.WrapAnywhere
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: claimDelegate.modelData.reason
+                                     && claimDelegate.modelData.reason.length > 0
+                            text: claimDelegate.modelData.reason
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontMd
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            Layout.fillWidth: true
                             text: "证据：" + (claimDelegate.modelData.evidence || "—")
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fontMd
@@ -93,7 +113,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             visible: claimDelegate.modelData.missing && claimDelegate.modelData.missing.length > 0
-                            text: "缺失：" + claimDelegate.modelData.missing
+                            text: "还需要：" + claimDelegate.modelData.missing
                             color: Theme.danger
                             font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
@@ -104,7 +124,8 @@ Item {
                 EmptyState {
                     anchors.fill: parent
                     visible: list.count === 0
-                    text: "暂无声明"
+                    text: "没有识别到需要举证的成果"
+                    hint: "如果项目里有用户数据、专利、收入或合作成果，请确认说明材料写得足够清楚。"
                 }
             }
         }

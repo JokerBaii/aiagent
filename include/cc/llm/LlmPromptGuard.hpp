@@ -15,8 +15,11 @@ namespace cc {
 
 struct LlmPromptBudget {
     std::size_t maxMessages{32U};
-    std::size_t maxMessageBytes{std::size_t{16U} * 1024U};
-    std::size_t maxTotalBytes{std::size_t{96U} * 1024U};
+    // This is a local serialized-byte safety boundary, not the provider's token window. Agent
+    // context is structurally compacted before this final guard, so capable long-context models
+    // are not artificially reduced to the former 16/96 KiB limits.
+    std::size_t maxMessageBytes{std::size_t{4U} * 1024U * 1024U};
+    std::size_t maxTotalBytes{std::size_t{4U} * 1024U * 1024U};
 };
 
 class LlmPromptGuard {

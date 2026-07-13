@@ -35,6 +35,10 @@ void runRulesTests() {
     inventory.roleCounts[cc::AssetRole::Generated] = 3;
     auto findings = cc::RuleEngine{}.evaluate({ratioRule}, inventory, {}, {}, {}, {});
     requireTrue(!findings.empty(), "vendor_generated_ratio should trigger");
+    requireTrue(findings.front().title == "ratio" &&
+                    findings.front().reason == "too many generated files" &&
+                    findings.front().reason.find("缺失/风险项") == std::string::npos,
+                "rule findings must keep structured missing data out of user-facing prose");
 
     cc::AuditRule unknownCondition = ratioRule;
     unknownCondition.ruleId = "TEST_UNKNOWN_CONDITION";

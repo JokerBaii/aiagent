@@ -144,7 +144,7 @@ QML 只负责 UI，不允许承载核心业务逻辑。
 - 授权 LLM 后首次项目评审必须由 Brain 调用 `run_project_audit`，接收确定性审计各阶段观察和强类型结果后继续研判；不得由 Controller 绕过 Brain 直接启动本地流水线；
 - 每轮 Brain decision 必须携带受限长度的用户/助手对话历史；Brain 调用失败时不得静默降级成本地回答；
 - Brain 网络与工具循环必须离开 Qt UI 线程执行，使输入队列和界面状态在模型运行期间保持响应；
-- 本地 AgentRuntime 负责执行注册工具、权限检查、路径边界和观察记录；未授权 LLM 时才使用本地观察摘要；
+- 本地 AgentRuntime 负责执行注册工具、权限检查、路径边界和观察记录；未配置有效 LLM 时才使用本地观察摘要；
 - 每轮智能体任务必须输出结构化 `AgentEvent` 和 JSON trace，Workbench 只能展示事件，不得在 Controller 中临时拼装工具轨迹；
 - 通过 ToolRegistry 调用受控工具，不允许自由调用未注册工具；
 - 在项目副本内枚举文件、搜索文本、读取文本/Markdown，并将 Markdown 修订稿、新模板或清单写入会话工作区；

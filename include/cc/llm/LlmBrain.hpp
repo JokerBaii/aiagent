@@ -23,6 +23,15 @@ namespace cc {
 class LlmBrain {
   public:
     /**
+     * @brief 从当前 provider 的只读模型目录读取该凭证可用的模型 ID。
+     *
+     * model 字段可以为空；endpoint、认证方式和联网权限仍须有效。
+     */
+    [[nodiscard]] Result<std::vector<std::string>> listModels(const LlmConfig& config) const;
+    /** @brief 解析 OpenAI/DeepSeek/Anthropic 共同使用的 data[].id 模型目录结构。 */
+    [[nodiscard]] Result<std::vector<std::string>>
+    parseModelList(const std::string& responseBody) const;
+    /**
      * @brief 纯本地构造并校验 provider 请求体，便于在联网前复核安全边界。
      */
     [[nodiscard]] Result<JsonValue> preparePayload(const LlmConfig& config,

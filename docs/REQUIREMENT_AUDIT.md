@@ -27,8 +27,9 @@
 | FR-12 | 修复计划和 diff-first 边界 | `RepairPlanner`、`RepairDiff`，只生成计划和 diff 文本 | `tests/repair/RepairTests.cpp` |
 | FR-13 | 二次审计差分 | `DiffVerifier`、`AuditDiff` JSON | `tests/audit/AuditTests.cpp` |
 | FR-14 | Markdown/JSON 报告 | `MarkdownReporter`、`JsonReporter` | `tests/report/ReportTests.cpp` |
-| FR-15 | Qt/QML Workbench | `CompileController` 桥接，`SessionWorkspacePage` 作为首屏展示项目上下文、会话历史、composer、受控工具观察、artifact 列表、资产、评分、风险、证据、差分和导出入口；权限边界集中在设置抽屉 | CMake 构建 `contest-workbench`，acceptance 检查会话页、toolCards、permissionCards、artifacts 和 sessionHistory 绑定 |
-| FR-16 | 竞赛可信智能体协作 | `contest_agent` 管理 `run_project_audit`、结构化工具、权限、hooks、会话、AgentEvent/trace、文件翻阅和工作区产物；Brain 取得每步 observation 后继续决策；`/optimize` 强制要求真实副本变更和二次审计后才允许收束；重复工具调用会被阻断；Brain 失败不静默降级 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp` |
+| FR-15 | Qt/QML Workbench | `CompileController` 桥接，`SessionWorkspacePage` 作为首屏；结果页统一展示资产、评分、风险、证据、差分和导出，支持响应式布局、材料预览、差分文件选择和原生保存对话框；权限边界集中在设置抽屉，技术 trace 默认折叠 | CMake 构建 `contest-workbench`；quality 执行 qmllint 和离屏启动；acceptance 检查会话页、toolCards、permissionCards、artifacts 和 sessionHistory 绑定 |
+| FR-16 | 竞赛可信智能体协作 | `contest_agent` 管理 `run_project_audit`、结构化工具、权限、hooks、会话、AgentEvent/trace、文件翻阅和工作区产物；Brain 取得每步 observation 后继续决策；`/optimize` 强制要求真实副本变更和二次审计后才允许收束；参数错误可根据 schema 恢复，成功调用重复会熔断，步数耗尽不伪装成功；展示层把内部抽取状态翻译成自然中文并合并重复任务 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp`、`tests/audit/AuditTests.cpp`、`tests/rules/RulesTests.cpp` |
+| FR-17 | LLM 配置不绑定固定厂商或模型 | `LlmProviderResolver` 统一解析通用/厂商环境变量和 UI endpoint/model/key；endpoint 决定消息协议与认证方式；模型 ID 无本地白名单，可按当前凭证从 provider 模型目录动态读取；多凭证要求显式 `LLM_PROVIDER`；完整配置有效后自动联网，无额外确认开关 | `tests/llm/LlmProviderProfileTests.cpp`、`tests/llm/LlmTests.cpp` |
 
 ## 架构和模块边界
 
@@ -47,7 +48,7 @@
 | 路径穿越防护 | `PathGuard` 校验 root 内路径，解包前检查条目 | `tests/loader/LoaderTests.cpp` |
 | 不覆盖原项目 | 目录输入先复制到 `.workspaces/<session>/input`，修复只生成计划/diff | `tests/loader/LoaderTests.cpp`、`tests/repair/RepairTests.cpp` |
 | zip/libarchive/OpenXML/PDF 不执行 shell | `ZipArchiveReader`、`LibArchiveReader`、`OpenXmlTextExtractor` 和 `PdfContentStreamParser` 都不调用外部工具 | acceptance 禁止 `popen/std::system/unzip/pdftotext` 出现在相关产品代码 |
-| 网络和 LLM 默认拒绝 | `PermissionGate` 默认拒绝 `NetworkAccess` 和 `LLMAccess`；只有当前任务权限快照允许且存在有效配置时才会发起请求 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp` |
+| 无配置不联网 | `PermissionGate` 仍按单次任务能力快照约束 `NetworkAccess` 和 `LLMAccess`；Workbench 在有效配置存在时自动设置模型任务快照，无效或缺失配置不会发起请求 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp` |
 | LLM 请求保护 | `LlmBrain` 必须同时有运行时授权标志和 API key | `tests/llm/LlmTests.cpp` |
 | hooks 阻断 | `LifecycleHookManager` 内置 PathSafety、SensitiveFile、NoOriginalOverwrite、RulePackValidation、ReportCompleteness、NoFabricatedEvidence | `tests/agent/AgentTests.cpp` |
 | 敏感文件识别 | `SensitiveFileDetector` 在资产阶段标记风险；`AgentFilePolicy` 在 Agent 读取与写入边界再次检查敏感路径和内容 | `tests/inventory/InventoryTests.cpp`、`tests/agent/AgentTests.cpp` |

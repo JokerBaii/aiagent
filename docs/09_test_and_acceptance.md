@@ -18,7 +18,7 @@
 - repair：补证任务、修复计划和 diff-first 边界；
 - report：Markdown/JSON 导出；
 - agent：权限、hooks、工具注册、项目记忆、会话存储；
-- llm：endpoint 解析、响应解析、未授权阻断。
+- llm：endpoint 解析、模型目录解析、响应解析、无有效配置/能力快照时阻断。
 
 ## 2. 构建验收
 
@@ -52,14 +52,14 @@ Workbench 必须具备：
 - 二次审计差分；
 - Markdown/JSON 导出；
 - 可选 LLM Brain 迭代工具循环；
-- 授权 LLM 时首次导入由 Brain 调用 `run_project_audit`，并在下一步收到确定性阶段观察和强类型审计结果；
+- 配置有效时首次导入由 Brain 调用 `run_project_audit`，并在下一步收到确定性阶段观察和强类型审计结果；
 - Brain 回合携带用户/助手历史，在工作线程运行且失败时不静默切换本地回答；
-- 未授权 LLM 时本地 AgentRuntime 仍可执行受控文件工具；
+- 未配置 LLM 时本地 AgentRuntime 仍可执行受控文件工具；
 - 交互式工具至少支持项目文件枚举、项目文本搜索、文本/Markdown 读取、Markdown 工作区修订和工作区文本产物写入；
-- Composer slash command 路由：`/audit`、`/agent <任务>`、`/task <任务>`、`/help`；
+- Composer slash command 路由：`/audit`、`/agent <任务>`、`/task <任务>`、`/plan <任务>`、`/optimize <任务>`、`/help`；
 - 普通自然语言输入作为 agent task，不做关键词命令识别；
 - AgentRuntime / BrainAgentLoop 输出 `AgentEvent` 和包含 events 的 JSON trace；
-- 授权 LLM 时 Brain 每步基于 `AgentObservation` 决定继续调用工具或最终回答，未授权时保守降级为本地观察摘要；
+- 配置有效时 Brain 每步基于 `AgentObservation` 决定继续调用工具或最终回答，未配置时保守降级为本地观察摘要；
 - Workbench 会话展示来自 AgentRuntime 事件，而不是 Controller 自行拼装工具轨迹；
 - LLM 缺少 API key 或运行时授权标志时不发起模型请求。
 
@@ -73,7 +73,7 @@ Workbench 必须具备：
 - 路径穿越、重复目标、文件/目录冲突、压缩炸弹和损坏归档仍必须拒绝并回滚；
 - 不直接修改原始项目；
 - 修复只生成计划和 diff；
-- 默认拒绝联网和 LLM 权限；只有当前任务明确授权且存在有效 API key 时才能发起模型请求；
+- 缺少有效 endpoint/model/API key 时禁止联网；完整配置有效时 Workbench 自动启用模型任务，内部能力快照仍必须匹配；
 - OpenXML、PDF 和压缩包解析不调用 shell 或外部工具；
 - 报告不生成虚假数据；
 - LLM 工具决策不参与最终评分。
@@ -86,7 +86,7 @@ Workbench 必须具备：
 ```
 
 `acceptance.sh` 负责 fresh configure/build、单元测试、模块归属、Workbench 结构和安全边界检查。  
-`quality.sh` 负责 clang-format、clang-tidy、ASan/UBSan 构建和测试。
+`quality.sh` 负责 clang-format、qmllint、QML 离屏启动、clang-tidy、ASan/UBSan 构建和测试。
 
 ## 6. Definition of Done
 

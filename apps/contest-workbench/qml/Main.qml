@@ -30,10 +30,16 @@ ApplicationWindow {
         property string colorTheme: "black"
         property string backgroundTheme: "garden"
         property string fontPreset: "microsoft"
-        property int uiFontSize: 18
+        property int uiFontSize: 16
+        property int designVersion: 0
     }
 
     Component.onCompleted: {
+        if (persistedTheme.designVersion < 2) {
+            if (persistedTheme.uiFontSize === 18)
+                persistedTheme.uiFontSize = 16
+            persistedTheme.designVersion = 2
+        }
         Theme.appearance = persistedTheme.appearance
         Theme.colorTheme = persistedTheme.colorTheme
         Theme.backgroundTheme = persistedTheme.backgroundTheme
@@ -64,7 +70,7 @@ ApplicationWindow {
     readonly property var backgroundChoices: [
         { key: "minimal", label: "纯白简约", color: "#FFFFFF" },
         { key: "vscode", label: "VS Code Dark", color: "#1E1E1E" },
-        { key: "garden", label: "花园", color: "#FFF8EA" },
+        { key: "garden", label: "暖白", color: "#FAF9F6" },
         { key: "sakura", label: "粉樱", color: "#FFF4F7" },
         { key: "lake", label: "湖蓝", color: "#F3FBF8" },
         { key: "dusk", label: "暮紫", color: "#F7F1FB" },
@@ -464,7 +470,7 @@ ApplicationWindow {
                     }
                     Pill {
                         visible: compiler.hasAuditResult
-                        text: "可信评分 " + compiler.trustScore
+                        text: compiler.trustScore + " 分"
                         bg: compiler.trustScore >= 80 ? Theme.successSoft
                             : compiler.trustScore >= 60 ? Theme.warningSoft : Theme.dangerSoft
                         fg: compiler.trustScore >= 80 ? Theme.success
@@ -492,7 +498,9 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 readonly property bool splitArtifacts: root.artifactPageKey.length > 0
-                                                       && width >= 1000
+                                                       && width >= 1250
+                                                       && (root.artifactPageKey !== "brain"
+                                                           || width >= 1450)
 
                 SessionWorkspacePage {
                     id: workspacePage
@@ -527,6 +535,11 @@ ApplicationWindow {
                     visible: opacity > 0
                     opacity: enabled ? 1 : 0
                     onCloseRequested: root.closeArtifact()
+                    onFilePreviewRequested: function(relativePath) {
+                        compiler.previewProjectFile(relativePath)
+                        root.rightPanelTab = "preview"
+                        root.rightPanelOpen = true
+                    }
 
                     Behavior on opacity { NumberAnimation { duration: Theme.normal } }
                     Behavior on width {
@@ -736,7 +749,7 @@ ApplicationWindow {
                             EmptyState {
                                 anchors.fill: parent
                                 visible: fileList.count === 0
-                                text: compiler.projectContext.originalRoot ? "等待审计扫描文件" : "未选择项目"
+                                text: compiler.projectContext.originalRoot ? "等待检查文件" : "未选择项目"
                                 hint: "左侧添加真实项目文件夹、压缩包或文件后运行检查。"
                             }
                         }
@@ -779,14 +792,14 @@ ApplicationWindow {
                                         }
                                         Text {
                                             Layout.fillWidth: true
-                                            text: compiler.agentRunning ? "审计正在运行" : "当前状态"
+                                            text: compiler.agentRunning ? "正在检查" : "当前状态"
                                             color: Theme.textPrimary
                                             font.pixelSize: Theme.fontMd
                                             font.bold: true
                                         }
                                         Pill {
                                             visible: compiler.hasAuditResult
-                                            text: compiler.trustScore + " / 100"
+                                            text: compiler.trustScore + " 分"
                                             bg: Theme.accentSoft
                                             fg: Theme.accent
                                         }
@@ -915,7 +928,7 @@ ApplicationWindow {
                             SectionTitle {
                                 Layout.leftMargin: 14
                                 Layout.rightMargin: 14
-                                title: "审计流程"
+                                title: "检查进度"
                                 subtitle: compiler.agentRunning
                                           ? "当前步骤会随运行实时更新。"
                                           : "每一步结果都会进入当前会话上下文。"
@@ -1063,7 +1076,7 @@ ApplicationWindow {
                                         enabled: artifactDelegate.modelData.available
                                         accessibleName: artifactDelegate.modelData.available
                                                         ? "打开" + artifactDelegate.modelData.title
-                                                        : artifactDelegate.modelData.title + "，完成审计后可用"
+                                                        : artifactDelegate.modelData.title + "，完成检查后可用"
                                         onClicked: root.openArtifact(artifactDelegate.modelData.pageKey,
                                                                      artifactDelegate.modelData.available)
                                     }
@@ -1157,13 +1170,13 @@ ApplicationWindow {
                 FieldInput {
                     Layout.fillWidth: true
                     text: compiler.llmEndpoint
-                    placeholderText: "https://api.deepseek.com/chat/completions"
+                    placeholderText: "https://服务地址/v1/chat/completions 或 /v1/messages"
                     onTextEdited: compiler.llmEndpoint = text
                 }
                 FieldInput {
                     Layout.fillWidth: true
                     text: compiler.llmModel
-                    placeholderText: "deepseek-v4-flash"
+                    placeholderText: "输入该服务支持的模型 ID"
                     onTextEdited: compiler.llmModel = text
                 }
                 FieldInput {
@@ -1174,29 +1187,43 @@ ApplicationWindow {
                     onActiveFocusChanged: if (activeFocus && text === "********") text = ""
                     onTextEdited: compiler.llmApiKey = text
                 }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    enabled: !compiler.llmModelsLoading
+                    text: compiler.llmModelsLoading ? "正在获取可用模型…" : "按当前凭证获取模型"
+                    onClicked: compiler.refreshLlmModels()
+                }
+                ComboBox {
+                    Layout.fillWidth: true
+                    visible: compiler.llmAvailableModels.length > 0
+                    model: compiler.llmAvailableModels
+                    currentIndex: compiler.llmAvailableModels.indexOf(compiler.llmModel)
+                    onActivated: compiler.llmModel = currentText
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: compiler.llmModelsStatus.length > 0
+                    text: compiler.llmModelsStatus
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontXs
+                    wrapMode: Text.WordWrap
+                }
                 Rectangle {
                     Layout.fillWidth: true
-                    implicitHeight: brainPermissionRow.implicitHeight + 18
+                    implicitHeight: brainConnectionText.implicitHeight + 18
                     radius: 12
-                    color: compiler.llmApproved ? Theme.successSoft : Theme.warningSoft
-                    border.color: compiler.llmApproved ? Theme.success : Theme.warning
-                    RowLayout {
-                        id: brainPermissionRow
+                    color: compiler.llmConfigured ? Theme.successSoft : Theme.warningSoft
+                    border.color: compiler.llmConfigured ? Theme.success : Theme.warning
+                    Text {
+                        id: brainConnectionText
                         anchors.fill: parent
                         anchors.margins: 9
-                        spacing: 8
-                        CheckBox {
-                            Accessible.name: "允许联网并调用大模型"
-                            checked: compiler.llmApproved
-                            onToggled: compiler.llmApproved = checked
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: "开启后会联网帮助解释检查结果。原始材料不会被修改，最终分数仍由本地规则计算。"
-                            color: Theme.textPrimary
-                            font.pixelSize: Theme.fontSm
-                            wrapMode: Text.WordWrap
-                        }
+                        text: compiler.llmConfigured
+                              ? "配置有效，项目任务将默认联网使用该模型；原始材料不会被修改，最终分数仍由本地规则计算。"
+                              : "填写有效的 HTTPS 服务地址、模型 ID 和访问密钥后，将自动启用联网模型。"
+                        color: Theme.textPrimary
+                        font.pixelSize: Theme.fontSm
+                        wrapMode: Text.WordWrap
                     }
                 }
 

@@ -9,6 +9,7 @@
 #include "cc/agent/AgentModels.hpp"
 #include "cc/core/Result.hpp"
 #include "cc/llm/AuditAdvisory.hpp"
+#include "cc/llm/LlmTypes.hpp"
 
 #include <QObject>
 #include <QString>
@@ -53,7 +54,10 @@ class CompileController : public QObject {
     Q_PROPERTY(QString llmApiKey READ llmApiKey WRITE setLlmApiKey NOTIFY llmConfigChanged)
     Q_PROPERTY(QString llmEndpoint READ llmEndpoint WRITE setLlmEndpoint NOTIFY llmConfigChanged)
     Q_PROPERTY(QString llmModel READ llmModel WRITE setLlmModel NOTIFY llmConfigChanged)
-    Q_PROPERTY(bool llmApproved READ llmApproved WRITE setLlmApproved NOTIFY llmConfigChanged)
+    Q_PROPERTY(bool llmConfigured READ llmConfigured NOTIFY llmConfigChanged)
+    Q_PROPERTY(QVariantList llmAvailableModels READ llmAvailableModels NOTIFY llmModelsChanged)
+    Q_PROPERTY(bool llmModelsLoading READ llmModelsLoading NOTIFY llmModelsChanged)
+    Q_PROPERTY(QString llmModelsStatus READ llmModelsStatus NOTIFY llmModelsChanged)
     Q_PROPERTY(QString agentResult READ agentResult NOTIFY agentResultChanged)
     Q_PROPERTY(QString agentTrace READ agentTrace NOTIFY agentTraceChanged)
     Q_PROPERTY(QString accessMode READ accessMode WRITE setAccessMode NOTIFY accessModeChanged)
@@ -103,8 +107,10 @@ class CompileController : public QObject {
     void setLlmEndpoint(const QString& value);
     [[nodiscard]] QString llmModel() const;
     void setLlmModel(const QString& value);
-    [[nodiscard]] bool llmApproved() const;
-    void setLlmApproved(bool value);
+    [[nodiscard]] bool llmConfigured() const;
+    [[nodiscard]] QVariantList llmAvailableModels() const;
+    [[nodiscard]] bool llmModelsLoading() const;
+    [[nodiscard]] QString llmModelsStatus() const;
     [[nodiscard]] QString agentResult() const;
     [[nodiscard]] QString agentTrace() const;
     [[nodiscard]] QString accessMode() const;
@@ -132,6 +138,8 @@ class CompileController : public QObject {
     Q_INVOKABLE void previewProjectFile(const QString& relativePath);
     Q_INVOKABLE void clearSelectedFilePreview();
     Q_INVOKABLE void cancelCurrentJob();
+    /** @brief 使用当前 endpoint 与 key 读取 provider 的模型目录，不依赖本地模型白名单。 */
+    Q_INVOKABLE void refreshLlmModels();
 
   signals:
     void projectPathChanged();
@@ -142,6 +150,7 @@ class CompileController : public QObject {
     void diffInputChanged();
     void auditDiffChanged();
     void llmConfigChanged();
+    void llmModelsChanged();
     void agentResultChanged();
     void agentTraceChanged();
     void agentStateChanged();
@@ -174,18 +183,23 @@ class CompileController : public QObject {
     [[nodiscard]] QString accessModeLabel() const;
     [[nodiscard]] cc::AgentRunRequest makeAgentRequest(const QString& goal,
                                                        const QString& context = {}) const;
+    [[nodiscard]] cc::LlmConfig llmConfig(bool allowNetwork, bool allowLlm) const;
+    void refreshLlmConfig(bool invalidateModels);
 
     QString projectPath_;
     QString oldAuditPath_;
     QString newAuditPath_;
     QString llmApiKey_;
-    QString llmEndpoint_{"https://api.deepseek.com/chat/completions"};
-    QString llmModel_{"deepseek-v4-flash"};
-    QString llmProvider_{"deepseek"};
-    QString llmApiKeyHeader_{"Authorization"};
-    QString llmApiKeyPrefix_{"Bearer "};
+    QString llmEndpoint_;
+    QString llmModel_;
+    std::optional<cc::LlmConfig> llmCredentialConfig_;
+    std::optional<cc::LlmConfig> resolvedLlmConfig_;
+    QVariantList llmAvailableModels_;
+    QString llmModelsStatus_;
+    std::shared_ptr<std::atomic_bool> llmModelsCancellation_;
     QString accessMode_{"ask"};
-    bool llmApproved_{false};
+    bool llmConfigured_{false};
+    bool llmModelsLoading_{false};
     bool agentRunning_{false};
     bool brainWorkerRunning_{false};
     int activeAuditStep_{-1};

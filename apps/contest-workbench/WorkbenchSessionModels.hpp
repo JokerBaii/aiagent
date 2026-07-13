@@ -50,7 +50,7 @@ struct SessionMessage {
 [[nodiscard]] QVariantList toolCards(const cc::AuditResult* result,
                                      const std::optional<cc::AuditDiff>& auditDiff,
                                      bool agentRunning, int activeStep, int completedSteps);
-[[nodiscard]] QVariantList permissionCards(bool llmApproved, const QString& accessMode);
+[[nodiscard]] QVariantList permissionCards(bool llmConfigured, const QString& accessMode);
 [[nodiscard]] QVariantList artifacts(const cc::AuditResult* result,
                                      const std::optional<cc::AuditDiff>& auditDiff,
                                      const QString& agentResult);

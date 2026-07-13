@@ -18,14 +18,20 @@ Item {
         return { bg: Theme.accentSoft, fg: Theme.accentActive }
     }
 
+    function prioText(p) {
+        if (p === "P0" || p === "高" || p === "high") return "先处理"
+        if (p === "P1" || p === "中" || p === "medium") return "随后补齐"
+        return "可以优化"
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 24
         spacing: 12
 
         SectionTitle {
-            title: "补证任务"
-            subtitle: "按优先级组织的材料补齐计划"
+            title: "接下来怎么改"
+            subtitle: "已经按处理顺序整理好，完成一项再看下一项"
         }
 
         Card {
@@ -52,7 +58,9 @@ Item {
                     width: list.width
                     implicitHeight: col.implicitHeight + 24
                     radius: Theme.radiusSm
-                    color: Theme.surfaceMuted
+                    color: Theme.surface
+                    border.color: Theme.borderSubtle
+                    border.width: 1
                     Behavior on color { ColorAnimation { duration: Theme.fast } }
 
                     ColumnLayout {
@@ -68,7 +76,7 @@ Item {
                             Layout.fillWidth: true
                             spacing: 8
                             Pill {
-                                text: taskDelegate.modelData.priority
+                                text: root.prioText(taskDelegate.modelData.priority)
                                 bg: root.prioColors(taskDelegate.modelData.priority).bg
                                 fg: root.prioColors(taskDelegate.modelData.priority).fg
                             }
@@ -84,19 +92,28 @@ Item {
                         }
                         Text {
                             Layout.fillWidth: true
-                            visible: taskDelegate.modelData.required && taskDelegate.modelData.required.length > 0
-                            text: "需要：" + taskDelegate.modelData.required
+                            visible: taskDelegate.modelData.reason
+                                     && taskDelegate.modelData.reason.length > 0
+                            text: taskDelegate.modelData.reason
                             color: Theme.textSecondary
                             font.pixelSize: Theme.fontMd
                             wrapMode: Text.WordWrap
                         }
                         Text {
                             Layout.fillWidth: true
-                            visible: taskDelegate.modelData.rules && taskDelegate.modelData.rules.length > 0
-                            text: "关联检查：" + taskDelegate.modelData.rules
+                            visible: taskDelegate.modelData.required && taskDelegate.modelData.required.length > 0
+                            text: "需要准备：" + taskDelegate.modelData.required
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontMd
+                            wrapMode: Text.WordWrap
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: taskDelegate.modelData.files && taskDelegate.modelData.files.length > 0
+                            text: "涉及文件：" + taskDelegate.modelData.files
                             color: Theme.textMuted
                             font.pixelSize: Theme.fontSm
-                            wrapMode: Text.WordWrap
+                            wrapMode: Text.WrapAnywhere
                         }
                     }
                 }
@@ -104,7 +121,8 @@ Item {
                 EmptyState {
                     anchors.fill: parent
                     visible: list.count === 0
-                    text: "暂无补证任务"
+                    text: "目前没有待办事项"
+                    hint: "这次检查没有生成需要补材料或修改的任务。"
                 }
             }
         }

@@ -168,7 +168,7 @@ add_executable(contest-workbench apps/contest-workbench/main.cpp)
 
 `contest-workbench` 可以实现侧边栏、会话流、composer、工具调用观察、artifact 预览和设置式权限边界，但只能依赖 `contest_core`、`contest_agent`、可选 `contest_llm` 和 UI Controller，不得把业务逻辑写进 QML。
 
-如果桌面端使用 LLM Brain，必须通过显式授权的桥接服务调用 `contest_llm`，不得在 QML 中拼接提示词、读取敏感文件或计算审计结论。
+如果桌面端使用 LLM Brain，必须由 `CompileController` 在完整配置校验通过后通过桥接服务调用 `contest_llm`；QML 不得拼接提示词、读取敏感文件或计算审计结论。
 
 ## 7. 数据流
 

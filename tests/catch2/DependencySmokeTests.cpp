@@ -3,7 +3,9 @@
  * @brief 固定第三方解析依赖自检。
  */
 
-#include <catch2/catch_test_macros.hpp>
+#define CATCH_CONFIG_MAIN
+#define CATCH_CONFIG_NO_COUNTER
+#include <catch2/catch.hpp>
 #include <nlohmann/json.hpp>
 #include <pugixml.hpp>
 

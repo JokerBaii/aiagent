@@ -4,6 +4,8 @@ shopt -s globstar nullglob
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+export PATH="/usr/local/bin:/usr/bin:/bin"
+unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER CMAKE_PREFIX_PATH PKG_CONFIG_PATH
 
 cmake --preset debug
 cmake --build --preset debug
@@ -19,9 +21,9 @@ elif command -v qmllint >/dev/null 2>&1; then
   QMLLINT="$(command -v qmllint)"
 fi
 if [[ -n "$QMLLINT" && -x "$QMLLINT" ]]; then
-  mapfile -t QML_FILES < <(find apps/contest-workbench/qml -type f -name '*.qml' \
-    ! -name 'Main.qml' -print | sort)
-  "$QMLLINT" -I apps/contest-workbench/qml \
+  QML_IMPORT_DIR="$(qtpaths6 --query QT_INSTALL_QML)"
+  mapfile -t QML_FILES < <(find apps/contest-workbench/qml -type f -name '*.qml' -print | sort)
+  "$QMLLINT" -I "$QML_IMPORT_DIR" -I apps/contest-workbench/qml \
     -I apps/contest-workbench/qml/components \
     -I apps/contest-workbench/qml/pages "${QML_FILES[@]}"
 fi
@@ -66,5 +68,11 @@ clang-tidy -p build/debug \
 cmake --fresh --preset asan
 cmake --build --preset asan
 ctest --preset asan --output-on-failure
+
+if grep -E -l '/(mini)?conda[0-9]*/|/anaconda[0-9]*/|/mambaforge/' \
+    build/asan/CMakeCache.txt build/asan/compile_commands.json >/dev/null; then
+  echo "Sanitizer 构建不能引用 Conda/Anaconda 工具链或依赖" >&2
+  exit 1
+fi
 
 echo "quality passed"

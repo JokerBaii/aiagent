@@ -79,12 +79,10 @@ AgentRuntime                 请求生命周期、取消传播、结果聚合
 ├── PermissionGate           权限决策
 ├── AgentPermissionPolicy    请求能力快照到工具授权
 ├── AgentFilePolicy          文本判定、UTF-8、敏感内容策略
-├── AgentPathResolver        路径和资产边界（待拆）
-├── AgentProjectTools        项目只读工具（待拆）
-├── AgentAuditTools          审计与二次审计工具（待拆）
-├── AgentWorkspaceTools      安全副本写入工具（待拆）
 ├── AgentTraceSerializer     call、observation、event 与 trace JSON
-└── AgentToolDispatcher      handler 注册与分发（待拆）
+├── WorkspaceEditor          安全副本写入与差分
+├── AgentCommandRouter       会话命令路由
+└── StagedAuditPipeline      分阶段审计编排
 ```
 
 禁止新增 `if (toolName == ...)` 式分支到 `AgentRuntime.cpp`。过渡期修改已有工具时可以保持兼容，但必须优先向对应组件迁移。
@@ -99,7 +97,14 @@ contest-compiler/
 ├── .clang-format
 ├── .clang-tidy
 ├── docs/
-│   └── REQUIREMENT_AUDIT.md
+│   ├── 02_functional_requirements.md
+│   ├── 03_architecture_and_directory_tree.md
+│   ├── 06_cpp_engineering_and_comment_style.md
+│   ├── 07_rule_pack_spec.md
+│   ├── 08_security_model.md
+│   ├── 09_test_and_acceptance.md
+│   ├── REQUIREMENT_AUDIT.md
+│   └── images/
 ├── include/
 │   └── cc/
 │       ├── core/

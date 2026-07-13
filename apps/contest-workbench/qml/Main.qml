@@ -14,6 +14,8 @@ ApplicationWindow {
     id: root
     width: 1440
     height: 900
+    x: Math.max(0, (Screen.width - width) / 2)
+    y: Math.max(0, (Screen.height - height) / 2)
     minimumWidth: 1100
     minimumHeight: 700
     visible: true

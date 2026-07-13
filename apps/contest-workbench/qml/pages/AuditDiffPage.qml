@@ -84,7 +84,7 @@ Item {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: root.compiler.repairWorkspace.patchPath
+                    text: root.compiler.repairWorkspace.patchPath || ""
                     color: Theme.textMuted
                     font.family: Theme.monoFamily
                     font.pixelSize: Theme.fontXs

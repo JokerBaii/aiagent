@@ -1,0 +1,20 @@
+{
+  "cmake.useCMakePresets": "always",
+  "cmake.sourceDirectory": "${workspaceFolder}",
+  "cmake.configurePreset": "debug",
+  "cmake.buildPreset": "debug",
+  "cmake.testPreset": "debug",
+  "clangd.arguments": [
+    "--compile-commands-dir=${workspaceFolder}/build/debug",
+    "--query-driver=/usr/bin/c++"
+  ],
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/debug/compile_commands.json",
+  "C_Cpp.default.compilerPath": "/usr/bin/c++",
+  "C_Cpp.default.cppStandard": "c++20",
+  "qt-qml.qmlls.customExePath": "/usr/bin/qmlls",
+  "qt-qml.qmlls.additionalImportPaths": [
+    "${workspaceFolder}/apps/contest-workbench/qml"
+  ],
+  "qt-qml.qmlls.useNoCMakeCalls": false
+}

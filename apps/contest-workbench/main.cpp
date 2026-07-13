@@ -5,6 +5,8 @@
 
 #include "CompileController.hpp"
 
+#include <QCommandLineOption>
+#include <QCommandLineParser>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -23,6 +25,16 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setOrganizationDomain(QStringLiteral("contest-trust.local"));
     QCoreApplication::setApplicationName(QStringLiteral("大学生项目审计与完善平台"));
     QQuickStyle::setStyle(QStringLiteral("Basic"));
+
+    QCommandLineParser parser;
+    parser.setApplicationDescription(QStringLiteral("大学生项目材料审计平台"));
+    parser.addHelpOption();
+    parser.addVersionOption();
+    QCommandLineOption projectOption({QStringLiteral("p"), QStringLiteral("project")},
+                                     QStringLiteral("启动后立即导入并审计项目路径。"),
+                                     QStringLiteral("path"));
+    parser.addOption(projectOption);
+    parser.process(app);
 
     if (qEnvironmentVariableIsEmpty("CONTEST_WORKSPACE_ROOT")) {
         const auto workspaceRoot =
@@ -44,6 +56,11 @@ int main(int argc, char* argv[]) {
     if (engine.rootObjects().isEmpty()) {
         std::fprintf(stderr, "Failed to load qrc:/qml/Main.qml\n");
         return 1;
+    }
+    if (parser.isSet(projectOption)) {
+        if (auto* controller = engine.rootObjects().constFirst()->findChild<CompileController*>()) {
+            controller->selectProject(parser.value(projectOption));
+        }
     }
     return app.exec();
 }

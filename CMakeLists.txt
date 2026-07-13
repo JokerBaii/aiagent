@@ -6,66 +6,61 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_SKIP_RPATH ON)
 
 option(CONTEST_ENABLE_WARNINGS "Enable strict compiler warnings" ON)
 option(CONTEST_ENABLE_SANITIZERS "Enable AddressSanitizer and UBSan in Debug builds" OFF)
+option(CONTEST_REQUIRE_SYSTEM_DEPENDENCIES
+    "Reject dependencies resolved from Conda/Anaconda environments" ON)
 
 enable_testing()
+
+if(CONTEST_REQUIRE_SYSTEM_DEPENDENCIES AND DEFINED ENV{CONDA_PREFIX}
+   AND NOT "$ENV{CONDA_PREFIX}" STREQUAL "")
+    list(PREPEND CMAKE_IGNORE_PREFIX_PATH "$ENV{CONDA_PREFIX}")
+    list(REMOVE_DUPLICATES CMAKE_IGNORE_PREFIX_PATH)
+endif()
 
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(Catch2 CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
-find_path(LIBARCHIVE_INCLUDE_DIR
-    NAMES archive.h
-    HINTS "$ENV{CONDA_PREFIX}"
-    PATH_SUFFIXES include
-)
-find_library(LIBARCHIVE_LIBRARY
-    NAMES archive libarchive libarchive.so.13
-    PATHS /usr/lib64 /usr/lib /lib64 /lib
-    NO_DEFAULT_PATH
-)
-if(NOT LIBARCHIVE_LIBRARY)
-    find_library(LIBARCHIVE_LIBRARY
-        NAMES archive libarchive
-        HINTS "$ENV{CONDA_PREFIX}"
-        PATH_SUFFIXES lib
-    )
-endif()
-if(NOT LIBARCHIVE_INCLUDE_DIR OR NOT LIBARCHIVE_LIBRARY)
-    message(FATAL_ERROR "libarchive development files are required for safe non-zip archive import")
-endif()
-add_library(LibArchive::LibArchive UNKNOWN IMPORTED)
-set_target_properties(LibArchive::LibArchive PROPERTIES
-    IMPORTED_LOCATION "${LIBARCHIVE_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${LIBARCHIVE_INCLUDE_DIR}"
-)
-find_path(PUGIXML_INCLUDE_DIR
-    NAMES pugixml.hpp
-    HINTS "$ENV{CONDA_PREFIX}"
-    PATH_SUFFIXES include
-)
-find_library(PUGIXML_LIBRARY
-    NAMES pugixml libpugixml.so.1
-    PATHS /usr/lib64 /usr/lib /lib64 /lib
-    NO_DEFAULT_PATH
-)
-if(NOT PUGIXML_INCLUDE_DIR OR NOT PUGIXML_LIBRARY)
-    message(FATAL_ERROR "pugixml header and runtime library are required for OpenXML parsing")
-endif()
-add_library(Contest::Pugixml UNKNOWN IMPORTED)
-set_target_properties(Contest::Pugixml PROPERTIES
-    IMPORTED_LOCATION "${PUGIXML_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${PUGIXML_INCLUDE_DIR}"
-)
+find_package(LibArchive REQUIRED)
+find_package(pugixml CONFIG REQUIRED)
+
+function(contest_require_system_path dependency_name)
+    if(NOT CONTEST_REQUIRE_SYSTEM_DEPENDENCIES OR NOT UNIX)
+        return()
+    endif()
+
+    foreach(candidate IN LISTS ARGN)
+        if(NOT candidate OR NOT IS_ABSOLUTE "${candidate}")
+            continue()
+        endif()
+        string(TOLOWER "${candidate}" normalized_candidate)
+        if(normalized_candidate MATCHES "/(mini)?conda[0-9]*/|/anaconda[0-9]*/|/mambaforge/")
+            message(FATAL_ERROR
+                "${dependency_name} resolved outside the system toolchain: ${candidate}. "
+                "Install the system development package and configure with a project preset.")
+        endif()
+    endforeach()
+endfunction()
+
+contest_require_system_path("C++ compiler" "${CMAKE_CXX_COMPILER}")
+contest_require_system_path("nlohmann_json" "${nlohmann_json_DIR}")
+contest_require_system_path("Catch2" "${Catch2_DIR}")
+contest_require_system_path("ZLIB" "${ZLIB_INCLUDE_DIRS}" "${ZLIB_LIBRARIES}"
+    "${ZLIB_INCLUDE_DIR}" "${ZLIB_LIBRARY}")
+contest_require_system_path("LibArchive" "${LibArchive_INCLUDE_DIRS}" "${LibArchive_LIBRARIES}"
+    "${LibArchive_INCLUDE_DIR}" "${LibArchive_LIBRARY}")
+contest_require_system_path("pugixml" "${pugixml_DIR}")
 
 function(contest_apply_common_options target_name)
     if(CONTEST_ENABLE_WARNINGS)
         if(MSVC)
-            target_compile_options(${target_name} PRIVATE /W4 /permissive-)
+            target_compile_options(${target_name} PRIVATE /W4 /WX /permissive-)
         else()
             target_compile_options(${target_name} PRIVATE
-                -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow
+                -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Werror
             )
         endif()
     endif()
@@ -107,7 +102,7 @@ target_link_libraries(contest_core PUBLIC
     nlohmann_json::nlohmann_json
     ZLIB::ZLIB
     LibArchive::LibArchive
-    Contest::Pugixml
+    pugixml::pugixml
 )
 contest_apply_common_options(contest_core)
 
@@ -154,14 +149,17 @@ add_executable(contest_dependency_tests
     tests/catch2/DependencySmokeTests.cpp
 )
 target_link_libraries(contest_dependency_tests PRIVATE
-    Catch2::Catch2WithMain
+    Catch2::Catch2
     nlohmann_json::nlohmann_json
-    Contest::Pugixml
+    pugixml::pugixml
 )
 contest_apply_common_options(contest_dependency_tests)
 add_test(NAME contest_dependency_tests COMMAND contest_dependency_tests)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 QuickDialogs2)
+contest_require_system_path("Qt6" "${Qt6_DIR}")
+contest_require_system_path("OpenSSL" "${OPENSSL_INCLUDE_DIR}" "${OPENSSL_SSL_LIBRARY}"
+    "${OPENSSL_CRYPTO_LIBRARY}")
 qt_standard_project_setup()
 qt_add_resources(CONTEST_WORKBENCH_RESOURCES
     apps/contest-workbench/resources.qrc

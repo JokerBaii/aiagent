@@ -4,6 +4,8 @@ shopt -s globstar nullglob
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+export PATH="/usr/local/bin:/usr/bin:/bin"
+unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER CMAKE_PREFIX_PATH PKG_CONFIG_PATH
 TEST_WORKSPACE="$(mktemp -d "${TMPDIR:-/tmp}/contest-acceptance.XXXXXX")"
 export CONTEST_WORKSPACE_ROOT="$TEST_WORKSPACE"
 trap 'rm -rf "$TEST_WORKSPACE"' EXIT
@@ -12,16 +14,22 @@ cmake --fresh --preset debug
 cmake --build --preset debug
 ctest --preset debug --output-on-failure
 
+if grep -E -l '/(mini)?conda[0-9]*/|/anaconda[0-9]*/|/mambaforge/' \
+    build/debug/CMakeCache.txt build/debug/compile_commands.json >/dev/null; then
+  echo "Debug 构建不能引用 Conda/Anaconda 工具链或依赖" >&2
+  exit 1
+fi
+
 grep -q 'find_package(nlohmann_json CONFIG REQUIRED)' CMakeLists.txt
 grep -q 'find_package(Catch2 CONFIG REQUIRED)' CMakeLists.txt
 grep -q 'find_package(OpenSSL REQUIRED)' CMakeLists.txt
-grep -q 'LIBARCHIVE_INCLUDE_DIR' CMakeLists.txt
+grep -q 'find_package(LibArchive REQUIRED)' CMakeLists.txt
 grep -q 'LibArchive::LibArchive' CMakeLists.txt
-grep -q 'PUGIXML_LIBRARY' CMakeLists.txt
-grep -q 'Contest::Pugixml' CMakeLists.txt
+grep -q 'find_package(pugixml CONFIG REQUIRED)' CMakeLists.txt
+grep -q 'pugixml::pugixml' CMakeLists.txt
 grep -q 'nlohmann/json.hpp' src/core/JsonValue.cpp
 grep -q 'pugixml.hpp' src/text/OpenXmlTextExtractor.cpp
-grep -q 'catch2/catch_test_macros.hpp' tests/catch2/DependencySmokeTests.cpp
+grep -q 'catch2/catch.hpp' tests/catch2/DependencySmokeTests.cpp
 grep -q 'contest_dependency_tests' CMakeLists.txt
 grep -q 'ZipArchiveReader' src/loader/ArchiveExtractor.cpp
 grep -q 'LibArchiveReader' src/loader/ArchiveExtractor.cpp

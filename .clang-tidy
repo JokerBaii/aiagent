@@ -1,10 +1,13 @@
 Checks: >
+  -*,
+  clang-analyzer-*,
   bugprone-*,
-  cppcoreguidelines-*,
-  modernize-*,
+  cert-*,
+  concurrency-*,
   performance-*,
-  readability-*,
-  -cppcoreguidelines-avoid-magic-numbers,
-  -readability-magic-numbers
+  portability-*,
+  -performance-enum-size,
+  -portability-avoid-pragma-once
 
 HeaderFilterRegex: 'include/cc/.*|src/.*'
+WarningsAsErrors: '*'

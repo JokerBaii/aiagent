@@ -35,11 +35,11 @@ struct ProjectClaim {
  * Unsupported/NeedReview 会直接影响可信评分和补证任务，因此必须保留缺失证据和原因。
  */
 struct EvidenceMatch {
-    std::string claimId;
+    std::string claimId{};
     EvidenceStatus status{EvidenceStatus::Unsupported};
-    std::vector<std::filesystem::path> evidenceFiles;
-    std::vector<std::string> missingEvidence;
-    std::string reason;
+    std::vector<std::filesystem::path> evidenceFiles{};
+    std::vector<std::string> missingEvidence{};
+    std::string reason{};
 };
 
 /**
@@ -117,13 +117,13 @@ struct TrustScore {
  * 任务必须说明原因、材料和影响规则，避免输出空泛的“继续完善”建议。
  */
 struct FixTask {
-    std::string taskId;
-    std::string title;
-    std::string priority;
-    std::string reason;
-    std::vector<std::string> requiredMaterial;
-    std::vector<std::string> affectedRules;
-    std::vector<std::filesystem::path> relatedFiles;
+    std::string taskId{};
+    std::string title{};
+    std::string priority{};
+    std::string reason{};
+    std::vector<std::string> requiredMaterial{};
+    std::vector<std::string> affectedRules{};
+    std::vector<std::filesystem::path> relatedFiles{};
 };
 
 /**

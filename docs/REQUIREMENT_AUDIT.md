@@ -36,7 +36,7 @@
 | 要求 | 当前落实 |
 |---|---|
 | C++ Core 负责可信审计逻辑 | `contest_core` 包含数据模型、loader、inventory、text、cpir、claim、evidence、consistency、rules、audit、repair、report |
-| Agentic runtime 独立 | `contest_agent` 包含 `ToolRegistry`、`PermissionGate`、`AgentFilePolicy`、`LifecycleHookManager`、`ProjectMemory`、`AuditSessionStore`、`AgentRuntime` 和 `StagedAuditPipeline`；`AgentRuntime` 的路径、项目工具、审计工具、写入工具、trace 和 dispatcher 仍在按 `CURRENT_IMPLEMENTATION.md` 继续拆分 |
+| Agentic runtime 独立 | `contest_agent` 已包含 `ToolRegistry`、`PermissionGate`、`AgentFilePolicy`、`LifecycleHookManager`、`ProjectMemory`、`AuditSessionStore`、`AgentRuntime`、`AgentTraceSerializer`、`WorkspaceEditor`、`AgentCommandRouter` 和 `StagedAuditPipeline`，并由 target 边界检查持续验证 |
 | LLM 只能可选主控 | `contest_llm` 单独承载 `LlmBrain`、`BrainAgentLoop`、HTTPS 客户端、endpoint/parser 和工具 decision 解析；`contest_core` 不包含 LLM/OpenSSL 对象，最终评分不受 LLM 改写 |
 | QML Controller 只能桥接 | `CompileController` 调用 core/agent/llm/report 服务并转成 QML 模型，不实现扫描、规则、评分、证据匹配 |
 | 禁止单文件和万能 Manager | `include/cc/<module>/` 与 `src/<module>/` 拆分；没有 `all_in_one/app/core/manager` 等禁止命名 |

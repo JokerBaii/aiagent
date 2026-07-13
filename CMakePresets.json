@@ -6,6 +6,12 @@
       "displayName": "Debug",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/debug",
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "CONDA_PREFIX": "",
+        "CMAKE_PREFIX_PATH": "",
+        "PKG_CONFIG_PATH": ""
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
@@ -15,6 +21,12 @@
       "displayName": "Release",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/release",
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "CONDA_PREFIX": "",
+        "CMAKE_PREFIX_PATH": "",
+        "PKG_CONFIG_PATH": ""
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
@@ -24,6 +36,12 @@
       "displayName": "ASan UBSan Debug",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/asan",
+      "environment": {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "CONDA_PREFIX": "",
+        "CMAKE_PREFIX_PATH": "",
+        "PKG_CONFIG_PATH": ""
+      },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_COMPILER": "clang++",

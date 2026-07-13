@@ -1,114 +1,177 @@
 # 大学生项目材料审计平台
 
-大学生项目材料审计平台面向竞赛、大创、课程设计与毕业设计项目，并审查论文、专利、软著等成果证明材料。它把项目目录或压缩材料包转化为资产清单、项目画像、声明、证据匹配、规则风险、可信评分、补证任务和审计报告。
+一套已经完整实现、可直接构建运行的大学生竞赛项目材料审计与完善工作台。平台把项目目录、单份材料或压缩包转换为资产清单、项目画像、声明—证据关系、一致性问题、赛道规则风险、可信评分、补证任务和可导出的审计报告。
 
-本项目当前只保留 Qt/QML Workbench 作为用户入口。桌面端界面和流程采用会话工作区、侧边栏、composer、工具调用观察、artifact 预览、设置式权限边界、项目记忆和 diff-first 修复体验；这些能力都服务于竞赛项目缺点评审、补证、优化、二次审计和报告导出。
+当前版本：`0.1.0`（完成版）<br>
+技术栈：C++20、CMake、Qt 6/QML、JSON Rule Packs<br>
+运行入口：`contest-workbench`
 
-## 目标边界
+![Workbench 新任务界面](docs/images/workbench-home.png)
 
-- C++ Core 负责全部审计逻辑。
-- `contest_agent` 负责 ToolRegistry、PermissionGate、Hooks、ProjectMemory、Session 和 StagedAuditPipeline 编排。
-- `contest_core` 不链接 LLM/OpenSSL；可选 Brain 单独由 `contest_llm` 承载。
-- Qt/QML Workbench 负责展示、授权、导出和会话交互。
-- 智能体作为会话“大脑”：拖入项目后自动建立安全工作副本，按确定性规则、证据匹配和一致性检查完成缺点评审；授权 LLM Brain 后可参与风险研判并由规则结果逐条校验。
-- JSON 规则包负责多赛道规则配置。
-- JSON 解析/序列化由 `nlohmann/json` 承担。
-- OpenXML 内部 XML 文本解析由 `pugixml` 承担；`Catch2` 覆盖固定第三方技术栈 smoke test。
-- 未配置 API key 时系统不联网、不调用 LLM、不执行项目脚本、不覆盖原项目。
-- LLM Brain 是可选模块，支持从环境变量或 Workbench 配置读取 endpoint/model/key；key 只进入运行时内存，不写入代码、报告或交付包。
-- 报告不生成虚假用户、营收、合作、专利、实验结果或市场数据。
-- 会话可以作为主操作入口，但必须绑定竞赛项目和 AuditSession；不把 LLM 输出作为最终评分。
+## 已完成功能
 
-## 构建
+- 导入项目目录、任意单文件，以及 ZIP、TAR、TGZ、GZ、BZ2、XZ、ZST、7Z 等材料包。
+- 在隔离工作区中整理材料，不覆盖原项目，不默认执行项目脚本。
+- 识别文档、源码、配置、图片、音视频、模型、归档和未知二进制资产。
+- 从纯文本、OpenXML 和 PDF 内容流中提取可审计文本。
+- 自动判断商业创新、软件、科研、社会实践和电商等竞赛类型。
+- 生成 CPIR 项目画像，抽取成果声明并匹配证据文件。
+- 检查跨文件名称、数据、时间、源码、构建入口和商业材料的一致性。
+- 执行多赛道 JSON 规则，输出 blocker、warning、info 和可信债务。
+- 生成可信评分、P0/P1/P2 补证任务、安全修订计划和二次审计差分。
+- 通过会话工作区展示阶段进度、工具观察、项目上下文、历史任务和报告 artifact。
+- 支持 ask、plan、code、bypass 四种访问模式；写入仅发生在安全副本。
+- 导出 Markdown/JSON 报告。
+- 可选接入 Anthropic、OpenAI-compatible、DeepSeek 或自定义兼容端点；最终评分始终由确定性规则产生。
+- 支持浅色/深色外观、主题色、背景皮肤、字体和字号设置。
+
+![完整项目自动审计结果](docs/images/workbench-audit.png)
+
+## 快速开始
+
+项目只使用系统工具链和系统开发包。CMake 预设会清空 Conda、`CMAKE_PREFIX_PATH` 和 `PKG_CONFIG_PATH` 对依赖解析的影响；任何解析到 Conda/Anaconda 目录的编译器或依赖都会使配置直接失败。
+
+系统依赖包括：
+
+- CMake 3.24+
+- Ninja
+- 支持 C++20 的 GCC 或 Clang
+- Qt 6 Core、Gui、Qml、Quick、QuickControls2、QuickDialogs2
+- OpenSSL、Zlib、libarchive、pugixml、nlohmann-json、Catch2
+- clang-format、clang-tidy（完整质量检查需要）
+
+Fedora 可使用系统包安装：
+
+```bash
+sudo dnf install cmake ninja-build gcc-c++ clang clang-tools-extra \
+  qt6-qtbase-devel qt6-qtdeclarative-devel openssl-devel zlib-devel \
+  libarchive-devel pugixml-devel json-devel catch-devel
+```
+
+构建、测试并启动：
 
 ```bash
 cmake --preset debug
 cmake --build --preset debug
-ctest --preset debug
-```
-
-可执行文件：
-
-```text
-build/debug/contest-workbench
-```
-
-## 桌面端
-
-启动：
-
-```bash
+ctest --preset debug --output-on-failure
 ./build/debug/contest-workbench
 ```
 
-Workbench 支持会话工作区首屏、输入或拖拽项目路径、拖入即自动评审、展示项目上下文和会话历史、在对话流中查看受控工具观察、在设置中管理权限边界、查看 artifact 列表、查看评分和 blocker/warning 数量、查看资产/CPIR/声明证据/一致性/风险/补证任务、展示二次审计差分、通过 API key 让 LLM Brain 运行迭代工具循环，并导出 Markdown/JSON 报告。核心业务逻辑不在 QML 或 Controller 中实现。
-
-会话流和操作布局参考桌面端智能工作台的组件结构，用 QML 实现项目侧栏、新任务/添加项目、会话列表、审计资料面板、底部输入区、命令菜单、模型状态和主题/权限设置，并使用本平台自己的名称、审计图标和业务文案。
-
-主题配置与参考仓库对齐：`appearance`、`colorTheme`、`backgroundTheme`、`fontPreset`、`uiFontSize` 持久化到 Qt Settings；默认值为 `light`、`black`、`garden`、`microsoft`、`18`。Workbench 内置 garden、sakura、lake、dusk、ink、vscode、minimal 背景皮肤。
-
-会话流采用 Codex/Claude Code-style 的内联渲染：用户消息、审计计划、工具调用观察、智能体回复、系统提示和产物各有独立样式；工具观察直接内联在对话流中展开。左侧栏是会话与项目（新建会话、当前项目、查看报告入口），分析结果（可信仪表盘、资产、画像、证据、一致性、风险、补证、差分、报告导出）作为对话里可打开的报告 artifact 抽屉。底部 composer 支持多行输入、项目路径粘贴、项目拖拽、`/audit`、`/agent`、`/status`、`/compact`、`/clear`、`/help` 命令快捷项，Enter 发送、Shift+Enter 换行。
-
-项目导入支持原生目录选择器、窗口/对话框拖拽目录或材料包，以及直接粘贴本地路径；项目进入会话后会自动启动缺点评审。访问模式集中放在设置中：`ask` 为默认沙箱问答，`plan` 只生成计划，`code` 只在受控工作区写入，`bypass` 额外允许读取用户选择的原始项目路径；所有模式都禁止覆盖原项目和自由执行 shell。
-
-可信审计以真实分步流水线驱动：`StagedAuditPipeline` 在受控 Hook 和路径边界内逐步执行整理材料、读取文本、判断赛道、生成画像、抽取声明、匹配证据、检查一致性、执行规则、计算评分、生成补证任务和修复计划，每一步都把真实中间结果流式回报到会话流，不再使用界面层伪造的进度。步骤序列的唯一真相源在 `contest_core` 的 `StagedAuditEngine`，批处理入口 `AuditEngine` 与会话入口共享同一序列。
-
-授权 LLM 后支持混合研判：LLM 先基于审计上下文给出风险判断和评分建议，`AdvisoryReconciler` 用确定性规则和证据逐条校验，命中规则/证据的判为已印证、无依据的判为待核实、与确定性结论矛盾的判为冲突并降级；最终可信评分仍取 `TrustScoreCalculator` 的确定性结果，LLM 建议评分只用于对比解释。
-
-智能体会话能力必须绑定 AuditSession、规则结果、证据状态和补证任务。授权 LLM 时，项目导入首先进入 Brain 循环，Brain 必须调用 `run_project_audit`；该工具建立隔离副本并执行完整确定性流水线，随后把阶段观察和强类型 `AuditResult` 交回 Brain。审计完成前其他项目读取工具会被拒绝，完成后 Brain 才能翻阅项目副本、搜索文本、读取材料、读取源码、检查压缩包/代码包条目或生成工作区产物。
-
-Composer 使用收敛后的命令协议：`/audit` 运行缺点评审，`/agent <任务>` 或 `/task <任务>` 提交智能体任务，`/optimize [目标]` 明确启动安全副本修改和二次审计，`/status` 查看会话状态，`/compact` 压缩上下文，`/clear` 新建会话，`/help` 查看命令。普通自然语言输入不会被关键词猜测成写入操作。
-
-每次智能体任务都会形成结构化 turn：`AgentPlan`、单步 Brain decision、工具调用、`AgentObservation`、`AgentEvent` 和 JSON trace。授权 LLM 时，Brain 会在工作线程中基于对话历史、observations、工具 schema、文件格式元数据和当前权限模式决定继续调用一个工具或最终回答；调用失败会明确停止并允许重试，不会静默伪装成本地回答。只有未配置 Brain 时才运行本地诊断或确定性审计。
-
-LLM 环境变量：
+也可以在启动时直接导入并审计项目：
 
 ```bash
-export LLM_API_KEY="..."
-export LLM_BASE_URL="https://你的服务地址/v1"
-export LLM_MODEL="<你的账号可用的模型 ID>"
-
-# 或使用厂商变量：
-export ANTHROPIC_AUTH_TOKEN="..."
-export ANTHROPIC_BASE_URL="https://example.com"
-export ANTHROPIC_MODEL="<你的账号可用的模型 ID>"
-
-export OPENAI_API_KEY="..."
-export OPENAI_BASE_URL="https://api.openai.com"
-export OPENAI_MODEL="<你的账号可用的模型 ID>"
-
-export DEEPSEEK_API_KEY="..."
-export DEEPSEEK_BASE_URL="https://api.deepseek.com"
-export DEEPSEEK_MODEL="<你的账号可用的模型 ID>"
+./build/debug/contest-workbench --project /path/to/project
 ```
 
-`*_BASE_URL` 可以是 base URL，也可以直接是 `/v1/messages` 或 `/v1/chat/completions` endpoint。模型 ID 可由对应的 `*_MODEL`/`LLM_MODEL` 提供，也可在 Workbench 中按当前 endpoint 与凭证读取 provider 的 `/models` 目录后选择；不提供模型目录的兼容代理仍可手动输入任意模型 ID。系统不使用模型名白名单或固定厂商优先级；同时存在多家厂商凭证时需设置 `LLM_PROVIDER=anthropic|openai|deepseek`。Workbench 根据 endpoint 协议选择请求格式与认证头，只显示密钥掩码，不把 env key 回显到 QML 文本框。endpoint、模型和 key 通过校验后自动启用联网模型，没有额外确认开关；配置缺失或无效时保持本地模式。
+仓库内置完整演示材料：
 
-## 输入安全
+```bash
+./build/debug/contest-workbench \
+  --project examples/full_competition_project_test_package
+```
 
-支持项目目录、任意单文件，以及 `.zip/.tar/.tgz/.tar.gz/.gz/.bz2/.xz/.zst/.7z` 等可安全解析的材料包；可识别但暂不支持展开的归档仍会作为元数据资产接入。导入采用逐文件能力降级：超大、深路径、链接、加密、嵌套、未知或预算外文件保留路径、大小、格式和原因，其余文件继续进入 `.workspaces/<session_id>/input/`。只有路径穿越、重复目标、文件/目录冲突、压缩炸弹和损坏归档等安全或完整性问题会阻断整个输入。
+## 使用流程
 
-zip 读取由 C++/ZLIB 的 `ZipArchiveReader` 完成，不调用 shell 或外部 `unzip`。非 zip 压缩包由 `LibArchiveReader` 调用 libarchive 解析，不执行压缩包内任何内容。文件格式由扩展名与有界内容签名共同识别，覆盖源码、文档、图片、音视频、模型、3D、归档、常见二进制和未知扩展；未载入内容的资产永远不会被误当成可审计证据。PDF 文本抽取由 `PdfContentStreamParser` 保守解析已有内容流，不调用 `pdftotext`；扫描件或复杂编码会显式标记为 NEED_REVIEW。目录导入先建立隔离副本，智能体只可对用户已选择的延迟文本执行有界只读采样，绝不修改原始项目。
+1. 点击“添加项目”、拖入材料，或在 composer 中粘贴本地路径。
+2. 平台建立隔离副本并自动执行分阶段审计。
+3. 在会话结论中先处理红色的“必须处理”，再处理黄色的“需要关注”。
+4. 打开“完整检查结果”查看资产、画像、证据、一致性、问题和修改任务。
+5. 如需生成修订稿，切换到 Code 模式后执行 `/optimize`；原项目不会被修改。
+6. 重新审计修订副本，查看修改前后差分并导出报告。
 
-## 验收
+常用命令：
+
+| 命令 | 作用 |
+|---|---|
+| `/audit` | 重新运行确定性审计 |
+| `/agent <任务>` | 提交智能体任务 |
+| `/optimize [目标]` | 在安全副本中生成修订稿并复审 |
+| `/status` | 查看当前会话状态 |
+| `/compact` | 压缩会话上下文 |
+| `/clear` | 新建会话 |
+| `/help` | 显示命令帮助 |
+
+## 架构
+
+```text
+contest-workbench  Qt/QML 界面、会话交互、结果展示与导出入口
+        │
+contest_llm        可选 LLM 请求、模型目录、Brain 循环与建议校验
+        │
+contest_agent      工具注册、权限门控、Hooks、会话与分阶段编排
+        │
+contest_core       导入、识别、抽取、画像、证据、规则、评分、修复与报告
+        │
+JSON rule packs    多赛道可配置审计规则
+```
+
+核心业务逻辑不放在 QML 或 Controller 中。`contest_core` 不链接 LLM/OpenSSL；网络能力独立位于 `contest_llm`。LLM 建议必须经过规则和证据校验，不能覆盖确定性评分。
+
+## LLM 配置（可选）
+
+没有 API Key 时，全部本地审计能力仍可使用，并且不会联网。
+
+```bash
+export OPENAI_API_KEY="..."
+export OPENAI_BASE_URL="https://api.openai.com"
+export OPENAI_MODEL="<可用模型 ID>"
+
+# 或统一兼容配置
+export LLM_API_KEY="..."
+export LLM_BASE_URL="https://example.com/v1"
+export LLM_MODEL="<可用模型 ID>"
+```
+
+同时配置多家服务时，通过 `LLM_PROVIDER=anthropic|openai|deepseek` 指定服务。密钥只保存在运行时内存中，不写入源码、报告或交付包。
+
+## 质量保证
 
 ```bash
 ./tools/acceptance.sh
 ./tools/quality.sh
 ```
 
-脚本会执行：
+检查范围包括：
 
-- CMake configure/build；
-- 单元测试；
-- clang-format dry-run；
-- clang-tidy 核心模块检查；
-- AddressSanitizer / UBSan Debug 构建和单测；
-- Workbench 会话页结构检查；
-- 模块边界检查；
-- 固定依赖 smoke test。
+- GCC Debug 严格警告构建（`-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Werror`）；
+- Clang ASan/UBSan 严格警告构建；
+- 单元测试与固定依赖 smoke test；
+- clang-format 和 clang-tidy；
+- 全量 QML 静态检查与无界面启动检查；
+- 系统依赖路径检查，禁止构建缓存和编译命令引用 Conda；
+- 模块边界、归档安全、Workbench 结构和交付内容验收。
 
-需求落实矩阵见 `docs/REQUIREMENT_AUDIT.md`。
+## 安全边界
+
+- 所有输入先进入 `.workspaces/<session_id>/input/` 隔离副本。
+- 拒绝路径穿越、重复目标、文件/目录冲突、压缩炸弹和损坏归档。
+- 超大、过深、加密、嵌套或预算外文件保留元数据并明确降级，不伪装成已审计。
+- 不调用 shell `unzip`、`pdftotext` 或项目内脚本处理不可信输入。
+- 不生成虚假用户、营收、合作、专利、实验结果或市场数据。
+- Code 模式也只修改安全工作副本。
+
+## 文档与目录
+
+```text
+apps/contest-workbench/   Qt/QML 桌面端
+include/cc/               公共 C++ 接口
+src/                      Core、Agent、LLM 实现
+rules/                    多赛道 JSON 规则包
+tests/                    单元测试与依赖测试
+examples/                 完整演示包和各赛道问题案例
+tools/                    验收、质量检查和打包脚本
+docs/                     需求、架构、规范、安全与验收文档
+```
+
+保留的详细文档：
+
+- `docs/02_functional_requirements.md`：功能规格
+- `docs/03_architecture_and_directory_tree.md`：架构与目录边界
+- `docs/06_cpp_engineering_and_comment_style.md`：C++ 工程规范
+- `docs/07_rule_pack_spec.md`：规则包规范
+- `docs/08_security_model.md`：安全与权限模型
+- `docs/09_test_and_acceptance.md`：测试和验收方案
+- `docs/REQUIREMENT_AUDIT.md`：需求落实矩阵
 
 ## 打包
 
@@ -116,59 +179,4 @@ zip 读取由 C++/ZLIB 的 `ZipArchiveReader` 完成，不调用 shell 或外部
 ./tools/package_release.sh
 ```
 
-输出 TGZ 包位于项目根目录，包含 Workbench、规则包、示例项目、tools、docs 和 README。
-
-## 规则包
-
-规则文件位于 `rules/`：
-
-- `common_rules.json`
-- `business_innovation_rules.json`
-- `software_project_rules.json`
-- `research_project_rules.json`
-- `social_practice_rules.json`
-- `ecommerce_rules.json`
-
-每条规则必须包含 `rule_id`、中文说明、触发条件、失败原因和补证任务。
-
-## Agent Brain 安全边界
-
-- endpoint、模型和 key 通过校验后自动进入联网 Brain 模式；缺少有效配置时不联网、不调用 LLM；
-- API key 不写入审计报告或交付包；
-- Brain 负责逐步生成结构化工具决策，AgentRuntime 负责权限检查、路径边界、格式识别和工具执行；
-- Brain 可在授权后读取审计摘要、rule_id、风险项、证据状态、补证任务和项目副本中的文本、Markdown、源码、配置和压缩包目录；
-- Markdown 修订默认写入会话工作区，不覆盖原项目；
-- Brain 不能推翻 RuleEngine、EvidenceMatcher 和 TrustScoreCalculator 的最终结果；
-- 混合研判中 LLM 可先给出风险判断和评分建议，但每条研判都要经 `AdvisoryReconciler` 与确定性规则/证据校验，冲突项降级并标注；最终可信评分仍由确定性 TrustScoreCalculator 裁决，LLM 建议评分只用于对比解释。
-
-## 当前可复核能力
-
-- 项目目录、zip 和 libarchive 支持压缩包导入；
-- 目录导入复制到隔离工作区并记录 ProjectContext/input_files/unpack_status；
-- PASI 资产语义识别；
-- 资产 MIME、语言、重要性、生成物、第三方和敏感标记导出；
-- 敏感文件、生成物、第三方依赖识别；
-- Markdown/TXT/CSV/源码文本抽取；
-- JSON/YAML 结构键和值抽取；
-- docx/pptx/xlsx OpenXML 基础文本抽取，复用内部 ZipArchiveReader 读取 XML；
-- OpenXML XML 节点文本由 pugixml 解析；
-- PDF 可抽取文本读取，扫描件标记 NEED_REVIEW；
-- 竞赛类型识别；
-- CompetitionTypeResult 置信度和判断理由；
-- CPIR 构建；
-- 声明抽取；
-- 声明和证据匹配；
-- 材料一致性审计；
-- JSON 规则引擎；
-- 可信评分和可信债务；
-- 补证任务和修复计划；
-- 会话结论会把规则状态翻译成自然中文、合并重复原因与补证任务，内部抽取状态只保留在可复核数据中；
-- diff-first 修复产物；
-- Markdown/JSON 报告；
-- 二次审计 diff；
-- AuditEngine、EvidenceGraph、AuditSessionStore 和 ProjectMemory/project_rules.json；
-- `contest_agent` 独立 target，agentic runtime 不编译进 `contest_core`；
-- 按赛道 JSON 规则包（common/business/ecommerce/software/research/social）驱动的 RuleEngine 风险研判；
-- Anthropic 和 OpenAI-compatible 可选 LLM Brain，支持通用或厂商 env/UI key、endpoint/model 配置、按凭证动态读取模型目录、有效配置自动联网和工具循环 trace；
-- 权限和 Hook 清单；
-- Workbench 会话工作区首屏，展示项目上下文、会话历史、composer、slash commands、受控工具观察和检查结果；结果页统一使用响应式卡片，支持材料点击预览、差分文件选择和原生报告保存对话框，技术 trace 默认折叠。
+命令会在项目根目录生成可交付的 TGZ 包，包含 Workbench、规则包、示例、工具、文档和 README。

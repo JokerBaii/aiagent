@@ -15,6 +15,7 @@
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QtQml/qqmlregistration.h>
 
 #include <atomic>
 #include <memory>
@@ -23,6 +24,8 @@
 
 class CompileController : public QObject {
     Q_OBJECT
+    QML_ELEMENT
+    QML_ADDED_IN_VERSION(1, 0)
     Q_PROPERTY(QString projectPath READ projectPath WRITE setProjectPath NOTIFY projectPathChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(bool hasAuditResult READ hasAuditResult NOTIFY resultChanged)

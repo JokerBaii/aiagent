@@ -38,7 +38,9 @@ constexpr std::size_t kArchiveProbeBytes = 512U;
     const auto extension = util::lowerAscii(path.extension().string());
     const auto filename = util::lowerAscii(path.filename().string());
     if (extension == ".zip" || extension == ".apk" || extension == ".jar" || extension == ".war" ||
-        extension == ".ear" || extension == ".whl") {
+        extension == ".ear" || extension == ".whl" || extension == ".nupkg" ||
+        extension == ".xpi" || extension == ".vsix" || extension == ".ipa" || extension == ".aab" ||
+        extension == ".aar" || extension == ".egg") {
         return ArchiveFormat::Zip;
     }
     if (extension == ".gz" || extension == ".tgz" || filename.ends_with(".tar.gz")) {
@@ -272,7 +274,9 @@ bool ArchiveExtractor::isSupportedArchivePath(const std::filesystem::path& path)
            extension == ".zst" || extension == ".cpio" || extension == ".ar" ||
            extension == ".deb" || extension == ".apk" || extension == ".jar" ||
            extension == ".war" || extension == ".ear" || extension == ".whl" ||
-           filename.ends_with(".tar.gz") || filename.ends_with(".tar.bz2") ||
+           extension == ".nupkg" || extension == ".xpi" || extension == ".vsix" ||
+           extension == ".ipa" || extension == ".aab" || extension == ".aar" ||
+           extension == ".egg" || filename.ends_with(".tar.gz") || filename.ends_with(".tar.bz2") ||
            filename.ends_with(".tar.xz") || filename.ends_with(".tar.zst");
 }
 

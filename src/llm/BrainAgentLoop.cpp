@@ -5,6 +5,7 @@
 
 #include "cc/llm/BrainAgentLoop.hpp"
 
+#include "cc/agent/AgentPermissionPolicy.hpp"
 #include "cc/agent/AgentRuntime.hpp"
 #include "cc/agent/AgentTraceSerializer.hpp"
 #include "cc/agent/ToolRegistry.hpp"
@@ -18,15 +19,32 @@ namespace cc {
 namespace {
 
 [[nodiscard]] bool requestCancelled(const AgentRunRequest& request) {
-    return request.isCancelled && request.isCancelled();
+    if (!request.isCancelled) {
+        return false;
+    }
+    try {
+        return request.isCancelled();
+    } catch (...) {
+        return true;
+    }
+}
+
+[[nodiscard]] bool retryableDecisionFailure(const std::string& error) {
+    for (const auto marker : {"取消", "401", "403", "API key", "provider", "endpoint",
+                              "未启用 DeepSeek", "请求预算", "最大工具步数"}) {
+        if (error.find(marker) != std::string::npos) {
+            return false;
+        }
+    }
+    return true;
 }
 
 [[nodiscard]] AgentEvent decisionEvent(const AgentDecision& decision, std::size_t step) {
     return AgentEvent{.kind = AgentEventKind::Plan,
                       .role = "计划",
-                      .text = decision.summary.empty() ? "Brain 已选择下一步工具调用"
+                      .text = decision.summary.empty() ? "DeepSeek 已选择下一步工具调用"
                                                        : decision.summary,
-                      .context = "LLM Brain step " + std::to_string(step),
+                      .context = "DeepSeek step " + std::to_string(step),
                       .payload = JsonValue::Object{{"action", toString(decision.kind)},
                                                    {"call", agentToolCallJson(decision.call)}}};
 }
@@ -46,6 +64,16 @@ namespace {
                                   (observation.toolName == "apply_repaired_text_edit" ||
                                    observation.toolName == "create_repaired_text_file");
                        });
+}
+
+[[nodiscard]] std::vector<AgentToolSpec> availableTools(const AgentRunRequest& request) {
+    std::vector<AgentToolSpec> available;
+    for (auto& tool : ToolRegistry{}.interactiveToolSpecs()) {
+        if (AgentPermissionPolicy{}.authorize(request, tool.permission).ok()) {
+            available.push_back(std::move(tool));
+        }
+    }
+    return available;
 }
 
 [[nodiscard]] bool hasSuccessfulProjectRead(const AgentRunResult& result) {
@@ -100,24 +128,53 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
         return Result<AgentRunResult>::failure("智能体最大工具步数必须在 1 到 256 之间");
     }
     AgentRunResult result;
-    result.plan.summary = "LLM Brain 迭代工具循环：每一步基于已有观察选择一个受控工具，"
+    result.plan.summary = "DeepSeek 原生工具循环：每一步基于已有观察选择一个受控工具，"
                           "或在信息足够时给出最终回答。";
     const auto stepLimit = maxSteps;
-    const auto tools = ToolRegistry{}.interactiveToolSpecs();
     AgentRuntime runtime;
     auto activeRequest = request;
     std::optional<AuditResult> ownedBaseline;
     std::string previousCallSignature;
     std::size_t consecutiveIdenticalCalls = 0U;
-    bool previousCallSucceeded = false;
 
     for (std::size_t step = 1U; step <= stepLimit; ++step) {
         if (requestCancelled(activeRequest)) {
             return Result<AgentRunResult>::failure("智能体任务已取消");
         }
-        auto decision = decide(activeRequest, result, tools);
+        const auto tools = availableTools(activeRequest);
+        if (tools.empty()) {
+            return Result<AgentRunResult>::failure("当前权限模式没有可供 DeepSeek 调用的工具");
+        }
+        constexpr std::size_t kMaximumDecisionAttempts = 3U;
+        Result<AgentDecision> decision = Result<AgentDecision>::failure("尚未请求模型决策");
+        for (std::size_t attempt = 1U; attempt <= kMaximumDecisionAttempts; ++attempt) {
+            decision = decide(activeRequest, result, tools);
+            if (decision.ok()) {
+                break;
+            }
+            if (requestCancelled(activeRequest)) {
+                return Result<AgentRunResult>::failure("智能体任务已取消");
+            }
+            if (!retryableDecisionFailure(decision.error())) {
+                break;
+            }
+            if (attempt < kMaximumDecisionAttempts) {
+                // Feed native response validation/transport failures back into the next request
+                // without consuming an agent tool step.
+                result.observations.push_back(AgentObservation{
+                    .callId =
+                        "decision_retry_" + std::to_string(step) + "_" + std::to_string(attempt),
+                    .toolName = "model_decision_validation",
+                    .ok = false,
+                    .summary = "上一次 DeepSeek 响应不可用，请重新选择一个原生工具或给出最终文本",
+                    .output = JsonValue::Object{{"attempt", static_cast<double>(attempt)},
+                                                {"validation_error", decision.error()}}});
+                result.trace = agentRunTraceJson(result);
+            }
+        }
         if (!decision.ok()) {
-            return Result<AgentRunResult>::failure(decision.error());
+            return Result<AgentRunResult>::failure("智能助手在自动重试后仍无法生成有效决策: " +
+                                                   decision.error());
         }
         if (decision.value().kind == AgentDecisionKind::FinalAnswer) {
             if (activeRequest.requireAudit && activeRequest.auditResult == nullptr) {
@@ -154,7 +211,7 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
                 result.trace = agentRunTraceJson(result);
                 continue;
             }
-            setAgentFinalAnswer(result, decision.value().finalAnswer, "Brain final answer");
+            setAgentFinalAnswer(result, decision.value().finalAnswer, "DeepSeek final answer");
             if (observe) {
                 observe(result.events.back());
             }
@@ -168,9 +225,7 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
         }
         const auto callSignature = call.name + "\n" + writeJson(call.input, 0);
         if (callSignature == previousCallSignature) {
-            // Invalid/rejected calls have not made progress. They must remain recoverable model
-            // feedback instead of tripping the circuit breaker intended for repeated successes.
-            consecutiveIdenticalCalls = previousCallSucceeded ? consecutiveIdenticalCalls + 1U : 1U;
+            ++consecutiveIdenticalCalls;
         } else {
             previousCallSignature = callSignature;
             consecutiveIdenticalCalls = 1U;
@@ -180,19 +235,27 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
                 "智能助手连续三次选择完全相同的工具和参数，已停止无效循环: " + call.name);
         }
         if (consecutiveIdenticalCalls == 2U) {
-            AgentObservation repeated{.callId = call.id,
-                                      .toolName = call.name,
-                                      .ok = false,
-                                      .summary =
-                                          "相同工具和参数刚刚已经执行，请根据已有结果选择下一步",
-                                      .output = JsonValue::Object{{"reason", "duplicate_call"}}};
+            // Keep the rejected native tool call in the in-memory transcript so DeepSeek thinking
+            // mode receives its reasoning_content/tool_calls block together with this tool result.
+            result.plan.calls.push_back(call);
+            const auto tool = std::find_if(tools.begin(), tools.end(), [&](const auto& spec) {
+                return spec.name == call.name;
+            });
+            AgentObservation repeated{
+                .callId = call.id,
+                .toolName = call.name,
+                .ok = false,
+                .summary = "相同工具和参数刚刚已经执行，请根据已有结果选择下一步",
+                .output =
+                    JsonValue::Object{{"reason", "duplicate_call"},
+                                      {"input_schema", tool == tools.end() ? JsonValue::Object{}
+                                                                           : tool->inputSchema}}};
             result.observations.push_back(repeated);
             result.events.push_back(toolEvent(repeated));
             if (observe) {
                 observe(result.events.back());
             }
             result.trace = agentRunTraceJson(result);
-            previousCallSucceeded = true;
             continue;
         }
         result.plan.calls.push_back(call);
@@ -214,7 +277,6 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
                 observe(result.events.back());
             }
             result.trace = agentRunTraceJson(result);
-            previousCallSucceeded = false;
             continue;
         }
 
@@ -236,7 +298,6 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
                 observe(result.events.back());
             }
             result.trace = agentRunTraceJson(result);
-            previousCallSucceeded = false;
             continue;
         }
 
@@ -255,9 +316,7 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
             return Result<AgentRunResult>::failure(execution.error());
         }
         std::size_t observationIndex = 0U;
-        bool executionSucceeded = false;
         for (auto& observation : execution.value().observations) {
-            executionSucceeded = executionSucceeded || observation.ok;
             result.observations.push_back(observation);
             result.events.push_back(toolEvent(observation));
             if (observe && observationIndex >= streamedObservations) {
@@ -265,7 +324,6 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
             }
             ++observationIndex;
         }
-        previousCallSucceeded = executionSucceeded;
         if (execution.value().auditResult.has_value()) {
             result.auditResult = std::move(execution.value().auditResult);
             activeRequest.auditResult = &(*result.auditResult);
@@ -273,7 +331,6 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
                 ownedBaseline = *result.auditResult;
                 activeRequest.baselineAuditResult = &(*ownedBaseline);
             }
-            activeRequest.projectRoot = result.auditResult->context.inputRoot;
             activeRequest.workspaceRoot = execution.value().auditDiff.has_value()
                                               ? activeRequest.workspaceRoot
                                               : result.auditResult->context.workspaceRoot / "agent";
@@ -287,7 +344,7 @@ Result<AgentRunResult> BrainAgentLoop::runWithDecisionProvider(const AgentRunReq
 
     if (request.requireAudit && !result.auditResult.has_value()) {
         return Result<AgentRunResult>::failure(
-            "Brain 在最大步数内没有调用必需的 run_project_audit 工具");
+            "DeepSeek 在最大步数内没有调用必需的 run_project_audit 工具");
     }
     const auto incomplete = incompleteWorkflowReason(activeRequest, result);
     if (!incomplete.empty()) {

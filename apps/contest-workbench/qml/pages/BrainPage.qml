@@ -22,8 +22,8 @@ Item {
             spacing: 12
 
             SectionTitle {
-                title: "智能辅助检查（可选）"
-                subtitle: "本地规则检查无需配置；这里只用于补充解释和阅读建议"
+                title: "DeepSeek 智能体配置"
+                subtitle: "使用原生工具调用完成项目阅读、修改、命令执行和结果解释"
             }
 
             Card {
@@ -36,7 +36,7 @@ Item {
                     FieldInput {
                         Layout.fillWidth: true
                         text: root.compiler.llmEndpoint
-                        placeholderText: "https://服务地址/v1/chat/completions 或 /v1/messages"
+                        placeholderText: "https://api.deepseek.com/chat/completions"
                         onTextEdited: root.compiler.llmEndpoint = text
                     }
 
@@ -44,7 +44,7 @@ Item {
                     FieldInput {
                         Layout.fillWidth: true
                         text: root.compiler.llmModel
-                        placeholderText: "输入该服务支持的模型 ID"
+                        placeholderText: "输入 DeepSeek 模型 ID"
                         onTextEdited: root.compiler.llmModel = text
                     }
 
@@ -62,7 +62,6 @@ Item {
                         Layout.fillWidth: true
                         enabled: !root.compiler.llmModelsLoading
                                  && !root.compiler.agentRunning
-                                 && !root.compiler.advisoryRunning
                         text: root.compiler.llmModelsLoading ? "正在获取可用模型…" : "按当前凭证获取模型"
                         onClicked: root.compiler.refreshLlmModels()
                     }
@@ -92,7 +91,9 @@ Item {
                             anchors.fill: parent
                             anchors.margins: 10
                             text: root.compiler.llmConfigured
-                                  ? "配置有效，后续项目任务默认联网使用该模型。原始项目不会被修改，最终分数仍以本地规则检查为准。"
+                                  ? (root.compiler.accessMode === "full"
+                                     ? "配置有效；完全访问模式下智能体拥有文件、命令和网络等全部权限。"
+                                     : "配置有效，后续项目任务默认联网使用该模型。原始项目不会被修改，最终分数仍以本地规则检查为准。")
                                   : "配置完整且有效后自动启用联网模型；未配置时使用本地规则检查。"
                             color: Theme.textPrimary
                             font.pixelSize: Theme.fontSm
@@ -125,36 +126,11 @@ Item {
 
                     PrimaryButton {
                         Layout.fillWidth: true
-                        enabled: !root.compiler.agentRunning && !root.compiler.advisoryRunning
+                        enabled: !root.compiler.agentRunning
                         text: root.compiler.llmConfigured ? "开始智能检查" : "运行本地规则检查"
                         onClicked: root.compiler.runBrainTask(brainTask.text)
                     }
 
-                    Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Theme.border }
-
-                    Text {
-                        text: "再听一个模型意见（可选）"
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fontSm
-                        font.bold: true
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: "模型会再看一遍现有结果，但最终分数仍以本地规则和证明材料为准。"
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontXs
-                        wrapMode: Text.WordWrap
-                    }
-                    PrimaryButton {
-                        Layout.fillWidth: true
-                        enabled: root.compiler.hasAuditResult && root.compiler.llmConfigured
-                                 && !root.compiler.advisoryRunning && !root.compiler.agentRunning
-                        text: root.compiler.advisoryRunning ? "正在复核…"
-                              : !root.compiler.hasAuditResult ? "先完成项目检查"
-                              : !root.compiler.llmConfigured ? "先配置模型"
-                              : "让模型再复核一次"
-                        onClicked: root.compiler.runAdvisory()
-                    }
                 }
             }
             Item { Layout.fillHeight: true }
@@ -165,92 +141,6 @@ Item {
             Layout.fillHeight: true
             spacing: 12
 
-            SectionTitle {
-                title: "辅助判断"
-                subtitle: root.compiler.advisory.available ? root.compiler.advisory.summary : "需要时可以让模型给出第二意见"
-            }
-            Card {
-                Layout.fillWidth: true
-                visible: root.compiler.advisory.available
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 10
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 10
-                        Pill {
-                            text: "最终 " + root.compiler.advisory.finalScore + " 分"
-                            bg: Theme.accentSoft
-                            fg: Theme.accentActive
-                        }
-                        Pill {
-                            visible: root.compiler.advisory.suggestedScore > 0
-                            text: "模型建议 " + root.compiler.advisory.suggestedScore + " 分"
-                            bg: Theme.surfaceMuted
-                            fg: Theme.textSecondary
-                        }
-                        Pill {
-                            text: "印证 " + root.compiler.advisory.confirmedCount
-                            bg: Theme.successSoft
-                            fg: Theme.success
-                        }
-                        Pill {
-                            visible: root.compiler.advisory.conflictingCount > 0
-                            text: "冲突 " + root.compiler.advisory.conflictingCount
-                            bg: Theme.dangerSoft
-                            fg: Theme.danger
-                        }
-                        Item { Layout.fillWidth: true }
-                    }
-                    Repeater {
-                        model: root.compiler.advisory.items
-                        delegate: Rectangle {
-                            id: advisoryDelegate
-                            required property var modelData
-
-                            Layout.fillWidth: true
-                            implicitHeight: advCol.implicitHeight + 18
-                            radius: Theme.radiusSm
-                            color: advisoryDelegate.modelData.verdict === "conflicting" ? Theme.dangerSoft
-                                 : advisoryDelegate.modelData.verdict === "confirmed" ? Theme.successSoft
-                                 : Theme.surfaceMuted
-                            ColumnLayout {
-                                id: advCol
-                                x: 12; y: 9
-                                width: parent.width - 24
-                                spacing: 3
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text {
-                                        text: advisoryDelegate.modelData.title
-                                        color: Theme.textPrimary
-                                        font.pixelSize: Theme.fontMd
-                                        font.bold: true
-                                    }
-                                    Item { Layout.fillWidth: true }
-                                    Text {
-                                        text: advisoryDelegate.modelData.verdict === "confirmed" ? "已印证"
-                                            : advisoryDelegate.modelData.verdict === "conflicting" ? "与规则冲突"
-                                            : "待核实"
-                                        color: advisoryDelegate.modelData.verdict === "confirmed" ? Theme.success
-                                             : advisoryDelegate.modelData.verdict === "conflicting" ? Theme.danger
-                                             : Theme.textMuted
-                                        font.pixelSize: Theme.fontXs
-                                        font.bold: true
-                                    }
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: advisoryDelegate.modelData.reconciliation
-                                    color: Theme.textSecondary
-                                    font.pixelSize: Theme.fontSm
-                                    wrapMode: Text.WordWrap
-                                }
-                            }
-                        }
-                    }
-                }
-            }
 
             SectionTitle { title: "智能助手的回答" }
             Card {

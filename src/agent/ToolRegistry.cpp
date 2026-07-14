@@ -14,11 +14,11 @@
 namespace cc {
 namespace {
 
-constexpr int kMaxListedFiles = 200;
-constexpr int kMaxReadBytes = 64 * 1024;
-constexpr int kMaxArchiveEntries = 200;
-constexpr int kMaxSearchFiles = 200;
-constexpr int kMaxSearchMatches = 100;
+constexpr int kMaxListedFiles = 1000;
+constexpr int kMaxReadBytes = 256 * 1024;
+constexpr int kMaxArchiveEntries = 1000;
+constexpr int kMaxSearchFiles = 1000;
+constexpr int kMaxSearchMatches = 500;
 constexpr int kMaxQueryBytes = 512;
 constexpr int kMaxPathBytes = 4096;
 constexpr int kMaxInstructionBytes = 16 * 1024;
@@ -50,6 +50,11 @@ constexpr int kMaxEditOccurrences = 100;
                              {"description", description},
                              {"minLength", minimumLength},
                              {"maxLength", maximumLength}};
+}
+
+[[nodiscard]] JsonValue unboundedStringProperty(const std::string& description, int minimumLength) {
+    return JsonValue::Object{
+        {"type", "string"}, {"description", description}, {"minLength", minimumLength}};
 }
 
 [[nodiscard]] JsonValue objectSchema(JsonValue::Object properties, JsonValue::Array required = {}) {
@@ -155,7 +160,7 @@ std::vector<AgentToolSpec> ToolRegistry::interactiveToolSpecs() const {
     return {
         spec("run_project_audit",
              "运行完整的确定性项目审计：建立隔离副本，依次整理材料、抽取文本和声明、"
-             "匹配证据、检查一致性、执行规则、计算评分并生成补证任务；首次项目评审必须调用",
+             "匹配证据、检查一致性、执行规则、计算评分并生成补证任务；不影响原路径直接读取",
              ToolPermission::ReadProjectFiles, emptyObjectSchema(),
              objectSchema({{"summary", property("string", "确定性审计摘要")},
                            {"score", property("number", "规则引擎计算的可信评分")},
@@ -164,7 +169,7 @@ std::vector<AgentToolSpec> ToolRegistry::interactiveToolSpecs() const {
         spec("summarize_audit_session", "读取当前审计会话摘要、风险、证据缺口和补证任务",
              ToolPermission::ReadProjectFiles, emptyObjectSchema(),
              objectSchema({{"summary", property("string", "面向用户的审计上下文摘要")}})),
-        spec("list_project_files", "枚举允许读取的项目副本文件，用于让 Brain 自动翻阅材料",
+        spec("list_project_files", "直接枚举用户选择的原项目文件，用于让 DeepSeek 自动翻阅材料",
              ToolPermission::ReadProjectFiles,
              objectSchema(
                  {{"max_files", integerProperty("最多返回文件数量，默认 80", 1, kMaxListedFiles)}}),
@@ -182,7 +187,7 @@ std::vector<AgentToolSpec> ToolRegistry::interactiveToolSpecs() const {
                            {"can_inspect_archive",
                             property("boolean", "是否可用 inspect_archive 查看包内容")},
                            {"suggested_tool", property("string", "建议下一步工具")}})),
-        spec("read_text_file", "读取项目副本中的文本、代码或结构化配置文件片段",
+        spec("read_text_file", "直接读取原项目中的文本、代码或结构化配置文件片段",
              ToolPermission::ReadProjectFiles,
              objectSchema(
                  {{"path", stringProperty("项目内相对路径", 1, kMaxPathBytes)},
@@ -215,7 +220,7 @@ std::vector<AgentToolSpec> ToolRegistry::interactiveToolSpecs() const {
                            {"safe_to_extract",
                             property("boolean", "是否未发现路径穿越、符号链接或嵌套压缩包")},
                            {"supported", property("boolean", "是否为当前 reader 可枚举格式")}})),
-        spec("search_project_text", "在项目副本文本文件中搜索关键词，返回命中的路径和行号",
+        spec("search_project_text", "在原项目文本文件中搜索关键词，返回命中的路径和行号",
              ToolPermission::ReadProjectFiles,
              objectSchema(
                  {{"query", stringProperty("要搜索的文本关键词", 1, kMaxQueryBytes)},
@@ -273,16 +278,17 @@ std::vector<AgentToolSpec> ToolRegistry::interactiveToolSpecs() const {
              objectSchema({{"summary", property("string", "二次审计差分摘要")},
                            {"old_score", property("number", "修复前评分")},
                            {"new_score", property("number", "修复后评分")}})),
-        spec("draft_markdown_revision", "基于读取到的 Markdown 生成工作区修订稿，不覆盖原项目文件",
-             ToolPermission::WriteWorkspace,
-             objectSchema({{"path", stringProperty("项目内 Markdown 相对路径", 1, kMaxPathBytes)},
-                           {"instruction", stringProperty("修订目标", 0, kMaxInstructionBytes)},
-                           {"replacement_markdown", stringProperty("可选，Brain 生成的完整替换稿",
-                                                                   0, kMaxWorkspaceContentBytes)}},
-                          JsonValue::Array{"path"}),
-             objectSchema({{"workspace_path", property("string", "修订稿写入路径")},
-                           {"preview", property("string", "修订稿预览")}})),
-        spec("write_workspace_file", "把 Brain 生成的文本、代码、配置或报告写入会话工作区",
+        spec(
+            "draft_markdown_revision", "基于读取到的 Markdown 生成工作区修订稿，不覆盖原项目文件",
+            ToolPermission::WriteWorkspace,
+            objectSchema({{"path", stringProperty("项目内 Markdown 相对路径", 1, kMaxPathBytes)},
+                          {"instruction", stringProperty("修订目标", 0, kMaxInstructionBytes)},
+                          {"replacement_markdown", stringProperty("可选，DeepSeek 生成的完整替换稿",
+                                                                  0, kMaxWorkspaceContentBytes)}},
+                         JsonValue::Array{"path"}),
+            objectSchema({{"workspace_path", property("string", "修订稿写入路径")},
+                          {"preview", property("string", "修订稿预览")}})),
+        spec("write_workspace_file", "把 DeepSeek 生成的文本、代码、配置或报告写入会话工作区",
              ToolPermission::WriteWorkspace,
              objectSchema(
                  {{"path", stringProperty("工作区内相对路径", 1, kMaxPathBytes)},
@@ -290,7 +296,35 @@ std::vector<AgentToolSpec> ToolRegistry::interactiveToolSpecs() const {
                  JsonValue::Array{"path", "content"}),
              objectSchema({{"workspace_path", property("string", "写入后的工作区路径")},
                            {"format", property("string", "根据扩展名推断的输出格式")},
-                           {"preview", property("string", "写入内容预览")}}))};
+                           {"preview", property("string", "写入内容预览")}})),
+        spec("read_external_text_file",
+             "读取用户指定的项目外绝对路径文本文件；仅扩展读取或完全访问模式可用",
+             ToolPermission::ReadExternalFiles,
+             objectSchema(
+                 {{"path", stringProperty("要读取的绝对文件路径", 1, kMaxPathBytes)},
+                  {"max_bytes", integerProperty("最多读取字节数，默认 24000", 1, kMaxReadBytes)}},
+                 JsonValue::Array{"path"}),
+             objectSchema({{"path", property("string", "已读取的绝对路径")},
+                           {"truncated", property("boolean", "内容是否已截断")},
+                           {"content", property("string", "文件内容")}})),
+        spec("write_project_file",
+             "创建或原子覆盖任意文本、源码或配置文件；相对路径基于原项目，绝对路径可写入"
+             "系统任意位置；仅完全访问模式可用",
+             ToolPermission::ModifyOriginalProject,
+             objectSchema({{"path", stringProperty("项目相对路径或系统绝对路径", 1, kMaxPathBytes)},
+                           {"content", unboundedStringProperty("完整文件内容", 0)}},
+                          JsonValue::Array{"path", "content"}),
+             objectSchema({{"path", property("string", "已写入的项目相对路径")},
+                           {"format", property("string", "文件格式")},
+                           {"preview", property("string", "写入内容预览")}})),
+        spec("execute_shell_command",
+             "通过 /bin/bash -lc 在原项目目录执行 Shell/Bash 命令，完整返回 stdout/stderr；"
+             "仅完全访问模式可用",
+             ToolPermission::ExecuteCommand,
+             objectSchema({{"command", unboundedStringProperty("要执行的 Shell/Bash 命令", 1)}},
+                          JsonValue::Array{"command"}),
+             objectSchema({{"exit_code", property("number", "命令退出码")},
+                           {"output", property("string", "完整合并的 stdout/stderr")}}))};
 }
 
 Result<void> ToolRegistry::validateInteractiveInput(const std::string& toolName,

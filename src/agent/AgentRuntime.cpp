@@ -18,11 +18,14 @@
 #include "cc/loader/PathGuard.hpp"
 #include "cc/loader/ZipArchiveReader.hpp"
 #include "cc/report/JsonReporter.hpp"
+#include "cc/text/OpenXmlTextExtractor.hpp"
+#include "cc/text/PdfTextExtractor.hpp"
 #include "cc/util/FileUtil.hpp"
 #include "cc/util/StringUtil.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -31,6 +34,14 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+
+#if defined(__unix__) || defined(__APPLE__)
+#include <fcntl.h>
+#include <poll.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 namespace cc {
 namespace {
@@ -43,18 +54,29 @@ using agent_file_policy::textContainsSecretMarker;
 using agent_file_policy::truncateText;
 
 [[nodiscard]] bool requestCancelled(const AgentRunRequest& request) {
-    return request.isCancelled && request.isCancelled();
+    if (!request.isCancelled) {
+        return false;
+    }
+    try {
+        return request.isCancelled();
+    } catch (...) {
+        return true;
+    }
+}
+
+[[nodiscard]] bool enforceSensitiveFilePolicy(const AgentRunRequest& request) {
+    return request.permissionMode != "full";
 }
 
 constexpr std::size_t kDefaultReadLimit = 12000U;
-constexpr std::size_t kMaximumReadLimit = 64U * 1024U;
+constexpr std::size_t kMaximumReadLimit = 256U * 1024U;
 constexpr std::size_t kPreviewLimit = 1200U;
 constexpr std::size_t kSearchReadLimit = 256000U;
-constexpr std::size_t kMaximumListFiles = 200U;
-constexpr std::size_t kMaximumArchiveEntries = 200U;
-constexpr std::size_t kMaximumSearchFiles = 200U;
-constexpr std::size_t kMaximumSearchMatches = 100U;
-constexpr std::size_t kMaximumTraversalEntries = 10000U;
+constexpr std::size_t kMaximumListFiles = 1000U;
+constexpr std::size_t kMaximumArchiveEntries = 1000U;
+constexpr std::size_t kMaximumSearchFiles = 1000U;
+constexpr std::size_t kMaximumSearchMatches = 500U;
+constexpr std::size_t kMaximumTraversalEntries = 100000U;
 
 [[nodiscard]] std::string pathText(const std::filesystem::path& path) {
     return path.generic_string();
@@ -150,12 +172,150 @@ constexpr std::size_t kMaximumTraversalEntries = 10000U;
     return PathGuard::normalize(target);
 }
 
+[[nodiscard]] Result<std::filesystem::path>
+resolveWritableProjectPath(const AgentRunRequest& request, const JsonValue& input) {
+    const auto relative = input.at("path").asString();
+    if (relative.empty()) {
+        return Result<std::filesystem::path>::failure("写入路径不能为空");
+    }
+    const std::filesystem::path requested{relative};
+    if (requested.is_absolute()) {
+        if (request.permissionMode != "full") {
+            return Result<std::filesystem::path>::failure("绝对路径写入仅完全访问模式可用");
+        }
+        return PathGuard::normalize(requested);
+    }
+    if (!PathGuard::isSafeArchiveEntry(relative)) {
+        return Result<std::filesystem::path>::failure("拒绝写入不安全项目路径: " + relative);
+    }
+    const auto root = readableRoot(request);
+    std::error_code ec;
+    if (std::filesystem::is_regular_file(root, ec)) {
+        if (relative != root.filename().generic_string()) {
+            return Result<std::filesystem::path>::failure(
+                "当前项目输入是单个文件，只能覆盖该文件: " + root.filename().generic_string());
+        }
+        return PathGuard::normalize(root);
+    }
+    if (!std::filesystem::is_directory(root, ec)) {
+        return Result<std::filesystem::path>::failure("原项目目录不存在或不可写");
+    }
+    const auto target = root / requested;
+    if (!PathGuard::isInsideRoot(root, target)) {
+        return Result<std::filesystem::path>::failure("拒绝写入原项目边界外路径: " + relative);
+    }
+    return PathGuard::normalize(target);
+}
+
+struct ShellCommandResult {
+    int exitCode{-1};
+    bool cancelled{false};
+    std::string output;
+};
+
+[[nodiscard]] Result<ShellCommandResult> executeBashCommand(const AgentRunRequest& request,
+                                                            const std::string& command) {
+#if defined(__unix__) || defined(__APPLE__)
+    const auto root = readableRoot(request);
+    std::error_code filesystemError;
+    const auto workingDirectory =
+        std::filesystem::is_regular_file(root, filesystemError) ? root.parent_path() : root;
+    if (workingDirectory.empty() ||
+        !std::filesystem::is_directory(workingDirectory, filesystemError)) {
+        return Result<ShellCommandResult>::failure("Shell 工作目录不存在");
+    }
+
+    int outputPipe[2] = {-1, -1};
+    if (::pipe(outputPipe) != 0) {
+        return Result<ShellCommandResult>::failure("无法创建 Shell 输出管道");
+    }
+    const auto child = ::fork();
+    if (child < 0) {
+        ::close(outputPipe[0]);
+        ::close(outputPipe[1]);
+        return Result<ShellCommandResult>::failure("无法启动 Bash 进程");
+    }
+    if (child == 0) {
+        static_cast<void>(::setpgid(0, 0));
+        ::close(outputPipe[0]);
+        static_cast<void>(::dup2(outputPipe[1], STDOUT_FILENO));
+        static_cast<void>(::dup2(outputPipe[1], STDERR_FILENO));
+        ::close(outputPipe[1]);
+        if (::chdir(workingDirectory.c_str()) != 0) {
+            ::_exit(126);
+        }
+        ::execl("/bin/bash", "bash", "-lc", command.c_str(), static_cast<char*>(nullptr));
+        ::_exit(127);
+    }
+
+    ::close(outputPipe[1]);
+    const auto currentFlags = ::fcntl(outputPipe[0], F_GETFL, 0);
+    if (currentFlags >= 0) {
+        static_cast<void>(::fcntl(outputPipe[0], F_SETFL, currentFlags | O_NONBLOCK));
+    }
+    ShellCommandResult result;
+    int childStatus = 0;
+    bool childExited = false;
+    const auto drainOutput = [&]() {
+        char buffer[4096];
+        while (true) {
+            const auto count = ::read(outputPipe[0], buffer, sizeof(buffer));
+            if (count > 0) {
+                const auto bytes = static_cast<std::size_t>(count);
+                result.output.append(buffer, bytes);
+                continue;
+            }
+            if (count < 0 && errno == EINTR) {
+                continue;
+            }
+            break;
+        }
+    };
+
+    while (!childExited) {
+        drainOutput();
+        const auto waited = ::waitpid(child, &childStatus, WNOHANG);
+        if (waited == child) {
+            childExited = true;
+            break;
+        }
+        result.cancelled = requestCancelled(request);
+        if (result.cancelled) {
+            static_cast<void>(::kill(-child, SIGKILL));
+            static_cast<void>(::kill(child, SIGKILL));
+            while (::waitpid(child, &childStatus, 0) < 0 && errno == EINTR) {
+            }
+            childExited = true;
+            break;
+        }
+        pollfd descriptor{.fd = outputPipe[0], .events = POLLIN, .revents = 0};
+        static_cast<void>(::poll(&descriptor, 1, 50));
+    }
+    drainOutput();
+    ::close(outputPipe[0]);
+    if (WIFEXITED(childStatus)) {
+        result.exitCode = WEXITSTATUS(childStatus);
+    } else if (WIFSIGNALED(childStatus)) {
+        result.exitCode = 128 + WTERMSIG(childStatus);
+    }
+    result.output = sanitizeUtf8(result.output);
+    return Result<ShellCommandResult>::success(std::move(result));
+#else
+    static_cast<void>(request);
+    static_cast<void>(command);
+    return Result<ShellCommandResult>::failure("当前平台未提供 /bin/bash，无法执行 Shell 命令");
+#endif
+}
+
 [[nodiscard]] AgentToolCall call(std::string id, std::string name, std::string reason,
                                  JsonValue input = JsonValue::Object{}) {
     return AgentToolCall{.id = std::move(id),
                          .name = std::move(name),
                          .reason = std::move(reason),
-                         .input = std::move(input)};
+                         .input = std::move(input),
+                         .rawArguments = {},
+                         .assistantContent = {},
+                         .reasoningContent = {}};
 }
 
 [[nodiscard]] bool hasRiskFlag(const ProjectAsset& asset, std::string_view flag) {
@@ -409,9 +569,11 @@ resolveDeferredOriginalFile(const AgentRunRequest& request, const ProjectAsset& 
 finalAnswerFromObservations(const AgentRunRequest& request,
                             const std::vector<AgentObservation>& observations) {
     std::ostringstream output;
-    output << "未启用 LLM Brain，本地运行时只完成了可复核的上下文收集，"
-              "没有冒充模型做语义判断或给出最终方案。";
-    if (request.auditResult != nullptr) {
+    output << "本轮已由本地运行时完成可复核的上下文收集；如果这是模型调用失败后的自动"
+              "恢复，以下工具结果仍然有效。";
+    const bool enumerateOriginal =
+        request.permissionMode == "bypass" || request.permissionMode == "full";
+    if (request.auditResult != nullptr && !enumerateOriginal) {
         output << " 已把当前审计结论作为只读上下文，没有改写评分。";
     }
     for (const auto& observation : observations) {
@@ -560,7 +722,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
         .callId = callItem.id,
         .toolName = callItem.name,
         .ok = true,
-        .summary = "已完成确定性规则审计，结果已交回 Brain 继续研判",
+        .summary = "已完成确定性规则审计，结果已交回 DeepSeek 继续分析",
         .output = JsonValue::Object{
             {"summary", summary},
             {"session_id", result.value().context.sessionId},
@@ -641,7 +803,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
     bool traversalTruncated = false;
 
     if (std::filesystem::is_regular_file(root, ec)) {
-        if (isSensitiveFile(root)) {
+        if (enforceSensitiveFilePolicy(request) && isSensitiveFile(root)) {
             return Result<AgentObservation>::success(rejectedObservation(
                 callItem, "该文件命中敏感信息策略，未向智能体暴露文件名、元数据或内容"));
         }
@@ -684,7 +846,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
         if (!PathGuard::isInsideRoot(root, iter->path())) {
             continue;
         }
-        if (isSensitiveFile(iter->path())) {
+        if (enforceSensitiveFilePolicy(request) && isSensitiveFile(iter->path())) {
             ++omittedSensitive;
             continue;
         }
@@ -722,11 +884,12 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                                                   .output = JsonValue::Object{}});
     }
     const auto* manifestAsset = findAuditAsset(request, callItem.input);
-    if (manifestAsset != nullptr && manifestAssetSensitive(*manifestAsset)) {
+    if (enforceSensitiveFilePolicy(request) && manifestAsset != nullptr &&
+        manifestAssetSensitive(*manifestAsset)) {
         return Result<AgentObservation>::success(rejectedObservation(
             callItem, "该文件命中敏感信息策略，未向智能体暴露文件名、元数据或内容"));
     }
-    if (isSensitiveFile(path.value())) {
+    if (enforceSensitiveFilePolicy(request) && isSensitiveFile(path.value())) {
         return Result<AgentObservation>::success(rejectedObservation(
             callItem, "该文件命中敏感信息策略，未向智能体暴露文件名、元数据或内容"));
     }
@@ -736,7 +899,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
             bool canReadText = false;
             auto source = resolveDeferredOriginalFile(request, *manifestAsset);
             if (source.ok()) {
-                if (isSensitiveFile(source.value())) {
+                if (enforceSensitiveFilePolicy(request) && isSensitiveFile(source.value())) {
                     return Result<AgentObservation>::success(rejectedObservation(
                         callItem, "该文件命中敏感信息策略，未向智能体暴露文件名、元数据或内容"));
                 }
@@ -768,7 +931,9 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
     const auto asset = detectProjectAsset(request, path.value());
     const bool canReadText = confirmedTextAsset(asset);
     const bool canReadExtractedDocument =
-        extractedProjectDocument(request, asset.relativePath) != nullptr;
+        asset.auditable &&
+        (isOfficeExtension(asset.extension) || asset.mime == "application/pdf" ||
+         asset.format == "docx" || asset.format == "pptx" || asset.format == "xlsx");
     const bool canInspectArchive = ArchiveExtractor::isArchivePath(path.value());
     const auto suggested = canReadText                ? "read_text_file"
                            : canReadExtractedDocument ? "read_extracted_document"
@@ -799,11 +964,12 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                                                   .output = JsonValue::Object{}});
     }
     const auto* manifestAsset = findAuditAsset(request, callItem.input);
-    if (manifestAsset != nullptr && manifestAssetSensitive(*manifestAsset)) {
+    if (enforceSensitiveFilePolicy(request) && manifestAsset != nullptr &&
+        manifestAssetSensitive(*manifestAsset)) {
         return Result<AgentObservation>::success(rejectedObservation(
             callItem, "该文件命中敏感信息策略，已拒绝读取且不会把内容发送给模型"));
     }
-    if (isSensitiveFile(path.value())) {
+    if (enforceSensitiveFilePolicy(request) && isSensitiveFile(path.value())) {
         return Result<AgentObservation>::success(rejectedObservation(
             callItem, "该文件命中敏感信息策略，已拒绝读取且不会把内容发送给模型"));
     }
@@ -855,7 +1021,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
             .output = JsonValue::Object{{"asset", requestAssetJson(request, *manifestAsset)},
                                         {"content_deferred", true}}});
     }
-    if (isSensitiveFile(source.value())) {
+    if (enforceSensitiveFilePolicy(request) && isSensitiveFile(source.value())) {
         return Result<AgentObservation>::success(rejectedObservation(
             callItem, "延迟文件的原始内容命中敏感信息策略，已拒绝读取且不会发送给模型"));
     }
@@ -889,38 +1055,49 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
 
 [[nodiscard]] Result<AgentObservation> runReadExtractedDocument(const AgentRunRequest& request,
                                                                 const AgentToolCall& callItem) {
-    if (request.auditResult == nullptr) {
-        return Result<AgentObservation>::success(
-            rejectedObservation(callItem, "请先运行项目审计，再读取文档抽取结果"));
+    auto path = resolveProjectPath(request, callItem.input);
+    if (!path.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, path.error()));
     }
-    const auto relative = std::filesystem::path{callItem.input.at("path").asString()};
-    if (!PathGuard::isSafeArchiveEntry(relative.generic_string()) ||
-        hasSensitivePathComponent(relative)) {
+    if (enforceSensitiveFilePolicy(request) && isSensitiveFile(path.value())) {
         return Result<AgentObservation>::success(
             rejectedObservation(callItem, "文档路径未通过项目边界或敏感信息策略"));
     }
-    const auto* document = extractedProjectDocument(request, relative);
-    if (document == nullptr) {
+    auto asset = detectProjectAsset(request, path.value());
+    if (!asset.auditable) {
         return Result<AgentObservation>::success(
-            rejectedObservation(callItem, "审计语料中没有该文档的可用抽取结果"));
+            rejectedObservation(callItem, "文件内容与文档格式不匹配，无法直接抽取"));
     }
+    if (!isOfficeExtension(asset.extension) &&
+        (asset.format == "docx" || asset.format == "pptx" || asset.format == "xlsx")) {
+        asset.extension = "." + asset.format;
+    }
+    Result<TextDocument> extracted = Result<TextDocument>::failure("不支持直接抽取该文档格式");
+    if (isOfficeExtension(asset.extension)) {
+        extracted = OpenXmlTextExtractor{}.extract(asset);
+    } else if (asset.mime == "application/pdf" || asset.extension == ".pdf") {
+        extracted = PdfTextExtractor{}.extract(asset);
+    }
+    if (!extracted.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, extracted.error()));
+    }
+    const auto& document = extracted.value();
     const auto limit = boundedInteger(callItem.input, "max_bytes", 24000U, kMaximumReadLimit);
     const bool needsReview =
-        document->status.starts_with("NEED_REVIEW") || document->status == "EMPTY_OR_UNREADABLE";
-    const auto* asset = findAuditAsset(request, callItem.input);
+        document.status.starts_with("NEED_REVIEW") || document.status == "EMPTY_OR_UNREADABLE";
     return Result<AgentObservation>::success(AgentObservation{
         .callId = callItem.id,
         .toolName = callItem.name,
         .ok = true,
         .summary = needsReview ? "已读取真实项目文件，但其中部分内容未能完整提取，需要人工复核"
-                               : "已读取真实项目中的办公/PDF 文件内容",
-        .output = JsonValue::Object{
-            {"path", relative.generic_string()},
-            {"asset", asset == nullptr ? JsonValue::Object{} : requestAssetJson(request, *asset)},
-            {"source", "project_file"},
-            {"extracted_from_project_file", true},
-            {"status", document->status},
-            {"content", truncateText(document->text, limit)}}});
+                               : "已直接读取原项目中的办公/PDF 文件内容",
+        .output = JsonValue::Object{{"path", asset.relativePath.generic_string()},
+                                    {"asset", assetJson(asset)},
+                                    {"source", "original_project_file"},
+                                    {"extracted_from_project_file", true},
+                                    {"direct_original_read", true},
+                                    {"status", document.status},
+                                    {"content", truncateText(document.text, limit)}}});
 }
 
 [[nodiscard]] JsonValue archiveEntryJson(const std::filesystem::path& relativePath, bool directory,
@@ -957,7 +1134,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                                                   .summary = path.error(),
                                                                   .output = JsonValue::Object{}});
     }
-    if (isSensitiveFile(path.value())) {
+    if (enforceSensitiveFilePolicy(request) && isSensitiveFile(path.value())) {
         return Result<AgentObservation>::success(
             rejectedObservation(callItem, "该压缩包命中敏感信息策略，已拒绝枚举其内容"));
     }
@@ -997,7 +1174,8 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                 .output = JsonValue::Object{{"asset", assetJson(asset)}, {"supported", true}}});
         }
         for (const auto& entry : listed.value()) {
-            if (hasSensitivePathComponent(entry.relativePath)) {
+            if (enforceSensitiveFilePolicy(request) &&
+                hasSensitivePathComponent(entry.relativePath)) {
                 ++omittedSensitive;
                 safeToExtract = false;
                 continue;
@@ -1037,7 +1215,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
             .output = JsonValue::Object{{"asset", assetJson(asset)}, {"supported", true}}});
     }
     for (const auto& entry : listed.value()) {
-        if (hasSensitivePathComponent(entry.relativePath)) {
+        if (enforceSensitiveFilePolicy(request) && hasSensitivePathComponent(entry.relativePath)) {
             ++omittedSensitive;
             safeToExtract = false;
             continue;
@@ -1097,7 +1275,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
     }
 
     if (std::filesystem::is_regular_file(root, ec)) {
-        if (isSensitiveFile(root)) {
+        if (enforceSensitiveFilePolicy(request) && isSensitiveFile(root)) {
             return Result<AgentObservation>::success(rejectedObservation(
                 callItem, "该文件命中敏感信息策略，已拒绝搜索且不会把内容发送给模型"));
         }
@@ -1158,7 +1336,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
         if (!PathGuard::isInsideRoot(root, iter->path())) {
             continue;
         }
-        if (isSensitiveFile(iter->path())) {
+        if (enforceSensitiveFilePolicy(request) && isSensitiveFile(iter->path())) {
             ++omittedSensitive;
             continue;
         }
@@ -1209,7 +1387,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                                                   .summary = path.error(),
                                                                   .output = JsonValue::Object{}});
     }
-    if (isSensitiveFile(path.value())) {
+    if (enforceSensitiveFilePolicy(request) && isSensitiveFile(path.value())) {
         return Result<AgentObservation>::success(rejectedObservation(
             callItem, "该 Markdown 文件命中敏感信息策略，已拒绝读取和生成修订稿"));
     }
@@ -1224,7 +1402,7 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
     const auto original = sanitizeUtf8(util::readFileLimited(path.value(), 256000U));
     const auto replacement = callItem.input.at("replacement_markdown").asString();
     const auto revised = replacement.empty() ? normalizeMarkdown(original) : replacement;
-    if (textContainsSecretMarker(revised)) {
+    if (enforceSensitiveFilePolicy(request) && textContainsSecretMarker(revised)) {
         return Result<AgentObservation>::success(
             rejectedObservation(callItem, "修订内容包含疑似凭据或密钥片段，已拒绝写入工作区"));
     }
@@ -1262,7 +1440,8 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
 
     const auto content = callItem.input.at("content").asString();
     const auto relative = std::filesystem::path{callItem.input.at("path").asString()};
-    if (hasSensitivePathComponent(relative) || textContainsSecretMarker(content)) {
+    if (enforceSensitiveFilePolicy(request) &&
+        (hasSensitivePathComponent(relative) || textContainsSecretMarker(content))) {
         return Result<AgentObservation>::success(
             rejectedObservation(callItem, "目标路径或内容包含疑似凭据/密钥片段，已拒绝写入工作区"));
     }
@@ -1280,6 +1459,92 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                                                    ? "text"
                                                    : extensionLower(path.value()).substr(1)},
                                     {"preview", truncateText(content, kPreviewLimit)}}});
+}
+
+[[nodiscard]] Result<AgentObservation> runReadExternalTextFile(const AgentRunRequest& request,
+                                                               const AgentToolCall& callItem) {
+    static_cast<void>(request); // 权限快照已在调度层校验；外部路径不与项目根拼接。
+    const std::filesystem::path requested{callItem.input.at("path").asString()};
+    if (!requested.is_absolute()) {
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "项目外文件读取需要绝对路径"));
+    }
+    const auto normalized = PathGuard::normalize(requested);
+    if (!normalized.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, normalized.error()));
+    }
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(normalized.value(), ec)) {
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "项目外路径不是可读取的普通文件"));
+    }
+    if (enforceSensitiveFilePolicy(request) && isSensitiveFile(normalized.value())) {
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "项目外文件命中敏感信息策略，已拒绝读取"));
+    }
+    if (!isReadableTextLike(normalized.value())) {
+        return Result<AgentObservation>::success(
+            rejectedObservation(callItem, "项目外文件不是可读取的文本或代码格式"));
+    }
+    const auto limit = boundedInteger(callItem.input, "max_bytes", 24000U, kMaximumReadLimit);
+    const auto size = std::filesystem::file_size(normalized.value(), ec);
+    const auto content = truncateText(util::readFileLimited(normalized.value(), limit), limit);
+    return Result<AgentObservation>::success(
+        AgentObservation{.callId = callItem.id,
+                         .toolName = callItem.name,
+                         .ok = true,
+                         .summary = "已读取用户指定的项目外文本文件",
+                         .output = JsonValue::Object{{"path", pathText(normalized.value())},
+                                                     {"truncated", !ec && size > limit},
+                                                     {"content", content}}});
+}
+
+[[nodiscard]] Result<AgentObservation> runWriteProjectFile(const AgentRunRequest& request,
+                                                           const AgentToolCall& callItem) {
+    const auto relative = std::filesystem::path{callItem.input.at("path").asString()};
+    const auto content = callItem.input.at("content").asString();
+    const auto target = resolveWritableProjectPath(request, callItem.input);
+    if (!target.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, target.error()));
+    }
+    const auto written = util::writeTextFile(target.value(), content);
+    if (!written.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, written.error()));
+    }
+    return Result<AgentObservation>::success(AgentObservation{
+        .callId = callItem.id,
+        .toolName = callItem.name,
+        .ok = true,
+        .summary = "已直接写入原项目文件: " + relative.generic_string(),
+        .output = JsonValue::Object{{"path", relative.generic_string()},
+                                    {"format", extensionLower(target.value()).empty()
+                                                   ? "text"
+                                                   : extensionLower(target.value()).substr(1)},
+                                    {"preview", truncateText(content, kPreviewLimit)}}});
+}
+
+[[nodiscard]] Result<AgentObservation> runExecuteShellCommand(const AgentRunRequest& request,
+                                                              const AgentToolCall& callItem) {
+    const auto executed = executeBashCommand(request, callItem.input.at("command").asString());
+    if (!executed.ok()) {
+        return Result<AgentObservation>::success(rejectedObservation(callItem, executed.error()));
+    }
+    const auto& result = executed.value();
+    const auto ok = result.exitCode == 0 && !result.cancelled;
+    std::string summary;
+    if (result.cancelled) {
+        summary = "Shell/Bash 命令已取消";
+    } else {
+        summary = "Shell/Bash 命令执行完成，退出码 " + std::to_string(result.exitCode);
+    }
+    return Result<AgentObservation>::success(
+        AgentObservation{.callId = callItem.id,
+                         .toolName = callItem.name,
+                         .ok = ok,
+                         .summary = std::move(summary),
+                         .output = JsonValue::Object{{"exit_code", result.exitCode},
+                                                     {"cancelled", result.cancelled},
+                                                     {"output", result.output}}});
 }
 
 [[nodiscard]] Result<AgentObservation> runPrepareRepairedWorkspace(const AgentRunRequest& request,
@@ -1454,7 +1719,10 @@ using ToolRunner = Result<AgentObservation> (*)(const AgentRunRequest&, const Ag
         {"read_repaired_text_file", runReadRepairedTextFile},
         {"list_workspace_changes", runListWorkspaceChanges},
         {"draft_markdown_revision", runDraftMarkdownRevision},
-        {"write_workspace_file", runWriteWorkspaceFile}};
+        {"write_workspace_file", runWriteWorkspaceFile},
+        {"read_external_text_file", runReadExternalTextFile},
+        {"write_project_file", runWriteProjectFile},
+        {"execute_shell_command", runExecuteShellCommand}};
     return runners;
 }
 
@@ -1470,9 +1738,10 @@ using ToolRunner = Result<AgentObservation> (*)(const AgentRunRequest&, const Ag
 std::string agentCommandHelpText() {
     return "可用命令：/audit 运行缺点评审；/agent <任务> 或 /task <任务> 提交智能体任务；"
            "/plan [目标] 生成只读计划；"
-           "/optimize [目标] 在 repaired project 中修改并二次审计；/status 查看会话状态；"
+           "/optimize [目标] 修改项目并二次审计；/status 查看会话状态；"
            "/compact 压缩当前审计上下文；/clear 开始新会话；/help 显示本帮助。"
-           "权限模式和高风险边界在设置中管理；普通输入会作为常规问答或项目评审任务处理。";
+           "/full [任务] 使用原项目写入和 Shell/Bash 执行；默认已启用完全访问，"
+           "普通输入会作为常规问答或项目任务处理。";
 }
 
 Result<AgentRunResult> AgentRuntime::runLocal(const AgentRunRequest& request) const {
@@ -1486,9 +1755,23 @@ Result<AgentRunResult> AgentRuntime::runLocal(const AgentRunRequest& request) co
     }
     AgentPlan plan;
     plan.summary = "本地受控探索：未配置有效 LLM 时只收集可复核上下文，不冒充模型做语义决策。"
-                   "启用 Brain 后，大模型会基于这些观察继续选择受控工具。";
+                   "启用 DeepSeek 后，模型会基于这些观察继续选择受控工具。";
 
     std::vector<AgentObservation> observations;
+    std::optional<AuditResult> auditResult;
+    if (request.requireAudit && request.auditResult == nullptr && !request.projectRoot.empty()) {
+        auto audit =
+            call("local_audit", "run_project_audit", "模型不可用时仍执行确定性的项目规则审计");
+        plan.calls.push_back(audit);
+        auto execution = runToolExecution(request, audit);
+        if (!execution.ok()) {
+            return Result<AgentRunResult>::failure(execution.error());
+        }
+        for (auto& observation : execution.value().observations) {
+            observations.push_back(std::move(observation));
+        }
+        auditResult = std::move(execution.value().auditResult);
+    }
     if (request.auditResult != nullptr) {
         auto summarize = call("local_1", "summarize_audit_session", "把审计结果压缩为可对话上下文");
         plan.calls.push_back(summarize);
@@ -1532,7 +1815,7 @@ Result<AgentRunResult> AgentRuntime::runLocal(const AgentRunRequest& request) co
                           .events = std::move(events),
                           .finalAnswer = finalAnswer,
                           .trace = JsonValue::Object{},
-                          .auditResult = std::nullopt,
+                          .auditResult = std::move(auditResult),
                           .auditDiff = std::nullopt};
     result.trace = agentRunTraceJson(result);
     return Result<AgentRunResult>::success(std::move(result));
@@ -1552,7 +1835,7 @@ Result<AgentToolExecution> AgentRuntime::runToolExecution(const AgentRunRequest&
                 .callId = callItem.id,
                 .toolName = callItem.name,
                 .ok = false,
-                .summary = "未注册或当前不允许 Brain 直接驱动的工具: " + callItem.name,
+                .summary = "未注册或当前不允许 DeepSeek 直接驱动的工具: " + callItem.name,
                 .output = JsonValue::Object{}}},
             .auditResult = std::nullopt,
             .auditDiff = std::nullopt});
@@ -1569,19 +1852,6 @@ Result<AgentToolExecution> AgentRuntime::runToolExecution(const AgentRunRequest&
                 .output = JsonValue::Object{{"reason", "invalid_tool_input"},
                                             {"input_schema", toolSpec->inputSchema},
                                             {"attempted_input", callItem.input}}}},
-            .auditResult = std::nullopt,
-            .auditDiff = std::nullopt});
-    }
-
-    if (request.requireAudit && request.auditResult == nullptr &&
-        callItem.name != "run_project_audit") {
-        return Result<AgentToolExecution>::success(AgentToolExecution{
-            .observations = {AgentObservation{
-                .callId = callItem.id,
-                .toolName = callItem.name,
-                .ok = false,
-                .summary = "首次项目审查必须先调用 run_project_audit 建立隔离副本并取得规则结果",
-                .output = JsonValue::Object{{"required_tool", "run_project_audit"}}}},
             .auditResult = std::nullopt,
             .auditDiff = std::nullopt});
     }

@@ -11,6 +11,7 @@
 #include <array>
 #include <fstream>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -37,19 +38,43 @@ void runInventoryTests() {
     };
     const std::array metadataCases{
         MetadataCase{"src/main.rs", "rs", "text/x-source-code", cc::AssetRole::SourceCode},
+        MetadataCase{"src/runtime.zig", "zig", "text/x-source-code", cc::AssetRole::SourceCode},
+        MetadataCase{"infra/main.tf", "tf", "text/x-source-code", cc::AssetRole::SourceCode},
+        MetadataCase{"notebooks/demo.ipynb", "ipynb", "text/x-source-code",
+                     cc::AssetRole::SourceCode},
+        MetadataCase{"data/events.ndjson", "ndjson", "text/plain", cc::AssetRole::ExperimentData},
         MetadataCase{"材料/申报书.docx", "docx", "application/vnd.openxmlformats",
                      cc::AssetRole::ProjectDeclaration},
+        MetadataCase{"材料/路演稿.pptm", "pptm", "application/vnd.ms-powerpoint",
+                     cc::AssetRole::PitchDeck},
         MetadataCase{"材料/旧版申报书.doc", "doc", "application/msword",
                      cc::AssetRole::ProjectDeclaration},
         MetadataCase{"材料/证明.pdf", "pdf", "application/pdf", cc::AssetRole::ProofMaterial},
+        MetadataCase{"材料/说明书.odt", "odt", "application/vnd.oasis.opendocument",
+                     cc::AssetRole::Unknown},
+        MetadataCase{"docs/handbook.epub", "epub", "application/epub+zip", cc::AssetRole::Unknown},
         MetadataCase{"assets/photo.avif", "avif", "image/", cc::AssetRole::ResourceAsset},
+        MetadataCase{"assets/design.psd", "psd", "image/", cc::AssetRole::ResourceAsset},
         MetadataCase{"demo/video.mkv", "mkv", "video/", cc::AssetRole::ResourceAsset},
+        MetadataCase{"demo/camera.m2ts", "m2ts", "video/", cc::AssetRole::ResourceAsset},
         MetadataCase{"interview.opus", "opus", "audio/", cc::AssetRole::ResourceAsset},
+        MetadataCase{"music/theme.midi", "midi", "audio/", cc::AssetRole::ResourceAsset},
+        MetadataCase{"assets/ui.woff2", "woff2", "font/", cc::AssetRole::ResourceAsset},
         MetadataCase{"models/network.onnx", "onnx", "application/x-model-artifact",
                      cc::AssetRole::ModelArtifact},
+        MetadataCase{"models/weights.gguf", "gguf", "application/x-model-artifact",
+                     cc::AssetRole::ModelArtifact},
         MetadataCase{"models/scene.glb", "glb", "model/", cc::AssetRole::ModelArtifact},
-        MetadataCase{"submission.rar", "archive", "application/archive", cc::AssetRole::Archive},
-        MetadataCase{"data/cache.sqlite", "sqlite", "application/octet-stream",
+        MetadataCase{"models/scene.usdz", "usdz", "model/", cc::AssetRole::ModelArtifact},
+        MetadataCase{"submission.rar", "rar", "application/vnd.rar", cc::AssetRole::Archive},
+        MetadataCase{"packages/sdk.nupkg", "nupkg", "application/zip", cc::AssetRole::Archive},
+        MetadataCase{"backup/project.tar.zst", "tar.zst", "application/zstd",
+                     cc::AssetRole::Archive},
+        MetadataCase{"data/cache.sqlite", "sqlite", "application/x-sqlite3",
+                     cc::AssetRole::ExperimentData},
+        MetadataCase{"data/features.parquet", "parquet", "application/vnd.apache.parquet",
+                     cc::AssetRole::ExperimentData},
+        MetadataCase{"bin/module.wasm", "wasm", "application/octet-stream",
                      cc::AssetRole::BinaryArtifact},
         MetadataCase{"assets/vendor.opaque", "opaque", "application/octet-stream",
                      cc::AssetRole::BinaryArtifact},
@@ -83,6 +108,29 @@ void runInventoryTests() {
                                                       0U,  0U,  12U, 0U,  0U, 0U};
         model.write(reinterpret_cast<const char*>(glbHeader.data()),
                     static_cast<std::streamsize>(glbHeader.size()));
+        std::ofstream disguisedOffice(magicRoot / "office.unknown", std::ios::binary);
+        disguisedOffice.write(reinterpret_cast<const char*>(zipHeader.data()),
+                              static_cast<std::streamsize>(zipHeader.size()));
+        disguisedOffice << "word/document.xml";
+        const std::array<unsigned char, 8> rarHeader{'R',   'a',   'r',   '!',
+                                                     0x1aU, 0x07U, 0x01U, 0x00U};
+        std::ofstream rar(magicRoot / "compressed.unknown", std::ios::binary);
+        rar.write(reinterpret_cast<const char*>(rarHeader.data()),
+                  static_cast<std::streamsize>(rarHeader.size()));
+        const std::array<unsigned char, 8> hdfHeader{0x89U, 'H', 'D', 'F', '\r', '\n', 0x1aU, '\n'};
+        std::ofstream hdf(magicRoot / "dataset.unknown", std::ios::binary);
+        hdf.write(reinterpret_cast<const char*>(hdfHeader.data()),
+                  static_cast<std::streamsize>(hdfHeader.size()));
+        const std::array<unsigned char, 8> wasmHeader{0x00U, 'a',   's',   'm',
+                                                      0x01U, 0x00U, 0x00U, 0x00U};
+        std::ofstream wasm(magicRoot / "module.unknown", std::ios::binary);
+        wasm.write(reinterpret_cast<const char*>(wasmHeader.data()),
+                   static_cast<std::streamsize>(wasmHeader.size()));
+        std::vector<unsigned char> isoBytes(0x8006U, 0U);
+        std::copy_n("CD001", 5U, isoBytes.begin() + 0x8001U);
+        std::ofstream iso(magicRoot / "disk.unknown", std::ios::binary);
+        iso.write(reinterpret_cast<const char*>(isoBytes.data()),
+                  static_cast<std::streamsize>(isoBytes.size()));
     }
     auto magicPdf = formatDetector.detect(magicRoot, magicRoot / "document.unknown");
     requireTrue(magicPdf.format == "pdf" && magicPdf.mime == "application/pdf" &&
@@ -96,6 +144,25 @@ void runInventoryTests() {
     requireTrue(magicModel.format == "glb" &&
                     roleClassifier.classify(magicModel) == cc::AssetRole::ModelArtifact,
                 "3D model magic should remain recognizable under an unknown extension");
+    const auto magicOffice = formatDetector.detect(magicRoot, magicRoot / "office.unknown");
+    requireTrue(magicOffice.format == "docx" && magicOffice.auditable,
+                "ZIP container entries should identify an extension-disguised Office document");
+    const auto magicRar = formatDetector.detect(magicRoot, magicRoot / "compressed.unknown");
+    requireTrue(magicRar.format == "rar" &&
+                    roleClassifier.classify(magicRar) == cc::AssetRole::Archive,
+                "RAR v5 magic should be recognized under an unknown extension");
+    const auto magicHdf = formatDetector.detect(magicRoot, magicRoot / "dataset.unknown");
+    requireTrue(magicHdf.format == "hdf5" &&
+                    roleClassifier.classify(magicHdf) == cc::AssetRole::ExperimentData,
+                "HDF5 magic should be classified as a data artifact");
+    const auto magicWasm = formatDetector.detect(magicRoot, magicRoot / "module.unknown");
+    requireTrue(magicWasm.format == "wasm" && magicWasm.mime == "application/wasm" &&
+                    roleClassifier.classify(magicWasm) == cc::AssetRole::BinaryArtifact,
+                "WebAssembly magic should be recognized without an extension");
+    const auto magicIso = formatDetector.detect(magicRoot, magicRoot / "disk.unknown");
+    requireTrue(magicIso.format == "iso" &&
+                    roleClassifier.classify(magicIso) == cc::AssetRole::Archive,
+                "the bounded detector should reach the ISO-9660 volume signature");
     std::filesystem::remove_all(magicRoot);
 
     auto context = cc::ProjectLoader{}.load(sourceDir() / "examples/software_bad_case");

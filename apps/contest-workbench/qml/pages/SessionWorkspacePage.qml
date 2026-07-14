@@ -79,7 +79,7 @@ Item {
 
                 footer: ThinkingIndicator {
                     width: historyList.width
-                    running: root.compiler.agentRunning || root.compiler.advisoryRunning
+                    running: root.compiler.agentRunning
                     action: root.compiler.currentAgentAction
                     progress: root.compiler.agentProgress
                     onStopRequested: root.compiler.cancelCurrentJob()
@@ -125,7 +125,7 @@ Item {
                     anchors.leftMargin: Math.max(48, (parent.width - 760) / 2)
                     anchors.rightMargin: Math.max(48, (parent.width - 760) / 2)
                     anchors.bottomMargin: 20
-                    busy: root.compiler.agentRunning || root.compiler.advisoryRunning
+                    busy: root.compiler.agentRunning
                     currentModel: root.compiler.llmModel
                     onSubmit: root.sendComposerMessage()
                     onCommand: function(value) { root.compiler.submitMessage(value) }

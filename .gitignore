@@ -2,3 +2,6 @@
 !/.vscode/settings.json
 /build
 /.workspaces
+.env
+.env.*
+!.env.example

@@ -8,7 +8,6 @@
 #include "cc/agent/AgentModels.hpp"
 #include "cc/core/AuditModels.hpp"
 #include "cc/core/Result.hpp"
-#include "cc/llm/AuditAdvisory.hpp"
 #include "cc/llm/LlmTypes.hpp"
 
 namespace cc {
@@ -28,7 +27,7 @@ class LlmBrain {
      * model 字段可以为空；endpoint、认证方式和联网权限仍须有效。
      */
     [[nodiscard]] Result<std::vector<std::string>> listModels(const LlmConfig& config) const;
-    /** @brief 解析 OpenAI/DeepSeek/Anthropic 共同使用的 data[].id 模型目录结构。 */
+    /** @brief 解析 DeepSeek data[].id 模型目录结构。 */
     [[nodiscard]] Result<std::vector<std::string>>
     parseModelList(const std::string& responseBody) const;
     /**
@@ -36,6 +35,11 @@ class LlmBrain {
      */
     [[nodiscard]] Result<JsonValue> preparePayload(const LlmConfig& config,
                                                    const std::vector<LlmMessage>& messages) const;
+    /** @brief 构造 DeepSeek 原生 tools/tool_calls 智能体请求体。 */
+    [[nodiscard]] Result<JsonValue>
+    prepareAgentPayload(const LlmConfig& config, const AgentRunRequest& request,
+                        const AgentRunResult& result,
+                        const std::vector<AgentToolSpec>& tools) const;
     /**
      * @brief 发送通用消息并返回模型响应。
      */
@@ -48,21 +52,9 @@ class LlmBrain {
     decideNextAgentStep(const LlmConfig& config, const AgentRunRequest& request,
                         const AgentRunResult& result,
                         const std::vector<AgentToolSpec>& tools) const;
-    /**
-     * @brief 解析 Brain 返回的单步工具循环决策。
-     */
-    [[nodiscard]] Result<AgentDecision> parseAgentDecision(const std::string& content) const;
-    /**
-     * @brief 让 LLM 基于确定性审计结果给出风险研判与评分建议（混合模式的“先判断”阶段）。
-     *
-     * 该方法只产出建议，不修改评分；调用方须再用 AdvisoryReconciler 与确定性结果校验。
-     */
-    [[nodiscard]] Result<AuditAdvisory> requestAuditAdvisory(const LlmConfig& config,
-                                                             const AuditResult& result) const;
-    /**
-     * @brief 解析 LLM 返回的审计研判 JSON。
-     */
-    [[nodiscard]] Result<AuditAdvisory> parseAuditAdvisory(const std::string& content) const;
+    /** @brief 解析 DeepSeek Chat Completion 的原生 tool_calls 或最终文本。 */
+    [[nodiscard]] Result<AgentDecision>
+    parseAgentDecisionResponse(const std::string& responseBody) const;
 };
 
 } // namespace cc

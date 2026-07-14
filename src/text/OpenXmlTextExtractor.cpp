@@ -52,10 +52,13 @@ void collectTextNodes(const pugi::xml_node& node, std::ostringstream& text) {
 
 [[nodiscard]] std::vector<std::string> targetEntries(const ProjectAsset& asset,
                                                      const ZipArchiveReader& reader) {
-    if (asset.extension == ".docx") {
+    if (asset.extension == ".docx" || asset.extension == ".docm" || asset.extension == ".dotx" ||
+        asset.extension == ".dotm") {
         return {"word/document.xml"};
     }
-    if (asset.extension == ".pptx") {
+    if (asset.extension == ".pptx" || asset.extension == ".pptm" || asset.extension == ".potx" ||
+        asset.extension == ".potm" || asset.extension == ".ppsx" || asset.extension == ".ppsm" ||
+        asset.extension == ".sldx" || asset.extension == ".sldm") {
         std::vector<std::string> entries;
         for (const auto& entry : listEntries(reader, asset.absolutePath)) {
             if (entry.rfind("ppt/slides/slide", 0) == 0 && util::contains(entry, ".xml")) {
@@ -64,7 +67,8 @@ void collectTextNodes(const pugi::xml_node& node, std::ostringstream& text) {
         }
         return entries;
     }
-    if (asset.extension == ".xlsx") {
+    if (asset.extension == ".xlsx" || asset.extension == ".xlsm" || asset.extension == ".xltx" ||
+        asset.extension == ".xltm") {
         std::vector<std::string> entries{"xl/sharedStrings.xml"};
         for (const auto& entry : listEntries(reader, asset.absolutePath)) {
             if (entry.rfind("xl/worksheets/sheet", 0) == 0 && util::contains(entry, ".xml")) {

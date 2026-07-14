@@ -9,6 +9,36 @@
 #include "cc/util/StringUtil.hpp"
 
 namespace cc {
+namespace {
+
+[[nodiscard]] bool isArchiveMime(const std::string& mime) {
+    return mime == "application/archive" || mime == "application/zip" ||
+           mime == "application/gzip" || mime == "application/zstd" ||
+           mime == "application/x-7z-compressed" || mime == "application/vnd.rar" ||
+           mime == "application/x-tar" || mime == "application/x-bzip2" ||
+           mime == "application/x-xz" || mime == "application/x-cpio" ||
+           mime == "application/x-archive" || mime == "application/vnd.ms-cab-compressed" ||
+           mime == "application/x-lz4" || mime == "application/x-iso9660-image" ||
+           mime == "application/x-rpm" || mime == "application/vnd.debian.binary-package" ||
+           mime == "application/vnd.android.package-archive" || mime == "application/java-archive";
+}
+
+[[nodiscard]] bool isDataArtifact(const ProjectAsset& asset) {
+    return asset.mime == "application/x-data-artifact" ||
+           asset.mime == "application/vnd.apache.parquet" || asset.mime == "application/avro" ||
+           asset.mime == "application/x-numpy" || asset.mime == "application/x-hdf5" ||
+           asset.mime == "application/x-sqlite3" || asset.extension == ".csv" ||
+           asset.extension == ".tsv" || asset.extension == ".jsonl" || asset.extension == ".ndjson";
+}
+
+[[nodiscard]] bool isBinaryArtifactMime(const std::string& mime) {
+    return mime == "application/octet-stream" || mime == "application/wasm" ||
+           mime == "application/x-executable" || mime == "application/java-vm" ||
+           mime == "application/vnd.android.dex" || mime == "application/x-mach-binary" ||
+           mime == "application/x-plist";
+}
+
+} // namespace
 
 AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
     const auto name = util::lowerAscii(asset.fileName);
@@ -23,8 +53,7 @@ AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
     if (asset.vendored) {
         return AssetRole::Vendored;
     }
-    if (ArchiveExtractor::isArchivePath(asset.relativePath) ||
-        asset.mime == "application/archive") {
+    if (ArchiveExtractor::isArchivePath(asset.relativePath) || isArchiveMime(asset.mime)) {
         return AssetRole::Archive;
     }
     if (name == "cmakelists.txt" || name == "makefile" || name == "dockerfile" ||
@@ -52,7 +81,8 @@ AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
         return AssetRole::BusinessPlan;
     }
     if (util::contains(original, "路演") || util::contains(path, "pitch") ||
-        asset.extension == ".pptx") {
+        asset.extension == ".pptx" || asset.extension == ".pptm" || asset.extension == ".ppsx" ||
+        asset.extension == ".odp") {
         return AssetRole::PitchDeck;
     }
     if (util::contains(original, "市场") || util::contains(original, "调研") ||
@@ -73,7 +103,7 @@ AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
         return AssetRole::DeploymentDoc;
     }
     if (util::contains(original, "实验") || util::contains(path, "baseline") ||
-        asset.extension == ".csv") {
+        isDataArtifact(asset)) {
         return AssetRole::ExperimentData;
     }
     if (util::contains(original, "论文") || util::contains(path, "paper")) {
@@ -89,13 +119,13 @@ AssetRole RoleClassifier::classify(const ProjectAsset& asset) const {
         return AssetRole::ProofMaterial;
     }
     if (asset.mime.rfind("image/", 0) == 0U || asset.mime.rfind("video/", 0) == 0U ||
-        asset.mime.rfind("audio/", 0) == 0U) {
+        asset.mime.rfind("audio/", 0) == 0U || asset.mime.rfind("font/", 0) == 0U) {
         return AssetRole::ResourceAsset;
     }
     if (asset.mime == "application/x-model-artifact" || asset.mime.starts_with("model/")) {
         return AssetRole::ModelArtifact;
     }
-    if (asset.mime == "application/octet-stream") {
+    if (isBinaryArtifactMime(asset.mime)) {
         return AssetRole::BinaryArtifact;
     }
     return AssetRole::Unknown;

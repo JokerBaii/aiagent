@@ -4,8 +4,8 @@
  */
 
 #include "../TestSupport.hpp"
+#include "cc/agent/AgentRuntime.hpp"
 #include "cc/agent/StagedAuditPipeline.hpp"
-#include "cc/llm/AdvisoryReconciler.hpp"
 #include "cc/llm/BrainAgentLoop.hpp"
 #include "cc/llm/EndpointParser.hpp"
 #include "cc/llm/HttpResponseParser.hpp"
@@ -224,75 +224,133 @@ void runLlmTests() {
     requireTrue(retainedAgentTurn.find(agentSchemaTail) != std::string::npos,
                 "long-context agent turns must retain schemas beyond the former 96 KiB cutoff");
 
-    cc::LlmConfig openAiPayloadConfig;
-    openAiPayloadConfig.provider = "openai";
-    openAiPayloadConfig.model = "offline-model";
-    openAiPayloadConfig.maxTokens = 3210;
-    openAiPayloadConfig.apiKey = "custom-secret-value";
-    auto openAiPayload = cc::LlmBrain{}.preparePayload(
-        openAiPayloadConfig, {{.role = "user", .content = "never forward custom-secret-value"}});
-    requireTrue(openAiPayload.ok() && openAiPayload.value().at("max_tokens").asNumber() == 3210.0,
-                "OpenAI-compatible payload must include max_tokens");
-    requireTrue(openAiPayload.value().at("temperature").isNull(),
+    cc::LlmConfig deepSeekPayloadConfig;
+    deepSeekPayloadConfig.provider = "deepseek";
+    deepSeekPayloadConfig.model = "offline-model";
+    deepSeekPayloadConfig.maxTokens = 3210;
+    deepSeekPayloadConfig.apiKey = "custom-secret-value";
+    auto deepSeekPayload = cc::LlmBrain{}.preparePayload(
+        deepSeekPayloadConfig, {{.role = "user", .content = "never forward custom-secret-value"}});
+    requireTrue(deepSeekPayload.ok() &&
+                    deepSeekPayload.value().at("max_tokens").asNumber() == 3210.0,
+                "DeepSeek payload must include max_tokens");
+    requireTrue(deepSeekPayload.value().at("temperature").isNull(),
                 "model-specific sampling parameters must be omitted unless explicitly configured");
-    requireTrue(cc::writeJson(openAiPayload.value(), 0).find("custom-secret-value") ==
+    requireTrue(cc::writeJson(deepSeekPayload.value(), 0).find("custom-secret-value") ==
                     std::string::npos,
                 "configured API key must be removed from model messages");
-    cc::LlmConfig deepSeekPayloadConfig = openAiPayloadConfig;
-    deepSeekPayloadConfig.provider = "deepseek";
     deepSeekPayloadConfig.temperature = 0.4;
-    auto deepSeekPayload = cc::LlmBrain{}.preparePayload(deepSeekPayloadConfig, messages);
-    requireTrue(deepSeekPayload.ok() &&
-                    deepSeekPayload.value().at("max_tokens").asNumber() == 3210.0 &&
-                    deepSeekPayload.value().at("temperature").asNumber() == 0.4,
+    auto sampledPayload = cc::LlmBrain{}.preparePayload(deepSeekPayloadConfig, messages);
+    requireTrue(sampledPayload.ok() && sampledPayload.value().at("temperature").asNumber() == 0.4,
                 "explicit sampling parameters must be preserved for compatible models");
-    cc::LlmConfig anthropicPayloadConfig = openAiPayloadConfig;
-    anthropicPayloadConfig.provider = "anthropic";
-    auto anthropicPayload = cc::LlmBrain{}.preparePayload(anthropicPayloadConfig, messages);
-    requireTrue(anthropicPayload.ok() &&
-                    anthropicPayload.value().at("max_tokens").asNumber() == 3210.0 &&
-                    anthropicPayload.value().at("system").isString(),
-                "Anthropic payload must separate system text and include max_tokens");
-    openAiPayloadConfig.maxTokens = 0;
-    requireTrue(!cc::LlmBrain{}.preparePayload(openAiPayloadConfig, messages).ok(),
+    auto unsupportedPayloadConfig = deepSeekPayloadConfig;
+    unsupportedPayloadConfig.provider = "unsupported";
+    requireTrue(!cc::LlmBrain{}.preparePayload(unsupportedPayloadConfig, messages).ok(),
+                "non-DeepSeek payloads must be rejected");
+    deepSeekPayloadConfig.maxTokens = 0;
+    requireTrue(!cc::LlmBrain{}.preparePayload(deepSeekPayloadConfig, messages).ok(),
                 "zero max_tokens must be rejected locally");
-    openAiPayloadConfig.maxTokens = 65537;
-    requireTrue(!cc::LlmBrain{}.preparePayload(openAiPayloadConfig, messages).ok(),
+    deepSeekPayloadConfig.maxTokens = 65537;
+    requireTrue(!cc::LlmBrain{}.preparePayload(deepSeekPayloadConfig, messages).ok(),
                 "excessive max_tokens must be rejected locally");
-    openAiPayloadConfig.maxTokens = 4096;
-    openAiPayloadConfig.maxPromptBytes = 0U;
-    requireTrue(!cc::LlmBrain{}.preparePayload(openAiPayloadConfig, messages).ok(),
+    deepSeekPayloadConfig.maxTokens = 4096;
+    deepSeekPayloadConfig.maxPromptBytes = 0U;
+    requireTrue(!cc::LlmBrain{}.preparePayload(deepSeekPayloadConfig, messages).ok(),
                 "invalid prompt budgets must be rejected locally");
 
-    const std::string toolDecisionJson =
-        R"({"action":"tool","summary":"先读取 README","call":{"id":"s1","name":"read_text_file","reason":"需要看到文档正文","input":{"path":"README.md","max_bytes":4000}}})";
-    auto toolDecision = cc::LlmBrain{}.parseAgentDecision(toolDecisionJson);
-    requireTrue(toolDecision.ok(), "llm brain should parse tool decision json");
+    const std::string toolDecisionResponse =
+        R"({"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":"先读取 README","reasoning_content":"private-reasoning-token","tool_calls":[{"id":"call_s1","type":"function","function":{"name":"read_text_file","arguments":"{\"path\":\"README.md\",\"max_bytes\":4000}"}}]}}]})";
+    auto toolDecision = cc::LlmBrain{}.parseAgentDecisionResponse(toolDecisionResponse);
+    requireTrue(toolDecision.ok(), "DeepSeek native tool_calls response should parse");
     requireTrue(toolDecision.value().kind == cc::AgentDecisionKind::ToolCall,
                 "tool decision should request a tool call");
-    requireTrue(toolDecision.value().call.name == "read_text_file",
-                "tool decision should keep selected tool name");
+    requireTrue(toolDecision.value().call.name == "read_text_file" &&
+                    toolDecision.value().call.input.at("path").asString() == "README.md" &&
+                    toolDecision.value().call.reasoningContent == "private-reasoning-token",
+                "native tool call arguments and reasoning context should be retained in memory");
     requireTrue(
         !cc::LlmBrain{}
-             .parseAgentDecision(
-                 R"({"action":"tool","summary":"bad","call":{"name":"read_text_file","reason":"missing input"}})")
+             .parseAgentDecisionResponse(
+                 R"({"choices":[{"message":{"tool_calls":[{"id":"bad","type":"function","function":{"name":"read_text_file","arguments":"not-json"}}]}}]})")
              .ok(),
-        "tool decision without an input object must be rejected");
+        "invalid native function arguments must be rejected");
     requireTrue(
         !cc::LlmBrain{}
-             .parseAgentDecision(
-                 R"({"action":"tool","summary":"bad","call":{"name":"bad name\r\n","reason":"invalid","input":{}}})")
+             .parseAgentDecisionResponse(
+                 R"({"choices":[{"message":{"tool_calls":[{"id":"a","type":"function","function":{"name":"read_text_file","arguments":"{}"}},{"id":"b","type":"function","function":{"name":"read_text_file","arguments":"{}"}}]}}]})")
              .ok(),
-        "tool decision with an unsafe tool name must be rejected");
+        "parallel tool calls must be rejected by the single-step runtime");
 
-    const std::string finalDecisionJson =
-        R"({"action":"final","summary":"已经足够回答","final_answer":"已完成受控检查。"})";
-    auto finalDecision = cc::LlmBrain{}.parseAgentDecision(finalDecisionJson);
-    requireTrue(finalDecision.ok(), "llm brain should parse final decision json");
+    const std::string finalDecisionResponse =
+        R"({"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"已完成受控检查。"}}]})";
+    auto finalDecision = cc::LlmBrain{}.parseAgentDecisionResponse(finalDecisionResponse);
+    requireTrue(finalDecision.ok(), "DeepSeek final text response should parse");
     requireTrue(finalDecision.value().kind == cc::AgentDecisionKind::FinalAnswer,
                 "final decision should stop the loop");
     requireTrue(finalDecision.value().finalAnswer.find("已完成") != std::string::npos,
                 "final decision should keep final answer text");
+
+    deepSeekPayloadConfig.maxPromptBytes = std::size_t{4U} * 1024U * 1024U;
+    cc::AgentRunRequest nativeRequest;
+    nativeRequest.userGoal = "检查 README";
+    nativeRequest.allowLlm = true;
+    nativeRequest.allowNetwork = true;
+    cc::AgentRunResult nativeRun;
+    nativeRun.plan.calls.push_back(toolDecision.value().call);
+    nativeRun.observations.push_back({.callId = "call_s1",
+                                      .toolName = "read_text_file",
+                                      .ok = true,
+                                      .summary = "已读取 README",
+                                      .output = cc::JsonValue::Object{{"content", "# Demo"}}});
+    const std::vector<cc::AgentToolSpec> nativeTools{
+        {.name = "read_text_file",
+         .description = "读取项目文本文件",
+         .permission = cc::ToolPermission::ReadProjectFiles,
+         .inputSchema =
+             cc::JsonValue::Object{
+                 {"type", "object"},
+                 {"properties",
+                  cc::JsonValue::Object{{"path", cc::JsonValue::Object{{"type", "string"}}}}},
+                 {"required", cc::JsonValue::Array{"path"}}},
+         .outputSchema = cc::JsonValue::Object{{"type", "object"}}}};
+    auto nativePayload = cc::LlmBrain{}.prepareAgentPayload(deepSeekPayloadConfig, nativeRequest,
+                                                            nativeRun, nativeTools);
+    const auto nativePayloadText =
+        nativePayload.ok() ? cc::writeJson(nativePayload.value(), 0) : std::string{};
+    requireTrue(nativePayload.ok() && nativePayload.value().at("tools").isArray() &&
+                    nativePayloadText.find("\"tool_calls\"") != std::string::npos &&
+                    nativePayloadText.find("\"role\":\"tool\"") != std::string::npos &&
+                    nativePayloadText.find("private-reasoning-token") != std::string::npos,
+                "the next DeepSeek request must use native tools, tool_calls and tool messages");
+    requireTrue(
+        cc::writeJson(cc::agentRunTraceJson(nativeRun), 0).find("private-reasoning-token") ==
+            std::string::npos,
+        "DeepSeek reasoning_content must never be persisted in the user-visible trace");
+
+    cc::AgentRunResult longNativeRun;
+    for (int index = 0; index < 13; ++index) {
+        const auto id = "native_" + std::to_string(index);
+        longNativeRun.plan.calls.push_back(
+            {.id = id,
+             .name = "read_text_file",
+             .reason = "continue",
+             .input = cc::JsonValue::Object{{"path", "README.md"}},
+             .rawArguments = R"({"path":"README.md"})",
+             .assistantContent = {},
+             .reasoningContent = "reasoning-" + std::to_string(index)});
+        longNativeRun.observations.push_back({.callId = id,
+                                              .toolName = "read_text_file",
+                                              .ok = true,
+                                              .summary = "read",
+                                              .output = cc::JsonValue::Object{{"index", index}}});
+    }
+    auto longNativePayload = cc::LlmBrain{}.prepareAgentPayload(
+        deepSeekPayloadConfig, nativeRequest, longNativeRun, nativeTools);
+    const auto longNativeText =
+        longNativePayload.ok() ? cc::writeJson(longNativePayload.value(), 0) : std::string{};
+    requireTrue(longNativePayload.ok() && longNativeText.find("reasoning-0") != std::string::npos &&
+                    longNativeText.find("reasoning-12") != std::string::npos,
+                "DeepSeek thinking mode must receive every prior reasoning/tool turn");
 
     cc::AgentRunRequest request;
     request.userGoal = "检查文档";
@@ -335,19 +393,30 @@ void runLlmTests() {
                     });
                 requireTrue(auditTool != tools.end(),
                             "brain tool list should expose deterministic project audit");
+                const auto readTool =
+                    std::find_if(tools.begin(), tools.end(), [](const cc::AgentToolSpec& tool) {
+                        return tool.name == "read_text_file";
+                    });
+                requireTrue(readTool != tools.end() && tools.size() > 1U,
+                            "audit-required state should still expose direct original-file tools");
                 return cc::Result<cc::AgentDecision>::success(
                     cc::AgentDecision{.kind = cc::AgentDecisionKind::ToolCall,
                                       .summary = "先运行规则审计",
                                       .call = cc::AgentToolCall{.id = "audit_step",
                                                                 .name = "run_project_audit",
                                                                 .reason = "取得规则与证据结果",
-                                                                .input = cc::JsonValue::Object{}},
+                                                                .input = cc::JsonValue::Object{},
+                                                                .rawArguments = {},
+                                                                .assistantContent = {},
+                                                                .reasoningContent = {}},
                                       .finalAnswer = {}});
             }
             requireTrue(activeRequest.auditResult != nullptr,
                         "audit result should be available to the next brain step");
             requireTrue(!activeRequest.requireAudit,
                         "audit requirement should clear after the tool succeeds");
+            requireTrue(activeRequest.projectRoot == loopRoot,
+                        "audit completion must not switch agent reads to the isolated input copy");
             requireTrue(!current.observations.empty(),
                         "brain should receive deterministic stage observations");
             requireTrue(streamedEvents.size() >= cc::StagedAuditPipeline::stages().size() + 2U,
@@ -448,7 +517,10 @@ void runLlmTests() {
             decision.call = {.id = "recover_" + std::to_string(recoverableStep),
                              .name = "read_text_file",
                              .reason = "验证参数错误可以在下一轮纠正",
-                             .input = cc::JsonValue::Object{}};
+                             .input = cc::JsonValue::Object{},
+                             .rawArguments = {},
+                             .assistantContent = {},
+                             .reasoningContent = {}};
             if (recoverableStep == 3) {
                 requireTrue(current.observations.size() == 2U && current.observations.back()
                                                                      .output.at("input_schema")
@@ -470,6 +542,74 @@ void runLlmTests() {
                                 }),
                 "repeated invalid parameters must remain recoverable inside the real loop");
 
+    int transientDecisionAttempts = 0;
+    auto retriedDecisionLoop = cc::BrainAgentLoop{}.runWithDecisionProvider(
+        recoverableRequest,
+        [&](const cc::AgentRunRequest&, const cc::AgentRunResult& current,
+            const std::vector<cc::AgentToolSpec>&) {
+            ++transientDecisionAttempts;
+            if (transientDecisionAttempts < 3) {
+                requireTrue(current.observations.size() ==
+                                static_cast<std::size_t>(transientDecisionAttempts - 1),
+                            "each rejected model response should be fed back before retrying");
+                return cc::Result<cc::AgentDecision>::failure("temporary invalid JSON");
+            }
+            requireTrue(current.observations.size() == 2U &&
+                            current.observations.back().toolName == "model_decision_validation",
+                        "the repaired decision should receive both validation failures");
+            return cc::Result<cc::AgentDecision>::success(
+                cc::AgentDecision{.kind = cc::AgentDecisionKind::FinalAnswer,
+                                  .summary = "重试后恢复",
+                                  .call = {},
+                                  .finalAnswer = "模型响应已自动恢复。"});
+        },
+        1U);
+    requireTrue(retriedDecisionLoop.ok() && transientDecisionAttempts == 3,
+                "transient model decision failures should recover within the same tool step");
+
+    int persistentDecisionAttempts = 0;
+    auto failedDecisionLoop = cc::BrainAgentLoop{}.runWithDecisionProvider(
+        recoverableRequest,
+        [&](const cc::AgentRunRequest&, const cc::AgentRunResult&,
+            const std::vector<cc::AgentToolSpec>&) {
+            ++persistentDecisionAttempts;
+            return cc::Result<cc::AgentDecision>::failure("persistent invalid JSON");
+        },
+        4U);
+    requireTrue(!failedDecisionLoop.ok() && persistentDecisionAttempts == 3 &&
+                    failedDecisionLoop.error().find("自动重试") != std::string::npos,
+                "persistent decision failures should stop after the bounded retry budget");
+
+    int authenticationAttempts = 0;
+    auto authenticationFailure = cc::BrainAgentLoop{}.runWithDecisionProvider(
+        recoverableRequest,
+        [&](const cc::AgentRunRequest&, const cc::AgentRunResult&,
+            const std::vector<cc::AgentToolSpec>&) {
+            ++authenticationAttempts;
+            return cc::Result<cc::AgentDecision>::failure("DeepSeek HTTP 状态异常: 401");
+        },
+        4U);
+    requireTrue(!authenticationFailure.ok() && authenticationAttempts == 1,
+                "authentication and configuration failures must not be retried");
+
+    cc::AgentRunRequest throwingLoopCancellation = recoverableRequest;
+    throwingLoopCancellation.isCancelled = []() -> bool {
+        throw std::runtime_error{"cancel callback"};
+    };
+    int cancelledDecisionCalls = 0;
+    auto cancelledLoop = cc::BrainAgentLoop{}.runWithDecisionProvider(
+        throwingLoopCancellation, [&](const cc::AgentRunRequest&, const cc::AgentRunResult&,
+                                      const std::vector<cc::AgentToolSpec>&) {
+            ++cancelledDecisionCalls;
+            return cc::Result<cc::AgentDecision>::failure("must not run");
+        });
+    requireTrue(!cancelledLoop.ok() && cancelledDecisionCalls == 0,
+                "throwing cancellation callbacks must fail closed before a model request");
+
+    auto localAuditFallback = cc::AgentRuntime{}.runLocal(auditLoopRequest);
+    requireTrue(localAuditFallback.ok() && localAuditFallback.value().auditResult.has_value(),
+                "local fallback must still execute a mandatory deterministic project audit");
+
     int exhaustedSteps = 0;
     auto exhaustedLoop = cc::BrainAgentLoop{}.runWithDecisionProvider(
         recoverableRequest,
@@ -482,13 +622,17 @@ void runLlmTests() {
                                   .call = {.id = "exhaust_" + std::to_string(exhaustedSteps),
                                            .name = "read_text_file",
                                            .reason = "验证步数耗尽不会伪装成功",
-                                           .input = cc::JsonValue::Object{}},
+                                           .input = cc::JsonValue::Object{},
+                                           .rawArguments = {},
+                                           .assistantContent = {},
+                                           .reasoningContent = {}},
                                   .finalAnswer = {}});
         },
         3U);
     requireTrue(!exhaustedLoop.ok() && exhaustedSteps == 3 &&
-                    exhaustedLoop.error().find("没有给出最终回答") != std::string::npos,
-                "step exhaustion must fail instead of fabricating an automatic final answer");
+                    (exhaustedLoop.error().find("没有给出最终回答") != std::string::npos ||
+                     exhaustedLoop.error().find("完全相同") != std::string::npos),
+                "invalid loops must stop without fabricating an automatic final answer");
 
     cc::LlmConfig invalidStepConfig;
     invalidStepConfig.maxAgentSteps = 0U;
@@ -507,76 +651,13 @@ void runLlmTests() {
                 .call = cc::AgentToolCall{.id = "repeat_" + std::to_string(repeatedSteps),
                                           .name = "run_project_audit",
                                           .reason = "重复",
-                                          .input = cc::JsonValue::Object{}},
+                                          .input = cc::JsonValue::Object{},
+                                          .rawArguments = {},
+                                          .assistantContent = {},
+                                          .reasoningContent = {}},
                 .finalAnswer = {}});
         },
         6U);
     requireTrue(!repeatedLoop.ok() && repeatedSteps == 3,
                 "three identical decisions should stop instead of burning the whole step budget");
-
-    // 混合研判：解析 LLM 研判 JSON，再用确定性结果校验。
-    const std::string advisoryJson =
-        R"({"suggested_score":90,"overall_judgement":"整体不错","risks":[)"
-        R"({"title":"缺少证据","severity":"blocker","reason":"营收无支撑","rule_id":"RULE-001","claim_id":"","suggestion":"补充流水"},)"
-        R"({"title":"项目整体通过","severity":"info","reason":"项目整体没有问题，可以通过提交","rule_id":"","claim_id":"","suggestion":""})"
-        R"(]})";
-    auto advisory = cc::LlmBrain{}.parseAuditAdvisory(advisoryJson);
-    requireTrue(advisory.ok(), "advisory json should parse");
-    requireTrue(advisory.value().risks.size() == 2U, "advisory should keep both risks");
-    requireTrue(advisory.value().suggestedScore == 90, "advisory should keep suggested score");
-    for (
-        const auto& invalidAdvisory : {
-            R"({"overall_judgement":"missing score","risks":[]})",
-            R"({"suggested_score":"90","overall_judgement":"wrong type","risks":[]})",
-            R"({"suggested_score":90.5,"overall_judgement":"fraction","risks":[]})",
-            R"({"suggested_score":101,"overall_judgement":"range","risks":[]})",
-            R"({"suggested_score":90,"overall_judgement":"missing risks"})",
-            R"({"suggested_score":90,"overall_judgement":"bad item","risks":["risk"]})",
-            R"({"suggested_score":90,"overall_judgement":"bad severity","risks":[{"title":"risk","severity":"critical","reason":"reason","rule_id":"","claim_id":"","suggestion":""}]})",
-            R"({"suggested_score":90,"overall_judgement":"missing field","risks":[{"title":"risk","severity":"warning","reason":"reason","rule_id":"","claim_id":""}]})",
-        }) {
-        requireTrue(!cc::LlmBrain{}.parseAuditAdvisory(invalidAdvisory).ok(),
-                    std::string{"malformed advisory should be rejected: "} + invalidAdvisory);
-    }
-    cc::JsonValue::Array tooManyRisks;
-    for (std::size_t index = 0U; index < 101U; ++index) {
-        tooManyRisks.push_back(cc::JsonValue::Object{{"title", "risk"},
-                                                     {"severity", "warning"},
-                                                     {"reason", "reason"},
-                                                     {"rule_id", ""},
-                                                     {"claim_id", ""},
-                                                     {"suggestion", ""}});
-    }
-    const auto tooManyAdvisory =
-        cc::writeJson(cc::JsonValue::Object{{"suggested_score", 90},
-                                            {"overall_judgement", "bounded risks"},
-                                            {"risks", cc::JsonValue{std::move(tooManyRisks)}}},
-                      0);
-    requireTrue(!cc::LlmBrain{}.parseAuditAdvisory(tooManyAdvisory).ok(),
-                "advisory risk count must be bounded");
-    const auto oversizedJudgement =
-        cc::writeJson(cc::JsonValue::Object{{"suggested_score", 90},
-                                            {"overall_judgement", std::string(8001U, 'x')},
-                                            {"risks", cc::JsonValue::Array{}}},
-                      0);
-    requireTrue(!cc::LlmBrain{}.parseAuditAdvisory(oversizedJudgement).ok(),
-                "oversized advisory judgement must be rejected");
-
-    cc::AuditResult scored;
-    scored.trustScore.totalScore = 55;
-    cc::AuditFinding blockerFinding;
-    blockerFinding.ruleId = "RULE-001";
-    blockerFinding.severity = cc::Severity::Blocker;
-    blockerFinding.title = "缺少证据";
-    blockerFinding.reason = "营收声明缺少支撑材料";
-    scored.findings = {blockerFinding};
-
-    auto reconciled = cc::AdvisoryReconciler{}.reconcile(advisory.value(), scored);
-    requireTrue(reconciled.finalScore == 55, "final score must come from deterministic result");
-    requireTrue(reconciled.suggestedScore == 90,
-                "reconciled should keep llm suggestion for compare");
-    requireTrue(reconciled.confirmedCount == 1U, "risk matching a rule id should be confirmed");
-    requireTrue(reconciled.conflictingCount == 1U,
-                "optimistic 'pass' risk should conflict with a blocker and be downgraded");
-    requireTrue(reconciled.items.size() == 2U, "all advisory items should be reconciled");
 }

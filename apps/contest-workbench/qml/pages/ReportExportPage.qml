@@ -10,10 +10,39 @@ Item {
     id: root
     required property var compiler
 
+    function reportPath(fileName) {
+        var directory = root.compiler.projectDirectory
+        if (!directory || directory.length === 0)
+            return fileName
+        var separator = directory.endsWith("/") || directory.endsWith("\\") ? "" : "/"
+        return directory + separator + fileName
+    }
+
+    function resetExportPaths() {
+        markdownPath.text = reportPath("workbench_report.md")
+        jsonPath.text = reportPath("workbench_audit.json")
+    }
+
+    function reportUrl(fileName) {
+        var directoryUrl = String(root.compiler.projectDirectoryUrl)
+        if (!directoryUrl || directoryUrl.length === 0)
+            return ""
+        return directoryUrl + (directoryUrl.endsWith("/") ? "" : "/") + fileName
+    }
+
+    Component.onCompleted: resetExportPaths()
+
+    Connections {
+        target: root.compiler
+        function onProjectPathChanged() { root.resetExportPaths() }
+    }
+
     FileDialog {
         id: markdownDialog
         title: "保存便于阅读的检查报告"
         fileMode: FileDialog.SaveFile
+        currentFolder: root.compiler.projectDirectoryUrl
+        selectedFile: root.reportUrl("workbench_report.md")
         defaultSuffix: "md"
         nameFilters: ["Markdown 报告 (*.md)"]
         onAccepted: {
@@ -26,6 +55,8 @@ Item {
         id: jsonDialog
         title: "保存用于前后对比的检查结果"
         fileMode: FileDialog.SaveFile
+        currentFolder: root.compiler.projectDirectoryUrl
+        selectedFile: root.reportUrl("workbench_audit.json")
         defaultSuffix: "json"
         nameFilters: ["JSON 检查结果 (*.json)"]
         onAccepted: {
@@ -72,18 +103,15 @@ Item {
                     FieldInput {
                         id: markdownPath
                         Layout.fillWidth: true
-                        text: root.compiler.projectContext.workspaceRoot
-                              ? root.compiler.projectContext.workspaceRoot + "/workbench_report.md"
-                              : "workbench_report.md"
                     }
                     PrimaryButton {
                         text: "保存"
-                        enabled: !root.compiler.agentRunning && !root.compiler.advisoryRunning
+                        enabled: !root.compiler.agentRunning
                         onClicked: root.compiler.exportMarkdown(markdownPath.text)
                     }
                     PrimaryButton {
                         text: "选择位置"
-                        enabled: !root.compiler.agentRunning && !root.compiler.advisoryRunning
+                        enabled: !root.compiler.agentRunning
                         onClicked: markdownDialog.open()
                     }
                 }
@@ -118,18 +146,15 @@ Item {
                     FieldInput {
                         id: jsonPath
                         Layout.fillWidth: true
-                        text: root.compiler.projectContext.workspaceRoot
-                              ? root.compiler.projectContext.workspaceRoot + "/workbench_audit.json"
-                              : "workbench_audit.json"
                     }
                     PrimaryButton {
                         text: "保存"
-                        enabled: !root.compiler.agentRunning && !root.compiler.advisoryRunning
+                        enabled: !root.compiler.agentRunning
                         onClicked: root.compiler.exportJson(jsonPath.text)
                     }
                     PrimaryButton {
                         text: "选择位置"
-                        enabled: !root.compiler.agentRunning && !root.compiler.advisoryRunning
+                        enabled: !root.compiler.agentRunning
                         onClicked: jsonDialog.open()
                     }
                 }

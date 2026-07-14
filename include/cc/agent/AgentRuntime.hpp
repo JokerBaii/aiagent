@@ -17,8 +17,9 @@ using AgentObservationObserver = std::function<void(const AgentObservation&)>;
 /**
  * @brief 执行 Brain 计划的受控运行时。
  *
- * AgentRuntime 不提供万能 shell。它只执行 ToolRegistry 声明的工具，并在每次调用前
- * 检查权限和路径边界。
+ * AgentRuntime 只执行 ToolRegistry 声明的工具，并在每次调用前检查权限和路径边界。
+ * Shell/Bash 仅在请求显式授予 ExecuteCommand 权限时可用；完全访问模式不设置固定
+ * 执行时长或输出大小上限，用户仍可主动取消任务。
  */
 class AgentRuntime {
   public:

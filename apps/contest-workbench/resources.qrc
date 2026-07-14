@@ -27,5 +27,8 @@
     <file>qml/components/Icon.qml</file>
     <file>qml/components/AiAvatar.qml</file>
     <file>qml/components/ActionArea.qml</file>
+    <file>qml/components/WorkbenchSidebar.qml</file>
+    <file>qml/components/SettingsDrawer.qml</file>
+    <file>qml/components/WorkbenchRightPanel.qml</file>
   </qresource>
 </RCC>

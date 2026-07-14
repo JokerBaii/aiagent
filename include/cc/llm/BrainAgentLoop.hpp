@@ -19,7 +19,7 @@ using AgentDecisionProvider = std::function<Result<AgentDecision>(
 using AgentEventObserver = std::function<void(const AgentEvent&)>;
 
 /**
- * @brief 让 LLM Brain 像 Codex/Claude Code 一样逐步选择工具并根据观察继续决策。
+ * @brief 让 DeepSeek 通过原生 tool_calls 逐步选择工具并根据观察继续决策。
  *
  * BrainAgentLoop 只负责编排：大模型输出下一步决策，AgentRuntime 执行注册工具并记录
  * observation。它不提供自由 shell，也不改写最终评分。

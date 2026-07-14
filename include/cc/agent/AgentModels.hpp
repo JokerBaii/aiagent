@@ -19,8 +19,7 @@ namespace cc {
 /**
  * @brief 可被 Brain 选择的工具说明。
  *
- * 工具说明同时暴露权限和输入/输出 schema，避免模型把平台理解成可以任意执行
- * shell 的黑箱电脑。
+ * 工具说明同时暴露权限和输入/输出 schema；文件修改与 Shell 调用必须匹配显式权限。
  */
 struct AgentToolSpec {
     std::string name;
@@ -38,6 +37,12 @@ struct AgentToolCall {
     std::string name;
     std::string reason;
     JsonValue input;
+    /** DeepSeek 原生工具协议的原始 arguments；仅用于下一轮精确回传，不写入 trace。 */
+    std::string rawArguments;
+    /** 工具调用消息中的普通文本；仅保存在本轮内存上下文。 */
+    std::string assistantContent;
+    /** DeepSeek 思考模式要求逐轮原样回传；不得展示或持久化到用户 trace。 */
+    std::string reasoningContent;
 };
 
 /**
@@ -108,8 +113,8 @@ struct AgentEvent {
 /**
  * @brief 智能体运行请求。
  *
- * projectRoot 指向允许读取的项目副本或用户选择的项目目录；workspaceRoot 指向智能体
- * 可以写入的会话工作区。auditResult 是只读上下文，不允许模型覆盖最终评分。
+ * projectRoot 始终指向用户选择的原项目路径；workspaceRoot 仅用于可选会话产物。
+ * auditResult 是只读上下文，不允许模型覆盖最终评分。
  */
 struct AgentRunRequest {
     std::string userGoal;

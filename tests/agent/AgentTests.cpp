@@ -50,12 +50,28 @@ void runAgentTests() {
                     .authorize(permissionRequest, cc::ToolPermission::WriteWorkspace)
                     .ok(),
                 "request capability snapshot should explicitly allow workspace writes");
+    requireTrue(!cc::AgentPermissionPolicy{}
+                     .authorize(permissionRequest, cc::ToolPermission::ExecuteCommand)
+                     .ok(),
+                "shell execution should remain denied without an explicit capability");
+    permissionRequest.allowExecuteCommand = true;
+    requireTrue(cc::AgentPermissionPolicy{}
+                    .authorize(permissionRequest, cc::ToolPermission::ExecuteCommand)
+                    .ok(),
+                "shell execution should be available after explicit authorization");
     cc::AgentRunRequest localOptimizeRequest;
     localOptimizeRequest.requireWorkspaceChanges = true;
     requireTrue(!cc::AgentRuntime{}.runLocal(localOptimizeRequest).ok(),
                 "local diagnostic mode must not pretend to complete an optimization workflow");
-    requireTrue(!cc::ToolRegistry{}.interactiveToolSpecs().empty(),
-                "interactive agent tools should be registered");
+    const auto interactiveTools = cc::ToolRegistry{}.interactiveToolSpecs();
+    requireTrue(!interactiveTools.empty(), "interactive agent tools should be registered");
+    const auto hasTool = [&](const std::string& name) {
+        return std::any_of(interactiveTools.begin(), interactiveTools.end(),
+                           [&](const cc::AgentToolSpec& tool) { return tool.name == name; });
+    };
+    requireTrue(hasTool("read_external_text_file") && hasTool("write_project_file") &&
+                    hasTool("execute_shell_command"),
+                "expanded file and shell tools should be registered");
     auto auditCommand = cc::AgentCommandRouter{}.route("/audit");
     requireTrue(auditCommand.ok() && auditCommand.value().kind == cc::AgentCommandKind::RunAudit,
                 "slash audit command should route to audit");
@@ -86,6 +102,11 @@ void runAgentTests() {
                     bypassTask.value().kind == cc::AgentCommandKind::RunModePrefixedTask &&
                     bypassTask.value().context == "/bypass",
                 "slash bypass with text should switch mode and route the task");
+    auto fullTask = cc::AgentCommandRouter{}.route("/full 运行构建并修复源码");
+    requireTrue(fullTask.ok() &&
+                    fullTask.value().kind == cc::AgentCommandKind::RunModePrefixedTask &&
+                    fullTask.value().context == "/full",
+                "slash full with text should route an explicitly authorized full-access task");
     auto unknownCommand = cc::AgentCommandRouter{}.route("/unknown");
     requireTrue(!unknownCommand.ok(), "unknown slash command should fail explicitly");
     const auto memoryRoot = std::filesystem::temp_directory_path() / "contest_memory_test";
@@ -155,6 +176,80 @@ void runAgentTests() {
     requireTrue(codeRead.value().output.at("content").asString().find("int main") !=
                     std::string::npos,
                 "source reader should return code content");
+
+    const auto externalFile =
+        std::filesystem::temp_directory_path() / "contest_agent_external_read_test.txt";
+    requireTrue(cc::util::writeTextFile(externalFile, "external context\n").ok(),
+                "external read fixture should be written");
+    cc::AgentToolCall externalReadCall;
+    externalReadCall.id = "external_read_1";
+    externalReadCall.name = "read_external_text_file";
+    externalReadCall.reason = "读取用户另外指定的上下文";
+    externalReadCall.input =
+        cc::JsonValue::Object{{"path", externalFile.generic_string()}, {"max_bytes", 4096}};
+    auto deniedExternalRead = cc::AgentRuntime{}.runTool(request, externalReadCall);
+    requireTrue(deniedExternalRead.ok() && !deniedExternalRead.value().ok,
+                "external reads should be denied without expanded-read authorization");
+    request.allowReadExternal = true;
+    auto externalRead = cc::AgentRuntime{}.runTool(request, externalReadCall);
+    requireTrue(externalRead.ok() && externalRead.value().ok &&
+                    externalRead.value().output.at("content").asString().find("external context") !=
+                        std::string::npos,
+                "authorized external text reads should return content");
+
+    cc::AgentToolCall projectWriteCall;
+    projectWriteCall.id = "project_write_1";
+    projectWriteCall.name = "write_project_file";
+    projectWriteCall.reason = "直接更新用户授权的原项目文件";
+    projectWriteCall.input =
+        cc::JsonValue::Object{{"path", "generated.txt"}, {"content", "full access write\n"}};
+    auto deniedProjectWrite = cc::AgentRuntime{}.runTool(request, projectWriteCall);
+    requireTrue(deniedProjectWrite.ok() && !deniedProjectWrite.value().ok,
+                "original project writes should be denied outside full-access mode");
+    request.allowModifyOriginal = true;
+    auto projectWrite = cc::AgentRuntime{}.runTool(request, projectWriteCall);
+    requireTrue(projectWrite.ok() && projectWrite.value().ok &&
+                    cc::util::readFileLimited(agentRoot / "generated.txt", 4096U) ==
+                        "full access write\n",
+                "authorized original project writes should update files atomically");
+
+    cc::AgentToolCall shellCall;
+    shellCall.id = "shell_1";
+    shellCall.name = "execute_shell_command";
+    shellCall.reason = "执行项目构建辅助命令";
+    shellCall.input = cc::JsonValue::Object{{"command", "printf shell-ok"}};
+    auto deniedShell = cc::AgentRuntime{}.runTool(request, shellCall);
+    requireTrue(deniedShell.ok() && !deniedShell.value().ok,
+                "shell should be denied without full-access authorization");
+    request.allowExecuteCommand = true;
+    auto shell = cc::AgentRuntime{}.runTool(request, shellCall);
+    requireTrue(shell.ok() && shell.value().ok &&
+                    shell.value().output.at("exit_code").asNumber(-1.0) == 0.0 &&
+                    shell.value().output.at("output").asString().find("shell-ok") !=
+                        std::string::npos,
+                "authorized Bash commands should execute in the project directory");
+
+    requireTrue(
+        cc::util::writeTextFile(agentRoot / "sensitive.txt", "api_key=full-mode-visible\n").ok(),
+        "full-access sensitive read fixture should be written");
+    request.permissionMode = "full";
+    cc::AgentToolCall fullReadCall;
+    fullReadCall.id = "full_read_1";
+    fullReadCall.name = "read_text_file";
+    fullReadCall.reason = "完全访问模式读取所有文件";
+    fullReadCall.input = cc::JsonValue::Object{{"path", "sensitive.txt"}, {"max_bytes", 4096}};
+    auto fullRead = cc::AgentRuntime{}.runTool(request, fullReadCall);
+    requireTrue(fullRead.ok() && fullRead.value().ok &&
+                    fullRead.value().output.at("content").asString().find("full-mode-visible") !=
+                        std::string::npos,
+                "full-access mode should bypass sensitive file read filtering");
+
+    projectWriteCall.input =
+        cc::JsonValue::Object{{"path", ".env"}, {"content", "api_key=full-write\n"}};
+    auto fullSensitiveWrite = cc::AgentRuntime{}.runTool(request, projectWriteCall);
+    requireTrue(fullSensitiveWrite.ok() && fullSensitiveWrite.value().ok &&
+                    cc::util::readFileLimited(agentRoot / ".env", 4096U) == "api_key=full-write\n",
+                "full-access mode should allow writing files containing credentials");
 
     const auto deferredRoot =
         std::filesystem::temp_directory_path() / "contest_agent_deferred_runtime_test";
@@ -384,9 +479,21 @@ void runAgentTests() {
     auditRequest.projectRoot = agentRoot;
     auditRequest.auditOptions.rulesDir = sourceDir() / "rules";
     auditRequest.requireAudit = true;
-    auto blockedBeforeAudit = cc::AgentRuntime{}.runTool(auditRequest, listCall);
-    requireTrue(blockedBeforeAudit.ok() && !blockedBeforeAudit.value().ok,
-                "project read tools should wait until the audit creates an isolated copy");
+    auto directBeforeAudit = cc::AgentRuntime{}.runTool(auditRequest, listCall);
+    requireTrue(directBeforeAudit.ok() && directBeforeAudit.value().ok,
+                "project read tools should access the selected original before any audit copy");
+    cc::AgentToolCall directOfficeReadCall;
+    directOfficeReadCall.id = "direct_office_read";
+    directOfficeReadCall.name = "read_extracted_document";
+    directOfficeReadCall.reason = "不经审计副本直接读取原项目文档";
+    directOfficeReadCall.input =
+        cc::JsonValue::Object{{"path", "项目说明.docx"}, {"max_bytes", 8000}};
+    const auto directOfficeRead = cc::AgentRuntime{}.runTool(auditRequest, directOfficeReadCall);
+    requireTrue(directOfficeRead.ok() && directOfficeRead.value().ok &&
+                    directOfficeRead.value().output.at("direct_original_read").asBool(false) &&
+                    directOfficeRead.value().output.at("content").asString().find("真实办公文件") !=
+                        std::string::npos,
+                "office documents should be extracted directly from the original before audit");
     cc::AgentToolCall auditToolCall;
     auditToolCall.id = "audit_1";
     auditToolCall.name = "run_project_audit";
@@ -405,7 +512,7 @@ void runAgentTests() {
     auto auditedRequest = auditRequest;
     auditedRequest.requireAudit = false;
     auditedRequest.auditResult = &(*auditExecution.value().auditResult);
-    auditedRequest.projectRoot = auditedRequest.auditResult->context.inputRoot;
+    auditedRequest.projectRoot = auditedRequest.auditResult->context.originalRoot;
     auditedRequest.workspaceRoot = auditedRequest.auditResult->context.workspaceRoot / "agent";
     auto inspectOfficeCall = inspectCall;
     inspectOfficeCall.id = "inspect_office_1";

@@ -29,7 +29,7 @@
 | FR-14 | Markdown/JSON 报告 | `MarkdownReporter`、`JsonReporter` | `tests/report/ReportTests.cpp` |
 | FR-15 | Qt/QML Workbench | `CompileController` 桥接，`SessionWorkspacePage` 作为首屏；结果页统一展示资产、评分、风险、证据、差分和导出，支持响应式布局、材料预览、差分文件选择和原生保存对话框；权限边界集中在设置抽屉，技术 trace 默认折叠 | CMake 构建 `contest-workbench`；quality 执行 qmllint 和离屏启动；acceptance 检查会话页、toolCards、permissionCards、artifacts 和 sessionHistory 绑定 |
 | FR-16 | 竞赛可信智能体协作 | `contest_agent` 管理 `run_project_audit`、结构化工具、权限、hooks、会话、AgentEvent/trace、文件翻阅和工作区产物；Brain 取得每步 observation 后继续决策；`/optimize` 强制要求真实副本变更和二次审计后才允许收束；参数错误可根据 schema 恢复，成功调用重复会熔断，步数耗尽不伪装成功；展示层把内部抽取状态翻译成自然中文并合并重复任务 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp`、`tests/audit/AuditTests.cpp`、`tests/rules/RulesTests.cpp` |
-| FR-17 | LLM 配置不绑定固定厂商或模型 | `LlmProviderResolver` 统一解析通用/厂商环境变量和 UI endpoint/model/key；endpoint 决定消息协议与认证方式；模型 ID 无本地白名单，可按当前凭证从 provider 模型目录动态读取；多凭证要求显式 `LLM_PROVIDER`；完整配置有效后自动联网，无额外确认开关 | `tests/llm/LlmProviderProfileTests.cpp`、`tests/llm/LlmTests.cpp` |
+| FR-17 | DeepSeek 配置与原生工具调用 | `LlmProviderResolver` 只解析 DeepSeek 环境变量和 UI endpoint/model/key；模型 ID 无本地白名单，可按当前凭证读取模型目录；智能体使用 `tools/tool_calls/tool` 原生协议，思考模式上下文仅在内存中回传 | `tests/llm/LlmProviderProfileTests.cpp`、`tests/llm/LlmTests.cpp` |
 
 ## 架构和模块边界
 

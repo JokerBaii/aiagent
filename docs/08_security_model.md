@@ -104,7 +104,7 @@ NetworkAccess 和 LLMAccess 在底层任务快照中默认关闭。Workbench 检
 
 调用用户已配置并通过校验的 LLM endpoint 不再单独弹出确认；删除或破坏配置会立即恢复本地模式。
 
-即使用户要求使用 Claude Desktop-style 会话能力，以上动作也不能绕过 PermissionGate、LifecycleHookManager 和 Workbench 权限模式。
+DeepSeek 原生工具调用仍由 AgentRuntime 执行，不能绕过 PermissionGate、LifecycleHookManager 和 Workbench 权限模式。
 
 ## 6. 敏感文件识别
 

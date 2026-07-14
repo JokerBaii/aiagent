@@ -92,6 +92,15 @@ namespace {
     if (name == "write_workspace_file") {
         return "写入工作区文件";
     }
+    if (name == "read_external_text_file") {
+        return "读取外部文本文件";
+    }
+    if (name == "write_project_file") {
+        return "写入原项目文件";
+    }
+    if (name == "execute_shell_command") {
+        return "执行 Shell/Bash 命令";
+    }
     if (name == "inventory_project") {
         return "整理材料";
     }
@@ -208,16 +217,19 @@ namespace {
     }
     switch (permission) {
     case cc::ToolPermission::ReadProjectFiles:
-        return accessMode == "bypass" ? "Bypass 模式下经授权读取原项目路径"
-                                      : "只读取隔离工作区中的项目副本";
+        return "直接读取用户选择的原项目路径，不依赖审计副本";
     case cc::ToolPermission::ReadExternalFiles:
-        return allowed ? "Bypass 模式下允许读取用户授权的项目外文件" : "默认拒绝读取项目外文件";
+        return allowed ? "扩展/完全访问模式下允许读取用户指定的项目外文件"
+                       : "默认拒绝读取项目外文件";
     case cc::ToolPermission::WriteWorkspace:
-        return allowed ? "Code/扩展读取模式可写入隔离会话工作区" : "Ask/Plan 模式不写入会话工作区";
+        return allowed ? "Code/扩展读取/完全访问模式可写入隔离会话工作区"
+                       : "Ask/Plan 模式不写入会话工作区";
     case cc::ToolPermission::ModifyOriginalProject:
-        return "所有模式都禁止覆盖原始项目";
+        return allowed ? "完全访问模式允许创建或覆盖项目内外任意文件"
+                       : "仅完全访问模式允许修改原项目";
     case cc::ToolPermission::ExecuteCommand:
-        return "所有模式都不提供自由脚本或 shell 执行";
+        return allowed ? "完全访问模式允许在项目目录执行不设固定超时和输出上限的 Shell/Bash 命令"
+                       : "仅完全访问模式允许执行 Shell/Bash 命令";
     case cc::ToolPermission::NetworkAccess:
         return allowed ? "有效 LLM 配置已启用联网；请求受 HTTPS、时限和大小边界约束"
                        : "未配置有效 LLM 服务，不会联网";
@@ -233,7 +245,7 @@ namespace {
 [[nodiscard]] QString permissionName(cc::ToolPermission permission) {
     switch (permission) {
     case cc::ToolPermission::ReadProjectFiles:
-        return "读取项目副本";
+        return "读取原项目";
     case cc::ToolPermission::ReadExternalFiles:
         return "读取项目外文件";
     case cc::ToolPermission::WriteWorkspace:
@@ -361,25 +373,25 @@ QVariantList toolCards(const cc::AuditResult* result, const std::optional<cc::Au
                 item["detail"] = "把评分、风险和补证任务压缩为对话上下文";
             } else if (name == "list_project_files") {
                 item["status"] = "可追问";
-                item["detail"] = "Brain 可在权限内枚举项目副本文件";
+                item["detail"] = "DeepSeek 可直接枚举用户选择的原项目文件";
             } else if (name == "inspect_project_file") {
                 item["status"] = "可追问";
-                item["detail"] = "Brain 可判断文件格式、语言和下一步读取策略";
+                item["detail"] = "DeepSeek 可判断文件格式、语言和下一步读取策略";
             } else if (name == "read_text_file") {
                 item["status"] = "可追问";
-                item["detail"] = "Brain 可读取项目内文本或 Markdown 片段";
+                item["detail"] = "DeepSeek 可读取项目内文本或 Markdown 片段";
             } else if (name == "inspect_archive") {
                 item["status"] = "可追问";
-                item["detail"] = "Brain 可安全列出 zip/tar/7z/tgz 包条目";
+                item["detail"] = "DeepSeek 可安全列出 zip/tar/7z/tgz 包条目";
             } else if (name == "search_project_text") {
                 item["status"] = "可追问";
-                item["detail"] = "Brain 可在项目副本文本中按关键词搜索";
+                item["detail"] = "DeepSeek 可直接在原项目文本中按关键词搜索";
             } else if (name == "draft_markdown_revision") {
                 item["status"] = "可追问";
                 item["detail"] = "只写入工作区修订稿，不覆盖原项目";
             } else if (name == "write_workspace_file") {
                 item["status"] = "可追问";
-                item["detail"] = "Brain 可把代码、配置、清单和新文档写入会话工作区";
+                item["detail"] = "DeepSeek 可把代码、配置、清单和新文档写入会话工作区";
             } else if (name == "inventory_project") {
                 item["detail"] = QStringLiteral("资产 %1 个，输入文件 %2 个")
                                      .arg(result->inventory.assets.size())
@@ -427,15 +439,16 @@ QVariantList permissionCards(bool llmConfigured, const QString& accessMode) {
     for (const auto permission : gate.permissions()) {
         bool allowed = gate.isAllowed(permission);
         if (permission == cc::ToolPermission::ReadExternalFiles) {
-            allowed = accessMode == "bypass";
+            allowed = accessMode == "bypass" || accessMode == "full";
         } else if (permission == cc::ToolPermission::WriteWorkspace) {
-            allowed = accessMode == "code" || accessMode == "bypass";
-        } else if (permission == cc::ToolPermission::NetworkAccess ||
-                   permission == cc::ToolPermission::LLMAccess) {
+            allowed = accessMode == "code" || accessMode == "bypass" || accessMode == "full";
+        } else if (permission == cc::ToolPermission::NetworkAccess) {
+            allowed = accessMode == "full" || (llmConfigured && accessMode != "plan");
+        } else if (permission == cc::ToolPermission::LLMAccess) {
             allowed = llmConfigured && accessMode != "plan";
         } else if (permission == cc::ToolPermission::ModifyOriginalProject ||
                    permission == cc::ToolPermission::ExecuteCommand) {
-            allowed = false;
+            allowed = accessMode == "full";
         }
         QVariantMap item;
         item["name"] = permissionName(permission);

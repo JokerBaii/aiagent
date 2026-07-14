@@ -8,11 +8,11 @@
 #include "WorkbenchSessionModels.hpp"
 #include "cc/agent/AgentModels.hpp"
 #include "cc/core/Result.hpp"
-#include "cc/llm/AuditAdvisory.hpp"
 #include "cc/llm/LlmTypes.hpp"
 
 #include <QObject>
 #include <QString>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QtQml/qqmlregistration.h>
@@ -27,6 +27,8 @@ class CompileController : public QObject {
     QML_ELEMENT
     QML_ADDED_IN_VERSION(1, 0)
     Q_PROPERTY(QString projectPath READ projectPath WRITE setProjectPath NOTIFY projectPathChanged)
+    Q_PROPERTY(QString projectDirectory READ projectDirectory NOTIFY projectPathChanged)
+    Q_PROPERTY(QUrl projectDirectoryUrl READ projectDirectoryUrl NOTIFY projectPathChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(bool hasAuditResult READ hasAuditResult NOTIFY resultChanged)
     Q_PROPERTY(int trustScore READ trustScore NOTIFY resultChanged)
@@ -65,8 +67,6 @@ class CompileController : public QObject {
     Q_PROPERTY(QString agentTrace READ agentTrace NOTIFY agentTraceChanged)
     Q_PROPERTY(QString accessMode READ accessMode WRITE setAccessMode NOTIFY accessModeChanged)
     Q_PROPERTY(QVariantList sessionList READ sessionList NOTIFY sessionChanged)
-    Q_PROPERTY(QVariantMap advisory READ advisory NOTIFY advisoryChanged)
-    Q_PROPERTY(bool advisoryRunning READ advisoryRunning NOTIFY advisoryChanged)
     Q_PROPERTY(
         QVariantMap selectedFilePreview READ selectedFilePreview NOTIFY selectedFilePreviewChanged)
 
@@ -75,6 +75,9 @@ class CompileController : public QObject {
 
     [[nodiscard]] QString projectPath() const;
     void setProjectPath(const QString& value);
+    /** @brief 用户导入目录；单文件或压缩包使用其所在目录。 */
+    [[nodiscard]] QString projectDirectory() const;
+    [[nodiscard]] QUrl projectDirectoryUrl() const;
     [[nodiscard]] QString status() const;
     [[nodiscard]] bool hasAuditResult() const;
     [[nodiscard]] int trustScore() const;
@@ -119,8 +122,6 @@ class CompileController : public QObject {
     [[nodiscard]] QString accessMode() const;
     void setAccessMode(const QString& value);
     [[nodiscard]] QVariantList sessionList() const;
-    [[nodiscard]] QVariantMap advisory() const;
-    [[nodiscard]] bool advisoryRunning() const;
     [[nodiscard]] QVariantMap selectedFilePreview() const;
 
     Q_INVOKABLE void runAudit();
@@ -134,8 +135,6 @@ class CompileController : public QObject {
     /** @brief 开始一个新的会话，清空当前对话与结果。 */
     Q_INVOKABLE void newSession();
     Q_INVOKABLE void activateSession(const QString& sessionId);
-    /** @brief 运行混合研判：LLM 先判断、确定性规则校验（需授权 LLM 且已有审计结果）。 */
-    Q_INVOKABLE void runAdvisory();
     Q_INVOKABLE void rewindLastTurn();
     Q_INVOKABLE void approvePendingPlan();
     Q_INVOKABLE void previewProjectFile(const QString& relativePath);
@@ -158,7 +157,6 @@ class CompileController : public QObject {
     void agentTraceChanged();
     void agentStateChanged();
     void accessModeChanged();
-    void advisoryChanged();
     void selectedFilePreviewChanged();
 
   private:
@@ -200,7 +198,7 @@ class CompileController : public QObject {
     QVariantList llmAvailableModels_;
     QString llmModelsStatus_;
     std::shared_ptr<std::atomic_bool> llmModelsCancellation_;
-    QString accessMode_{"ask"};
+    QString accessMode_{"full"};
     bool llmConfigured_{false};
     bool llmModelsLoading_{false};
     bool agentRunning_{false};
@@ -216,8 +214,6 @@ class CompileController : public QObject {
     std::shared_ptr<cc::AuditResult> result_;
     std::shared_ptr<cc::AuditResult> baselineResult_;
     std::optional<cc::AuditDiff> auditDiff_;
-    std::optional<cc::ReconciledAdvisory> advisory_;
-    bool advisoryRunning_{false};
     struct PendingComposerMessage {
         QString message;
         QString context;
@@ -242,7 +238,6 @@ class CompileController : public QObject {
         std::shared_ptr<cc::AuditResult> result;
         std::shared_ptr<cc::AuditResult> baselineResult;
         std::optional<cc::AuditDiff> auditDiff;
-        std::optional<cc::ReconciledAdvisory> advisory;
         std::vector<workbench::SessionMessage> conversation;
     };
     QString activeSessionId_;

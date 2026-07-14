@@ -22,7 +22,7 @@ struct Endpoint {
 };
 
 /**
- * @brief OpenAI-compatible HTTPS endpoint 解析器。
+ * @brief DeepSeek HTTPS endpoint 解析器。
  *
  * 只接受 https URL，避免把 API key 发送到明文 HTTP endpoint。
  */

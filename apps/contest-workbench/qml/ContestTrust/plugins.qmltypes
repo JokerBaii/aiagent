@@ -366,24 +366,6 @@ Module {
             isReadonly: true
         }
         Property {
-            name: "advisory"
-            type: "QVariantMap"
-            read: "advisory"
-            notify: "advisoryChanged"
-            index: 39
-            lineNumber: 68
-            isReadonly: true
-        }
-        Property {
-            name: "advisoryRunning"
-            type: "bool"
-            read: "advisoryRunning"
-            notify: "advisoryChanged"
-            index: 40
-            lineNumber: 69
-            isReadonly: true
-        }
-        Property {
             name: "selectedFilePreview"
             type: "QVariantMap"
             read: "selectedFilePreview"
@@ -405,7 +387,6 @@ Module {
         Signal { name: "agentTraceChanged"; lineNumber: 158 }
         Signal { name: "agentStateChanged"; lineNumber: 159 }
         Signal { name: "accessModeChanged"; lineNumber: 160 }
-        Signal { name: "advisoryChanged"; lineNumber: 161 }
         Signal { name: "selectedFilePreviewChanged"; lineNumber: 162 }
         Method { name: "runAudit"; lineNumber: 126 }
         Method { name: "runDiff"; lineNumber: 127 }
@@ -440,7 +421,6 @@ Module {
             lineNumber: 136
             Parameter { name: "sessionId"; type: "QString" }
         }
-        Method { name: "runAdvisory"; lineNumber: 138 }
         Method { name: "rewindLastTurn"; lineNumber: 139 }
         Method { name: "approvePendingPlan"; lineNumber: 140 }
         Method {

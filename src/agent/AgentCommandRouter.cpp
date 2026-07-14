@@ -52,7 +52,7 @@ Result<AgentCommand> AgentCommandRouter::route(const std::string& input) const {
         return Result<AgentCommand>::success(
             AgentCommand{.kind = AgentCommandKind::PlanTask, .prompt = args, .context = "/plan"});
     }
-    if (command == "ask" || command == "code" || command == "bypass") {
+    if (command == "ask" || command == "code" || command == "bypass" || command == "full") {
         const auto args = commandArgs(text);
         if (args.empty()) {
             return Result<AgentCommand>::success(

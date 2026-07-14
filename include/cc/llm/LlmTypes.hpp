@@ -13,16 +13,14 @@
 
 namespace cc {
 
-/**
- * @brief OpenAI-compatible 消息。
- */
+/** @brief DeepSeek Chat Completion 普通文本消息。 */
 struct LlmMessage {
     std::string role;
     std::string content;
 };
 
 /**
- * @brief LLM 调用配置。
+ * @brief DeepSeek 调用配置。
  *
  * allowNetwork 和 allowLlm 是每次任务内部的能力快照，默认 false；Workbench 在完整配置
  * 通过校验后自动为模型任务设置它们，不对应额外的用户确认开关。

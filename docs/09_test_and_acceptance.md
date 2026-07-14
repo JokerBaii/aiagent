@@ -56,7 +56,7 @@ Workbench 必须具备：
 - Brain 回合携带用户/助手历史，在工作线程运行且失败时不静默切换本地回答；
 - 未配置 LLM 时本地 AgentRuntime 仍可执行受控文件工具；
 - 交互式工具至少支持项目文件枚举、项目文本搜索、文本/Markdown 读取、Markdown 工作区修订和工作区文本产物写入；
-- Composer slash command 路由：`/audit`、`/agent <任务>`、`/task <任务>`、`/plan <任务>`、`/optimize <任务>`、`/help`；
+- Composer slash command 路由：`/audit`、`/agent <任务>`、`/task <任务>`、`/plan [目标]`、`/optimize [目标]`、`/status`、`/compact`、`/clear`、`/help`；
 - 普通自然语言输入作为 agent task，不做关键词命令识别；
 - AgentRuntime / BrainAgentLoop 输出 `AgentEvent` 和包含 events 的 JSON trace；
 - 配置有效时 Brain 每步基于 `AgentObservation` 决定继续调用工具或最终回答，未配置时保守降级为本地观察摘要；
@@ -71,8 +71,8 @@ Workbench 必须具备：
 - 不跟随符号链接、不自动展开嵌套或加密条目，但保留其安全元数据；
 - 一个超限或暂不支持的文件不导致整个目录或归档失败；
 - 路径穿越、重复目标、文件/目录冲突、压缩炸弹和损坏归档仍必须拒绝并回滚；
-- 不直接修改原始项目；
-- 修复只生成计划和 diff；
+- 导入、确定性审计和 `RepairPlanner` 不直接修改原始项目，只生成计划和 diff；
+- Plan 模式阻断工作区写入、外部读取、原项目写入、命令、网络和 LLM 工具；完全访问模式的权限卡片与任务能力快照一致；
 - 缺少有效 endpoint/model/API key 时禁止联网；完整配置有效时 Workbench 自动启用模型任务，内部能力快照仍必须匹配；
 - OpenXML、PDF 和压缩包解析不调用 shell 或外部工具；
 - 报告不生成虚假数据；
@@ -99,9 +99,9 @@ Workbench 必须具备：
 7. Workbench 能运行可信编译并展示结果
 8. Workbench 能导出 Markdown/JSON 报告
 9. Workbench 能展示二次审计差分
-10. 默认权限阻断联网和 LLM
+10. Plan 模式阻断执行类工具；无有效 DeepSeek 配置时不调用 LLM
 11. 报告中每个关键结论包含规则 ID 或证据来源
 12. 关掉 LLM 后系统仍能完成核心审计
-13. 无直接覆盖原项目逻辑
+13. 确定性修复不覆盖原项目；智能体原项目写入受完全访问模式和 `ModifyOriginalProject` 权限约束
 14. 无 AI 伪造数据逻辑
 15. 质量脚本通过

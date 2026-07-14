@@ -80,7 +80,7 @@ AgentRuntime                 请求生命周期、取消传播、结果聚合
 ├── AgentPermissionPolicy    请求能力快照到工具授权
 ├── AgentFilePolicy          文本判定、UTF-8、敏感内容策略
 ├── AgentTraceSerializer     call、observation、event 与 trace JSON
-├── WorkspaceEditor          安全副本写入与差分
+├── WorkspaceEditor          repaired-project 安全副本写入、差分与复审
 ├── AgentCommandRouter       会话命令路由
 └── StagedAuditPipeline      分阶段审计编排
 ```
@@ -146,6 +146,10 @@ contest-compiler/
 │       ├── WorkbenchSessionModels.cpp
 │       ├── resources.qrc
 │       └── qml/
+│           ├── Main.qml
+│           ├── Theme.qml
+│           ├── components/  侧栏、右面板、设置、会话组件
+│           └── pages/       资产、CPIR、证据、风险、任务、报告等页面
 ├── rules/
 ├── examples/
 ├── tests/
@@ -202,5 +206,5 @@ ProjectContext
 - QML 不直接读写项目文件。
 - `rules` 不调用 UI。
 - `report` 不修改审计结果。
-- `repair` 不覆盖原项目。
-- `agent` 必须通过 PermissionGate 执行高风险动作。
+- `repair` 只生成计划和 diff，不覆盖原项目。
+- `agent` 的原项目写入、外部读取、命令和网络必须通过 ToolRegistry、PermissionGate 与任务能力快照；Plan 模式必须阻断执行类工具。

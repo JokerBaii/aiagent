@@ -13,7 +13,7 @@
 
 | 来源 | 要求 | 当前实现 | 验证入口 |
 |---|---|---|---|
-| FR-01 | 目录、单文件和 zip/tar 等压缩包导入，隔离工作区，不改原项目 | `ProjectLoader`、`ArchiveExtractor`、`ZipArchiveReader`、`LibArchiveReader`、`PathGuard`；逐条受限内容进入 `deferredFiles`，安全冲突事务回滚 | `tests/loader/LoaderTests.cpp` |
+| FR-01 | 目录、单文件和 zip/tar 等压缩包导入；导入/审计不改原项目 | `ProjectLoader`、`ArchiveExtractor`、`ZipArchiveReader`、`LibArchiveReader`、`PathGuard`；逐条受限内容进入 `deferredFiles`，安全冲突事务回滚；智能体另按权限直接读取所选路径 | `tests/loader/LoaderTests.cpp` |
 | FR-02 | PASI 资产语义识别 | `FormatDetector` 统一扩展名/内容签名/纯元数据识别，`RoleClassifier`、`SensitiveFileDetector`、`GeneratedVendoredDetector`、`InventoryEngine` 保留延迟和未知资产 | `tests/inventory/InventoryTests.cpp` |
 | FR-03 | 竞赛类型识别含置信度和理由 | `CompetitionTypeDetector`、`CompetitionTypeResult` | `tests/cpir/CpirTests.cpp` |
 | FR-04 | CPIR，不足字段显式标记 | `CPIRBuilder` | `tests/cpir/CpirTests.cpp` |
@@ -28,7 +28,7 @@
 | FR-13 | 二次审计差分 | `DiffVerifier`、`AuditDiff` JSON | `tests/audit/AuditTests.cpp` |
 | FR-14 | Markdown/JSON 报告 | `MarkdownReporter`、`JsonReporter` | `tests/report/ReportTests.cpp` |
 | FR-15 | Qt/QML Workbench | `CompileController` 桥接，`SessionWorkspacePage` 作为首屏；结果页统一展示资产、评分、风险、证据、差分和导出，支持响应式布局、材料预览、差分文件选择和原生保存对话框；权限边界集中在设置抽屉，技术 trace 默认折叠 | CMake 构建 `contest-workbench`；quality 执行 qmllint 和离屏启动；acceptance 检查会话页、toolCards、permissionCards、artifacts 和 sessionHistory 绑定 |
-| FR-16 | 竞赛可信智能体协作 | `contest_agent` 管理 `run_project_audit`、结构化工具、权限、hooks、会话、AgentEvent/trace、文件翻阅和工作区产物；Brain 取得每步 observation 后继续决策；`/optimize` 强制要求真实副本变更和二次审计后才允许收束；参数错误可根据 schema 恢复，成功调用重复会熔断，步数耗尽不伪装成功；展示层把内部抽取状态翻译成自然中文并合并重复任务 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp`、`tests/audit/AuditTests.cpp`、`tests/rules/RulesTests.cpp` |
+| FR-16 | 竞赛可信智能体协作 | `contest_agent` 管理 `run_project_audit`、结构化工具、权限、hooks、会话、AgentEvent/trace、文件翻阅、工作区产物及受权原项目写入；Brain 取得每步 observation 后继续决策；`/optimize` 要求 `repaired-project` 中的实际变更和二次审计后才允许收束；参数错误可根据 schema 恢复，成功调用重复会熔断，步数耗尽不伪装成功；展示层把内部抽取状态翻译成自然中文并合并重复任务 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp`、`tests/audit/AuditTests.cpp`、`tests/rules/RulesTests.cpp` |
 | FR-17 | DeepSeek 配置与原生工具调用 | `LlmProviderResolver` 只解析 DeepSeek 环境变量和 UI endpoint/model/key；模型 ID 无本地白名单，可按当前凭证读取模型目录；智能体使用 `tools/tool_calls/tool` 原生协议，思考模式上下文仅在内存中回传 | `tests/llm/LlmProviderProfileTests.cpp`、`tests/llm/LlmTests.cpp` |
 
 ## 架构和模块边界
@@ -46,7 +46,7 @@
 | 要求 | 当前落实 | 验证入口 |
 |---|---|---|
 | 路径穿越防护 | `PathGuard` 校验 root 内路径，解包前检查条目 | `tests/loader/LoaderTests.cpp` |
-| 不覆盖原项目 | 目录输入先复制到 `.workspaces/<session>/input`，修复只生成计划/diff | `tests/loader/LoaderTests.cpp`、`tests/repair/RepairTests.cpp` |
+| 原项目修改边界 | 导入/确定性审计副本和 `RepairPlanner` 不覆盖原项目；`write_project_file` 只在完全访问任务快照中经 `ModifyOriginalProject` 权限执行，Plan 模式阻断 | `tests/loader/LoaderTests.cpp`、`tests/repair/RepairTests.cpp`、`tests/agent/AgentTests.cpp` |
 | zip/libarchive/OpenXML/PDF 不执行 shell | `ZipArchiveReader`、`LibArchiveReader`、`OpenXmlTextExtractor` 和 `PdfContentStreamParser` 都不调用外部工具 | acceptance 禁止 `popen/std::system/unzip/pdftotext` 出现在相关产品代码 |
 | 无配置不联网 | `PermissionGate` 仍按单次任务能力快照约束 `NetworkAccess` 和 `LLMAccess`；Workbench 在有效配置存在时自动设置模型任务快照，无效或缺失配置不会发起请求 | `tests/agent/AgentTests.cpp`、`tests/llm/LlmTests.cpp` |
 | LLM 请求保护 | `LlmBrain` 必须同时有运行时授权标志和 API key | `tests/llm/LlmTests.cpp` |

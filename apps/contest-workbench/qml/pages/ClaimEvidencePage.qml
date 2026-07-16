@@ -9,6 +9,7 @@ import "../components"
 Item {
     id: root
     required property var compiler
+    readonly property var claimEvidenceModel: compiler.claimEvidence
 
     function statusColors(s) {
         if (s === "证据充分")
@@ -38,7 +39,8 @@ Item {
                 anchors.margins: 12
                 clip: true
                 spacing: 10
-                model: root.compiler.claimEvidence
+                model: root.claimEvidenceModel
+                reuseItems: true
                 ScrollBar.vertical: ScrollBar {}
                 add: Transition {
                     NumberAnimation { properties: "opacity"; from: 0; to: 1; duration: Theme.normal }

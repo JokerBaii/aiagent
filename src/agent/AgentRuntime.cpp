@@ -22,14 +22,13 @@
 #include "cc/text/PdfTextExtractor.hpp"
 #include "cc/util/FileUtil.hpp"
 #include "cc/util/StringUtil.hpp"
-
+#include <limits>
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
-#include <limits>
 #include <sstream>
 #include <string_view>
 #include <system_error>
@@ -1542,7 +1541,8 @@ runProjectAuditExecution(const AgentRunRequest& request, const AgentToolCall& ca
                          .toolName = callItem.name,
                          .ok = ok,
                          .summary = std::move(summary),
-                         .output = JsonValue::Object{{"exit_code", result.exitCode},
+                         .output = JsonValue::Object{{"command", callItem.input.at("command")},
+                                                     {"exit_code", result.exitCode},
                                                      {"cancelled", result.cancelled},
                                                      {"output", result.output}}});
 }

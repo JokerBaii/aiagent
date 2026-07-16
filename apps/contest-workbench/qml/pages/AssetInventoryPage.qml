@@ -9,6 +9,8 @@ import "../components"
 Item {
     id: root
     required property var compiler
+    readonly property var assetsModel: compiler.assets
+    readonly property var roleDistributionModel: compiler.roleDistribution
     signal previewRequested(string relativePath)
 
     function formatBytes(value) {
@@ -39,7 +41,8 @@ Item {
                     anchors.margins: 12
                     clip: true
                     spacing: 8
-                    model: root.compiler.roleDistribution
+                    model: root.roleDistributionModel
+                    reuseItems: true
                     ScrollBar.vertical: ScrollBar {}
                     add: Transition {
                         NumberAnimation { properties: "opacity"; from: 0; to: 1; duration: Theme.normal }
@@ -100,7 +103,8 @@ Item {
                     anchors.margins: 12
                     clip: true
                     spacing: 8
-                    model: root.compiler.assets
+                    model: root.assetsModel
+                    reuseItems: true
                     ScrollBar.vertical: ScrollBar {}
                     add: Transition {
                         NumberAnimation { properties: "opacity"; from: 0; to: 1; duration: Theme.normal }

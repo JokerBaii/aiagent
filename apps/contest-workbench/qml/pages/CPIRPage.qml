@@ -9,6 +9,7 @@ import "../components"
 Item {
     id: root
     required property var compiler
+    readonly property var cpirModel: compiler.cpir
 
     function isBlank(value) {
         return value === undefined || value === null || String(value).trim().length === 0
@@ -37,25 +38,25 @@ Item {
 
                 Repeater {
                     model: [
-                        ["项目名称", root.compiler.cpir.projectName],
-                        ["竞赛类型", root.compiler.cpir.competitionType],
-                        ["赛道判断把握", root.compiler.cpir.competitionConfidence === undefined
-                                             ? "" : Math.round(Number(root.compiler.cpir.competitionConfidence) * 100) + "%"],
-                        ["为什么这样判断", root.compiler.cpir.competitionReason],
-                        ["目标用户", root.compiler.cpir.targetUser],
-                        ["要解决的问题", root.compiler.cpir.painPoint],
-                        ["解决方案", root.compiler.cpir.solution],
-                        ["产品或服务", root.compiler.cpir.productOrService],
-                        ["技术路线", root.compiler.cpir.technicalRoute],
-                        ["商业模式", root.compiler.cpir.businessModel],
-                        ["市场分析", root.compiler.cpir.marketAnalysis],
-                        ["竞品分析", root.compiler.cpir.competitorAnalysis],
-                        ["财务预测", root.compiler.cpir.financialProjection],
-                        ["团队结构", root.compiler.cpir.teamStructure],
-                        ["当前成果", root.compiler.cpir.currentResults],
-                        ["社会价值", root.compiler.cpir.socialValue],
-                        ["待补充信息", root.compiler.cpir.missingFields],
-                        ["需关注点", root.compiler.cpir.riskItems]
+                        ["项目名称", root.cpirModel.projectName],
+                        ["竞赛类型", root.cpirModel.competitionType],
+                        ["赛道判断把握", root.cpirModel.competitionConfidence === undefined
+                                             ? "" : Math.round(Number(root.cpirModel.competitionConfidence) * 100) + "%"],
+                        ["为什么这样判断", root.cpirModel.competitionReason],
+                        ["目标用户", root.cpirModel.targetUser],
+                        ["要解决的问题", root.cpirModel.painPoint],
+                        ["解决方案", root.cpirModel.solution],
+                        ["产品或服务", root.cpirModel.productOrService],
+                        ["技术路线", root.cpirModel.technicalRoute],
+                        ["商业模式", root.cpirModel.businessModel],
+                        ["市场分析", root.cpirModel.marketAnalysis],
+                        ["竞品分析", root.cpirModel.competitorAnalysis],
+                        ["财务预测", root.cpirModel.financialProjection],
+                        ["团队结构", root.cpirModel.teamStructure],
+                        ["当前成果", root.cpirModel.currentResults],
+                        ["社会价值", root.cpirModel.socialValue],
+                        ["待补充信息", root.cpirModel.missingFields],
+                        ["需关注点", root.cpirModel.riskItems]
                     ]
                     delegate: Card {
                         id: cpirCard

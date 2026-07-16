@@ -225,6 +225,7 @@ void runAgentTests() {
     auto shell = cc::AgentRuntime{}.runTool(request, shellCall);
     requireTrue(shell.ok() && shell.value().ok &&
                     shell.value().output.at("exit_code").asNumber(-1.0) == 0.0 &&
+                    shell.value().output.at("command").asString() == "printf shell-ok" &&
                     shell.value().output.at("output").asString().find("shell-ok") !=
                         std::string::npos,
                 "authorized Bash commands should execute in the project directory");

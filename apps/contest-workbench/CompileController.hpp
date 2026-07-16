@@ -186,6 +186,8 @@ class CompileController : public QObject {
                                                        const QString& context = {}) const;
     [[nodiscard]] cc::LlmConfig llmConfig(bool allowNetwork, bool allowLlm) const;
     void refreshLlmConfig(bool invalidateModels);
+    /** @brief 结果对象切换时丢弃 QML 展示缓存；单个模型在首次访问时按需生成。 */
+    void syncResultModelCache() const;
 
     QString projectPath_;
     QString oldAuditPath_;
@@ -214,6 +216,19 @@ class CompileController : public QObject {
     std::shared_ptr<cc::AuditResult> result_;
     std::shared_ptr<cc::AuditResult> baselineResult_;
     std::optional<cc::AuditDiff> auditDiff_;
+    mutable std::weak_ptr<cc::AuditResult> modelCacheResult_;
+    mutable std::optional<int> cachedBlockerCount_;
+    mutable std::optional<int> cachedWarningCount_;
+    mutable std::optional<QString> cachedSummary_;
+    mutable std::optional<QVariantList> cachedAssets_;
+    mutable std::optional<QVariantList> cachedRoleDistribution_;
+    mutable std::optional<QVariantMap> cachedCpir_;
+    mutable std::optional<QVariantList> cachedClaimEvidence_;
+    mutable std::optional<QVariantList> cachedConsistencyIssues_;
+    mutable std::optional<QVariantList> cachedFindings_;
+    mutable std::optional<QVariantList> cachedFixTasks_;
+    mutable std::optional<QVariantList> cachedScorePenalties_;
+    mutable std::optional<QVariantMap> cachedRepairWorkspace_;
     struct PendingComposerMessage {
         QString message;
         QString context;

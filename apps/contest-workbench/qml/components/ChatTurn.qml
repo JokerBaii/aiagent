@@ -114,40 +114,83 @@ Item {
         id: toolLine
         Item {
             width: content.width
-            implicitHeight: toolRow.implicitHeight
-            RowLayout {
-                id: toolRow
+            implicitHeight: toolColumn.implicitHeight
+            ColumnLayout {
+                id: toolColumn
                 x: root.contentIndent
                 width: parent.width - root.contentIndent
                 spacing: 8
-                Icon {
-                    name: "chevronRight"
-                    size: 11
-                    color: Theme.textTertiary
-                    Layout.alignment: Qt.AlignTop
-                    Layout.topMargin: 3
-                }
-                Icon {
-                    name: "toolStack"
-                    size: 13
-                    color: Theme.textTertiary
-                    Layout.alignment: Qt.AlignTop
-                    Layout.topMargin: 2
-                }
-                Text {
+                property bool expanded: false
+
+                Item {
                     Layout.fillWidth: true
-                    text: root.text + (root.detail.length > 0 ? "  ·  " + root.detail : "")
-                    color: root.ok ? Theme.textMuted : Theme.danger
-                    font.pixelSize: Theme.fontMd
-                    wrapMode: Text.WordWrap
-                    lineHeight: 1.3
+                    implicitHeight: toolHeaderRow.implicitHeight
+                    RowLayout {
+                        id: toolHeaderRow
+                        anchors.fill: parent
+                        spacing: 8
+                        Icon {
+                            name: toolColumn.expanded ? "chevronDown" : "chevronRight"
+                            size: 11
+                            color: Theme.textTertiary
+                            Layout.alignment: Qt.AlignTop
+                            Layout.topMargin: 3
+                        }
+                        Icon {
+                            name: "toolStack"
+                            size: 13
+                            color: Theme.textTertiary
+                            Layout.alignment: Qt.AlignTop
+                            Layout.topMargin: 2
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.text + (root.detail.length > 0 ? "  ·  " + root.detail : "")
+                            color: root.ok ? Theme.textMuted : Theme.danger
+                            font.family: root.text.startsWith("$") ? Theme.monoFamily : Theme.fontFamily
+                            font.pixelSize: Theme.fontMd
+                            wrapMode: Text.WordWrap
+                            lineHeight: 1.3
+                        }
+                        Icon {
+                            name: root.ok ? "checkSmall" : "close"
+                            size: 12
+                            color: root.ok ? Theme.success : Theme.danger
+                            Layout.alignment: Qt.AlignTop
+                            Layout.topMargin: 3
+                        }
+                    }
+                    ActionArea {
+                        anchors.fill: parent
+                        enabled: root.target.length > 0
+                        accessibleName: toolColumn.expanded ? "收起工具详情" : "展开工具详情"
+                        onClicked: toolColumn.expanded = !toolColumn.expanded
+                    }
                 }
-                Icon {
-                    name: root.ok ? "checkSmall" : "close"
-                    size: 12
-                    color: root.ok ? Theme.success : Theme.danger
-                    Layout.alignment: Qt.AlignTop
-                    Layout.topMargin: 3
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 19
+                    visible: toolColumn.expanded && root.target.length > 0
+                    implicitHeight: toolDetail.implicitHeight + 20
+                    radius: Theme.radiusSm
+                    color: Theme.surfaceMuted
+                    border.color: Theme.border
+                    TextEdit {
+                        id: toolDetail
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 10
+                        text: root.target
+                        color: Theme.textPrimary
+                        font.family: Theme.monoFamily
+                        font.pixelSize: Theme.fontSm
+                        wrapMode: TextEdit.Wrap
+                        readOnly: true
+                        selectByMouse: true
+                        textFormat: TextEdit.PlainText
+                    }
                 }
             }
         }

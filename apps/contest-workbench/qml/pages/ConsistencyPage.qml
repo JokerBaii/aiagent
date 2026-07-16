@@ -9,6 +9,7 @@ import "../components"
 Item {
     id: root
     required property var compiler
+    readonly property var consistencyModel: compiler.consistencyIssues
 
     function sevColors(s) {
         if (s === "必须处理")
@@ -38,7 +39,8 @@ Item {
                 anchors.margins: 12
                 clip: true
                 spacing: 10
-                model: root.compiler.consistencyIssues
+                model: root.consistencyModel
+                reuseItems: true
                 ScrollBar.vertical: ScrollBar {}
                 add: Transition {
                     NumberAnimation { properties: "opacity"; from: 0; to: 1; duration: Theme.normal }

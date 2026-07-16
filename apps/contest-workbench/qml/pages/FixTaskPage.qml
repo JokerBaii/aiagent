@@ -9,6 +9,7 @@ import "../components"
 Item {
     id: root
     required property var compiler
+    readonly property var fixTasksModel: compiler.fixTasks
 
     function prioColors(p) {
         if (p === "P0" || p === "高" || p === "high")
@@ -44,7 +45,8 @@ Item {
                 anchors.margins: 12
                 clip: true
                 spacing: 10
-                model: root.compiler.fixTasks
+                model: root.fixTasksModel
+                reuseItems: true
                 ScrollBar.vertical: ScrollBar {}
                 add: Transition {
                     NumberAnimation { properties: "opacity"; from: 0; to: 1; duration: Theme.normal }

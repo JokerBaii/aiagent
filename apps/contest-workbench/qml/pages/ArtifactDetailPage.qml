@@ -11,6 +11,7 @@ Item {
 
     required property var compiler
     property string pageKey: "dashboard"
+    property bool contentReady: false
     signal closeRequested()
     signal filePreviewRequested(string relativePath)
 
@@ -27,11 +28,20 @@ Item {
         "report": ["下载检查报告", "导出便于阅读和分享的检查结果"]
     })
 
-    function pageIndex(key) {
-        var keys = ["dashboard", "assets", "cpir", "claims", "consistency",
-                    "findings", "tasks", "diff", "brain", "report"]
-        var value = keys.indexOf(key)
-        return value < 0 ? 0 : value
+    function pageComponent(key) {
+        var pages = {
+            "dashboard": dashboardComponent,
+            "assets": assetsComponent,
+            "cpir": cpirComponent,
+            "claims": claimsComponent,
+            "consistency": consistencyComponent,
+            "findings": findingsComponent,
+            "tasks": tasksComponent,
+            "diff": diffComponent,
+            "brain": brainComponent,
+            "report": reportComponent
+        }
+        return pages[key] === undefined ? dashboardComponent : pages[key]
     }
 
     function metadata(index) {
@@ -39,7 +49,24 @@ Item {
         return value === undefined ? pageMetadata.dashboard[index] : value[index]
     }
 
-    onPageKeyChanged: pageTransition.restart()
+    onPageKeyChanged: {
+        contentReady = false
+        contentDelay.restart()
+    }
+    onEnabledChanged: {
+        contentReady = false
+        if (enabled)
+            contentDelay.restart()
+        else
+            contentDelay.stop()
+    }
+
+    Timer {
+        id: contentDelay
+        interval: Theme.normal
+        repeat: false
+        onTriggered: root.contentReady = true
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -152,35 +179,41 @@ Item {
                 }
             }
 
-            StackLayout {
-                id: pageStack
+            Loader {
+                id: pageLoader
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                currentIndex: root.pageIndex(root.pageKey)
-
-                TrustDashboardPage { compiler: root.compiler }
-                AssetInventoryPage {
-                    compiler: root.compiler
-                    onPreviewRequested: function(relativePath) {
-                        root.filePreviewRequested(relativePath)
-                    }
-                }
-                CPIRPage { compiler: root.compiler }
-                ClaimEvidencePage { compiler: root.compiler }
-                ConsistencyPage { compiler: root.compiler }
-                FindingsPage { compiler: root.compiler }
-                FixTaskPage { compiler: root.compiler }
-                AuditDiffPage { compiler: root.compiler }
-                BrainPage { compiler: root.compiler }
-                ReportExportPage { compiler: root.compiler }
+                active: root.enabled && root.contentReady
+                asynchronous: true
+                sourceComponent: root.pageComponent(root.pageKey)
+                onLoaded: pageTransition.restart()
             }
+        }
+    }
+
+    Component { id: dashboardComponent; TrustDashboardPage { compiler: root.compiler } }
+    Component { id: assetsComponent; AssetInventoryPage { compiler: root.compiler } }
+    Component { id: cpirComponent; CPIRPage { compiler: root.compiler } }
+    Component { id: claimsComponent; ClaimEvidencePage { compiler: root.compiler } }
+    Component { id: consistencyComponent; ConsistencyPage { compiler: root.compiler } }
+    Component { id: findingsComponent; FindingsPage { compiler: root.compiler } }
+    Component { id: tasksComponent; FixTaskPage { compiler: root.compiler } }
+    Component { id: diffComponent; AuditDiffPage { compiler: root.compiler } }
+    Component { id: brainComponent; BrainPage { compiler: root.compiler } }
+    Component { id: reportComponent; ReportExportPage { compiler: root.compiler } }
+
+    Connections {
+        target: pageLoader.item
+        ignoreUnknownSignals: true
+        function onPreviewRequested(relativePath) {
+            root.filePreviewRequested(relativePath)
         }
     }
 
     ParallelAnimation {
         id: pageTransition
         NumberAnimation {
-            target: pageStack
+            target: pageLoader
             property: "opacity"
             from: 0.45
             to: 1
@@ -188,7 +221,7 @@ Item {
             easing.type: Easing.OutCubic
         }
         NumberAnimation {
-            target: pageStack
+            target: pageLoader
             property: "x"
             from: 12
             to: 0

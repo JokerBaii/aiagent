@@ -11,6 +11,7 @@ Item {
     required property var compiler
     property bool dropActive: false
     property bool autoFollowConversation: true
+    property real manualConversationY: 0
     signal attachProjectRequested()
     signal artifactRequested(string pageKey)
 
@@ -38,9 +39,22 @@ Item {
     }
 
     function followConversationIfNeeded() {
-        if (!autoFollowConversation)
+        if (!autoFollowConversation || historyList.moving || historyScrollBar.pressed)
             return
         Qt.callLater(function() { historyList.positionViewAtEnd() })
+    }
+
+    function restoreConversationPosition() {
+        if (autoFollowConversation) {
+            followConversationIfNeeded()
+            return
+        }
+        if (historyList.moving || historyScrollBar.pressed)
+            return
+        Qt.callLater(function() {
+            var maximumY = Math.max(0, historyList.contentHeight - historyList.height)
+            historyList.contentY = Math.min(root.manualConversationY, maximumY)
+        })
     }
 
     ColumnLayout {
@@ -64,13 +78,26 @@ Item {
                 model: root.compiler.sessionHistory
                 boundsBehavior: Flickable.StopAtBounds
                 onMovementStarted: root.autoFollowConversation = false
-                onMovementEnded: root.autoFollowConversation = root.nearConversationEnd()
-                onContentHeightChanged: root.followConversationIfNeeded()
-                ScrollBar.vertical: ScrollBar {
-                    width: 8
-                    policy: ScrollBar.AsNeeded
+                onMovementEnded: {
+                    root.manualConversationY = historyList.contentY
+                    root.autoFollowConversation = root.nearConversationEnd()
                 }
-                onCountChanged: root.followConversationIfNeeded()
+                onContentHeightChanged: root.restoreConversationPosition()
+                ScrollBar.vertical: ScrollBar {
+                    id: historyScrollBar
+                    width: 12
+                    policy: ScrollBar.AlwaysOn
+                    interactive: true
+                    onPressedChanged: {
+                        if (pressed)
+                            root.autoFollowConversation = false
+                        else {
+                            root.manualConversationY = historyList.contentY
+                            root.autoFollowConversation = root.nearConversationEnd()
+                        }
+                    }
+                }
+                onCountChanged: root.restoreConversationPosition()
 
                 add: Transition {
                     NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.normal }
@@ -166,6 +193,7 @@ Item {
                     onClicked: {
                         root.autoFollowConversation = true
                         historyList.positionViewAtEnd()
+                        root.manualConversationY = historyList.contentY
                     }
                 }
             }

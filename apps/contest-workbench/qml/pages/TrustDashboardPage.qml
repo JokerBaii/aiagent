@@ -9,6 +9,7 @@ import "../components"
 Item {
     id: root
     required property var compiler
+    readonly property var penaltiesModel: compiler.scorePenalties
 
     ColumnLayout {
         anchors.fill: parent
@@ -79,7 +80,8 @@ Item {
                 anchors.margins: 12
                 clip: true
                 spacing: 8
-                model: root.compiler.scorePenalties
+                model: root.penaltiesModel
+                reuseItems: true
                 ScrollBar.vertical: ScrollBar {}
                 add: Transition {
                     NumberAnimation { properties: "opacity"; from: 0; to: 1; duration: Theme.normal }

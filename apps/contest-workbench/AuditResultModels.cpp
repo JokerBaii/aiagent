@@ -10,6 +10,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <unordered_map>
 
 namespace workbench {
 namespace {
@@ -289,6 +290,7 @@ QString summary(const cc::AuditResult& result) {
 
 QVariantList assets(const cc::AuditResult& result) {
     QVariantList items;
+    items.reserve(static_cast<qsizetype>(result.inventory.assets.size()));
     for (const auto& asset : result.inventory.assets) {
         QVariantMap item;
         item["path"] = pathText(asset.relativePath);
@@ -305,6 +307,7 @@ QVariantList assets(const cc::AuditResult& result) {
 
 QVariantList roleDistribution(const cc::AuditResult& result) {
     QVariantList items;
+    items.reserve(static_cast<qsizetype>(result.inventory.roleCounts.size()));
     for (const auto& [role, count] : result.inventory.roleCounts) {
         QVariantMap item;
         item["role"] = assetRoleText(role);
@@ -341,10 +344,15 @@ QVariantMap cpir(const cc::AuditResult& result) {
 
 QVariantList claimEvidence(const cc::AuditResult& result) {
     QVariantList items;
+    items.reserve(static_cast<qsizetype>(result.claims.size()));
+    std::unordered_map<std::string, const cc::EvidenceMatch*> matchesByClaim;
+    matchesByClaim.reserve(result.evidenceMatches.size());
+    for (const auto& match : result.evidenceMatches) {
+        matchesByClaim.try_emplace(match.claimId, &match);
+    }
     for (const auto& claim : result.claims) {
-        const auto match = std::find_if(
-            result.evidenceMatches.begin(), result.evidenceMatches.end(),
-            [&](const cc::EvidenceMatch& item) { return item.claimId == claim.claimId; });
+        const auto found = matchesByClaim.find(claim.claimId);
+        const auto* match = found == matchesByClaim.end() ? nullptr : found->second;
         QVariantMap item;
         item["claimId"] = stringText(claim.claimId);
         item["type"] = claimTypeText(claim.claimType);
@@ -355,7 +363,7 @@ QVariantList claimEvidence(const cc::AuditResult& result) {
         item["reason"] = QStringLiteral("该声明尚未生成证据匹配结果。");
         item["evidence"] = QString{};
         item["missing"] = joinedStrings(cc::missingEvidenceForClaim(claim.claimType));
-        if (match != result.evidenceMatches.end()) {
+        if (match != nullptr) {
             item["status"] = evidenceStatusText(match->status);
             item["reason"] = stringText(match->reason);
             item["evidence"] = joinedPaths(match->evidenceFiles);
@@ -368,6 +376,7 @@ QVariantList claimEvidence(const cc::AuditResult& result) {
 
 QVariantList consistencyIssues(const cc::AuditResult& result) {
     QVariantList items;
+    items.reserve(static_cast<qsizetype>(result.consistencyIssues.size()));
     for (const auto& issue : result.consistencyIssues) {
         QVariantMap item;
         item["issueId"] = stringText(issue.issueId);
@@ -383,6 +392,7 @@ QVariantList consistencyIssues(const cc::AuditResult& result) {
 
 QVariantList findings(const cc::AuditResult& result) {
     QVariantList items;
+    items.reserve(static_cast<qsizetype>(result.findings.size()));
     for (const auto& finding : result.findings) {
         QVariantMap item;
         item["ruleId"] = stringText(finding.ruleId);
@@ -400,6 +410,7 @@ QVariantList findings(const cc::AuditResult& result) {
 
 QVariantList fixTasks(const cc::AuditResult& result) {
     QVariantList items;
+    items.reserve(static_cast<qsizetype>(result.fixTasks.size()));
     for (const auto& task : result.fixTasks) {
         QVariantMap item;
         item["taskId"] = stringText(task.taskId);
@@ -416,6 +427,7 @@ QVariantList fixTasks(const cc::AuditResult& result) {
 
 QVariantList scorePenalties(const cc::AuditResult& result) {
     QVariantList items;
+    items.reserve(static_cast<qsizetype>(result.trustScore.penalties.size()));
     for (const auto& penalty : result.trustScore.penalties) {
         QVariantMap item;
         item["ruleId"] = stringText(penalty.ruleId);

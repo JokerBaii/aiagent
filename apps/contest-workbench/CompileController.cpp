@@ -463,55 +463,124 @@ bool CompileController::hasAuditResult() const {
     return result_ != nullptr;
 }
 
+void CompileController::syncResultModelCache() const {
+    if (modelCacheResult_.lock() == result_) {
+        return;
+    }
+    modelCacheResult_ = result_;
+    cachedBlockerCount_.reset();
+    cachedWarningCount_.reset();
+    cachedSummary_.reset();
+    cachedAssets_.reset();
+    cachedRoleDistribution_.reset();
+    cachedCpir_.reset();
+    cachedClaimEvidence_.reset();
+    cachedConsistencyIssues_.reset();
+    cachedFindings_.reset();
+    cachedFixTasks_.reset();
+    cachedScorePenalties_.reset();
+    cachedRepairWorkspace_.reset();
+}
+
 int CompileController::trustScore() const {
     return result_ != nullptr ? result_->trustScore.totalScore : 0;
 }
 
 int CompileController::blockerCount() const {
-    return result_ != nullptr ? workbench::blockerCount(*result_) : 0;
+    syncResultModelCache();
+    if (result_ == nullptr) {
+        return 0;
+    }
+    if (!cachedBlockerCount_.has_value()) {
+        cachedBlockerCount_ = workbench::blockerCount(*result_);
+    }
+    return *cachedBlockerCount_;
 }
 
 int CompileController::warningCount() const {
-    return result_ != nullptr ? workbench::warningCount(*result_) : 0;
+    syncResultModelCache();
+    if (result_ == nullptr) {
+        return 0;
+    }
+    if (!cachedWarningCount_.has_value()) {
+        cachedWarningCount_ = workbench::warningCount(*result_);
+    }
+    return *cachedWarningCount_;
 }
 
 QString CompileController::summary() const {
+    syncResultModelCache();
     if (result_ == nullptr) {
         return "尚未运行审计";
     }
-    return workbench::summary(*result_);
+    if (!cachedSummary_.has_value()) {
+        cachedSummary_ = workbench::summary(*result_);
+    }
+    return *cachedSummary_;
 }
 
 QVariantList CompileController::assets() const {
-    return result_ != nullptr ? workbench::assets(*result_) : QVariantList{};
+    syncResultModelCache();
+    if (result_ != nullptr && !cachedAssets_.has_value()) {
+        cachedAssets_ = workbench::assets(*result_);
+    }
+    return cachedAssets_.value_or(QVariantList{});
 }
 
 QVariantList CompileController::roleDistribution() const {
-    return result_ != nullptr ? workbench::roleDistribution(*result_) : QVariantList{};
+    syncResultModelCache();
+    if (result_ != nullptr && !cachedRoleDistribution_.has_value()) {
+        cachedRoleDistribution_ = workbench::roleDistribution(*result_);
+    }
+    return cachedRoleDistribution_.value_or(QVariantList{});
 }
 
 QVariantMap CompileController::cpir() const {
-    return result_ != nullptr ? workbench::cpir(*result_) : QVariantMap{};
+    syncResultModelCache();
+    if (result_ != nullptr && !cachedCpir_.has_value()) {
+        cachedCpir_ = workbench::cpir(*result_);
+    }
+    return cachedCpir_.value_or(QVariantMap{});
 }
 
 QVariantList CompileController::claimEvidence() const {
-    return result_ != nullptr ? workbench::claimEvidence(*result_) : QVariantList{};
+    syncResultModelCache();
+    if (result_ != nullptr && !cachedClaimEvidence_.has_value()) {
+        cachedClaimEvidence_ = workbench::claimEvidence(*result_);
+    }
+    return cachedClaimEvidence_.value_or(QVariantList{});
 }
 
 QVariantList CompileController::consistencyIssues() const {
-    return result_ != nullptr ? workbench::consistencyIssues(*result_) : QVariantList{};
+    syncResultModelCache();
+    if (result_ != nullptr && !cachedConsistencyIssues_.has_value()) {
+        cachedConsistencyIssues_ = workbench::consistencyIssues(*result_);
+    }
+    return cachedConsistencyIssues_.value_or(QVariantList{});
 }
 
 QVariantList CompileController::findings() const {
-    return result_ != nullptr ? workbench::findings(*result_) : QVariantList{};
+    syncResultModelCache();
+    if (result_ != nullptr && !cachedFindings_.has_value()) {
+        cachedFindings_ = workbench::findings(*result_);
+    }
+    return cachedFindings_.value_or(QVariantList{});
 }
 
 QVariantList CompileController::fixTasks() const {
-    return result_ != nullptr ? workbench::fixTasks(*result_) : QVariantList{};
+    syncResultModelCache();
+    if (result_ != nullptr && !cachedFixTasks_.has_value()) {
+        cachedFixTasks_ = workbench::fixTasks(*result_);
+    }
+    return cachedFixTasks_.value_or(QVariantList{});
 }
 
 QVariantList CompileController::scorePenalties() const {
-    return result_ != nullptr ? workbench::scorePenalties(*result_) : QVariantList{};
+    syncResultModelCache();
+    if (result_ != nullptr && !cachedScorePenalties_.has_value()) {
+        cachedScorePenalties_ = workbench::scorePenalties(*result_);
+    }
+    return cachedScorePenalties_.value_or(QVariantList{});
 }
 
 QVariantMap CompileController::projectContext() const {
@@ -588,11 +657,16 @@ QVariantMap CompileController::auditDiff() const {
 }
 
 QVariantMap CompileController::repairWorkspace() const {
+    syncResultModelCache();
+    if (cachedRepairWorkspace_.has_value()) {
+        return *cachedRepairWorkspace_;
+    }
     QVariantMap map;
     const bool available = result_ != nullptr && !result_->repairPlan.diffText.empty();
     map["available"] = available;
     if (!available) {
-        return map;
+        cachedRepairWorkspace_ = map;
+        return *cachedRepairWorkspace_;
     }
     constexpr std::size_t kPreviewBytes = 160U * 1024U;
     const auto& patch = result_->repairPlan.diffText;
@@ -618,7 +692,8 @@ QVariantMap CompileController::repairWorkspace() const {
         position += marker.size();
     }
     map["changedFileCount"] = changedFiles;
-    return map;
+    cachedRepairWorkspace_ = map;
+    return *cachedRepairWorkspace_;
 }
 
 QString CompileController::llmApiKey() const {
@@ -1867,16 +1942,30 @@ void CompileController::runAgentConversation(const QString& message, const QStri
 
 void CompileController::appendAgentEvent(const cc::AgentEvent& event) {
     workbench::SessionMessage message;
+    bool replacePendingTool = false;
     message.ok =
         event.kind == cc::AgentEventKind::Tool ? event.payload.at("ok").asBool(false) : true;
 
     if (event.kind == cc::AgentEventKind::Plan) {
-        const auto toolName = event.payload.at("call").at("name").asString();
+        const auto& call = event.payload.at("call");
+        const auto toolName = call.at("name").asString();
+        const auto& input = call.at("input");
         const auto label = friendlyToolName(toolName);
         message.role = "审计过程";
         message.kind = "tool";
         message.text = QStringLiteral("准备%1").arg(label);
         message.context = "审计流程";
+        if (toolName == "execute_shell_command") {
+            const auto command = QString::fromStdString(input.at("command").asString());
+            message.text = command.isEmpty() ? "Shell/Bash" : QStringLiteral("$ %1").arg(command);
+            message.detail = "准备执行";
+        } else if (toolName == "write_project_file") {
+            const auto path = QString::fromStdString(input.at("path").asString());
+            message.text = path.isEmpty() ? "写入原项目文件"
+                                          : QStringLiteral("写入 %1").arg(path);
+            message.detail = "准备修改原项目文件";
+            message.target = QString::fromStdString(input.at("content").asString());
+        }
         currentAgentAction_ = label;
         status_ = QStringLiteral("正在%1").arg(label);
     } else if (event.kind == cc::AgentEventKind::Tool) {
@@ -1892,7 +1981,24 @@ void CompileController::appendAgentEvent(const cc::AgentEvent& event) {
         if (toolName == "run_project_audit") {
             message.text = "项目规则审计完成";
             message.detail = QString::fromStdString(output.at("summary").asString());
+        } else if (toolName == "execute_shell_command") {
+            const auto command = QString::fromStdString(output.at("command").asString());
+            const auto exitCode = static_cast<int>(output.at("exit_code").asNumber(-1.0));
+            message.text = command.isEmpty() ? "Shell/Bash" : QStringLiteral("$ %1").arg(command);
+            message.detail = output.at("cancelled").asBool(false)
+                                 ? QStringLiteral("已取消")
+                                 : QStringLiteral("退出码 %1").arg(exitCode);
+            message.target = QString::fromStdString(output.at("output").asString());
+        } else if (toolName == "write_project_file") {
+            const auto path = QString::fromStdString(output.at("path").asString());
+            message.text = path.isEmpty() ? "已写入原项目文件"
+                                          : QStringLiteral("已写入 %1").arg(path);
+            message.detail = "展开查看写入内容";
+            message.target = QString::fromStdString(output.at("preview").asString());
         }
+        replacePendingTool =
+            (toolName == "execute_shell_command" || toolName == "write_project_file") &&
+            !conversation_.empty() && conversation_.back().role == "审计过程";
         message.context = friendlyToolName(toolName);
         currentAgentAction_ = message.text;
         status_ = message.ok ? QStringLiteral("已%1").arg(message.text)
@@ -1910,7 +2016,11 @@ void CompileController::appendAgentEvent(const cc::AgentEvent& event) {
         message.context.clear();
     }
 
-    conversation_.push_back(std::move(message));
+    if (replacePendingTool) {
+        conversation_.back() = std::move(message);
+    } else {
+        conversation_.push_back(std::move(message));
+    }
     emit statusChanged();
     emit agentStateChanged();
     emit workspaceChanged();
